@@ -5,6 +5,8 @@ import com.bred.rms.models.Project;
 import com.bred.rms.models.Receipt;
 import com.bred.rms.models.ReceiptItem;
 import com.bred.rms.models.Supplier;
+import com.bred.rms.models.Role;
+import com.bred.rms.models.User;
 import com.bred.rms.models.ValidationException;
 import com.bred.rms.repositories.AttachmentException;
 import com.bred.rms.repositories.AttachmentStore;
@@ -53,6 +55,61 @@ public final class ReceiptService {
         Receipt saved = receipts.save(r);
         previous.ifPresent(old -> removeDetached(old.attachments(), saved.attachments()));
         return saved;
+    }
+
+    /** Saves a new import only after revalidating the administrator and company context. */
+    public Receipt saveApprovedImport(Receipt r, UUID verifiedCompanyId) {
+        User user = who.get();
+        if (user == null || !user.active() || user.role() != Role.ADMIN
+                || user.accountStatus() != com.bred.rms.models.AccountStatus.APPROVED) {
+            throw new SecurityException("Only an active company administrator can approve imported receipts.");
+        }
+        if (user.companyId() == null || !user.companyId().equals(verifiedCompanyId)) {
+            throw new SecurityException("Your administrator account has no valid company context. Sign in again or contact an administrator.");
+        }
+        if (r.id() != null) throw new ValidationException("AI receipt imports can only create new receipts.");
+        precheck(r);
+        return receipts.saveApprovedImport(r);
+    }
+
+    /** Links uploaded import attachments after a server-confirmed receipt insert. */
+    public Receipt saveImportedAttachments(Receipt r, UUID verifiedCompanyId) {
+        User user = who.get();
+        if (user == null || !user.active() || user.role() != Role.ADMIN
+                || user.accountStatus() != com.bred.rms.models.AccountStatus.APPROVED) {
+            throw new SecurityException("Only an active company administrator can attach files to imported receipts.");
+        }
+        if (user.companyId() == null || !user.companyId().equals(verifiedCompanyId)) {
+            throw new SecurityException("Your administrator account has no valid company context. Sign in again or contact an administrator.");
+        }
+        if (r.id() == null) throw new ValidationException("Save the imported receipt before linking attachments.");
+        precheck(r);
+        return receipts.saveApprovedImportAttachments(r);
+    }
+
+    /** Company-scoped duplicate candidates; the Supabase repository applies RLS to these reads. */
+    public List<List<Receipt>> findPotentialDuplicates(List<Receipt> candidates) {
+        Guard.requireSignedIn(who);
+        Map<UUID, String> tinBySupplier = new HashMap<>();
+        suppliers.findAll().forEach(s -> tinBySupplier.put(s.id(), Guard.norm(s.tin())));
+        List<Receipt> existing = receipts.findAll();
+        List<List<Receipt>> matches = new java.util.ArrayList<>();
+        for (Receipt candidate : candidates) {
+            validate(candidate);
+            if (!tinBySupplier.containsKey(candidate.supplierId())) {
+                throw new ValidationException("That supplier is no longer available. Choose another one.");
+            }
+            String tin = tinBySupplier.get(candidate.supplierId());
+            String no = Guard.norm(candidate.receiptNo());
+            matches.add(existing.stream()
+                    .filter(other -> candidate.id() == null || !candidate.id().equals(other.id()))
+                    .filter(other -> tin.equals(tinBySupplier.get(other.supplierId())))
+                    .filter(other -> Guard.norm(other.receiptNo()).equals(no)
+                            || (candidate.date().equals(other.date())
+                            && candidate.grandTotal().compareTo(other.grandTotal()) == 0))
+                    .toList());
+        }
+        return List.copyOf(matches);
     }
 
     /** Deletes a receipt and its stored files. Administrators only. */

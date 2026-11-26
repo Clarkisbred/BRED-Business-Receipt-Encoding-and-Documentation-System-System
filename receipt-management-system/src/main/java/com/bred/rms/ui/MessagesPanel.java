@@ -44,6 +44,7 @@ import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
@@ -255,6 +256,7 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
         messageScroll.setBorder(null);
         messageScroll.setOpaque(false);
         messageScroll.getViewport().setOpaque(false);
+        messageScroll.getViewport().setScrollMode(javax.swing.JViewport.SIMPLE_SCROLL_MODE);
         messageScroll.getVerticalScrollBar().setUnitIncrement(40);
         messageScroll.getVerticalScrollBar().setBlockIncrement(200);
 
@@ -420,10 +422,7 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
                 messageList.add(start);
                 messageList.add(Box.createVerticalGlue());
             } else {
-                for (ChatMessage message : thread) {
-                    messageList.add(createMessageRow(message, me));
-                    messageList.add(Box.createVerticalStrut(10));
-                }
+                addThreadMessages(thread, me);
             }
         } else if (selectedContact == null) {
             conversationTitle.setText("Your messages");
@@ -449,10 +448,7 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
                 messageList.add(start);
                 messageList.add(Box.createVerticalGlue());
             } else {
-                for (ChatMessage message : thread) {
-                    messageList.add(createMessageRow(message, me));
-                    messageList.add(Box.createVerticalStrut(10));
-                }
+                addThreadMessages(thread, me);
             }
         }
         boolean conversationSelected = selectedContact != null || companyChatSelected;
@@ -468,6 +464,35 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
                 }
             });
         }
+    }
+
+    private void addThreadMessages(List<ChatMessage> thread, UUID me) {
+        LocalDate previousDate = null;
+        for (ChatMessage message : thread) {
+            if (message.sentAt() != null) {
+                LocalDate date = message.sentAt().atZone(ZoneId.systemDefault()).toLocalDate();
+                if (!date.equals(previousDate)) {
+                    messageList.add(dateSeparator(ChatDateFormatting.separator(message.sentAt())));
+                    messageList.add(Box.createVerticalStrut(10));
+                    previousDate = date;
+                }
+            }
+            messageList.add(createMessageRow(message, me));
+            messageList.add(Box.createVerticalStrut(10));
+        }
+    }
+
+    private static JComponent dateSeparator(String date) {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.CENTER, 0, 0));
+        row.setOpaque(false);
+        JLabel label = new JLabel(date);
+        label.setName("chatDateSeparator");
+        label.setFont(label.getFont().deriveFont(Font.BOLD, 11f));
+        label.setForeground(RmsColors.SECONDARY_TEXT);
+        label.setBorder(BorderFactory.createEmptyBorder(5, 12, 5, 12));
+        row.add(label);
+        row.setAlignmentX(Component.CENTER_ALIGNMENT);
+        return row;
     }
 
     private boolean isNearBottom() {
@@ -519,7 +544,8 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
         JLabel body = new JLabel(html);
         body.setForeground(RmsColors.text());
         body.setFont(body.getFont().deriveFont(13f));
-        JLabel time = new JLabel(TIME.format(message.sentAt().atZone(ZoneId.systemDefault())));
+        JLabel time = new JLabel(message.sentAt() == null ? ""
+                : TIME.format(message.sentAt().atZone(ZoneId.systemDefault())));
         time.setHorizontalAlignment(mine ? SwingConstants.RIGHT : SwingConstants.LEFT);
         time.setFont(time.getFont().deriveFont(10f));
         time.setForeground(RmsColors.SECONDARY_TEXT);
@@ -603,8 +629,13 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
         conversationSubtitle.setForeground(RmsColors.SECONDARY_TEXT);
         emptyState.setForeground(RmsColors.SECONDARY_TEXT);
         status.setForeground(RmsColors.SECONDARY_TEXT);
+        contactList.revalidate();
         contactList.repaint();
         showConversation(false, isNearBottom());
+        messageScroll.getViewport().revalidate();
+        messageScroll.getViewport().repaint();
+        messageScroll.revalidate();
+        messageScroll.repaint();
         repaint();
     }
 

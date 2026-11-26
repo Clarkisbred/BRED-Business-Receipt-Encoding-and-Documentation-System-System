@@ -5,6 +5,7 @@ import com.bred.rms.models.Project;
 import com.bred.rms.models.Receipt;
 import com.bred.rms.models.ReceiptMath;
 import com.bred.rms.models.Supplier;
+import com.bred.rms.models.User;
 import com.bred.rms.services.ReceiptQuery;
 import com.bred.rms.ui.RefreshablePanel;
 import com.bred.rms.ui.components.DateField;
@@ -60,10 +61,15 @@ public final class ReceiptDirectoryPanel extends JPanel implements RefreshablePa
     private final JButton add = new JButton("+ Add Receipt");
     private final Consumer<Boolean> themeListener = dark -> styleAddButton();
     private final Timer debounce;
+    private final JButton importDocuments = new JButton("Import Documents");
     private int requestId;
     private boolean updatingCombos;
 
     public ReceiptDirectoryPanel(AppContext ctx, Consumer<UUID> onOpen, Runnable onAdd) {
+        this(ctx, onOpen, onAdd, null);
+    }
+
+    public ReceiptDirectoryPanel(AppContext ctx, Consumer<UUID> onOpen, Runnable onAdd, Runnable onImport) {
         super(new BorderLayout(0, 12));
         this.ctx = ctx;
         this.onOpen = onOpen;
@@ -74,6 +80,13 @@ public final class ReceiptDirectoryPanel extends JPanel implements RefreshablePa
         projectBox.addItem(new Choice(null, "All projects"));
         styleAddButton();
         add.addActionListener(e -> onAdd.run());
+        User user = ctx.currentUser.get();
+        if (onImport != null && user != null && user.role() == com.bred.rms.models.Role.ADMIN
+                && user.active() && user.companyId() != null) {
+            importDocuments.addActionListener(e -> onImport.run());
+        } else {
+            importDocuments.setVisible(false);
+        }
         JButton refresh = new JButton("Refresh");
         refresh.setToolTipText("Load the latest receipts from the shared database");
         refresh.addActionListener(e -> refreshData());
@@ -95,6 +108,7 @@ public final class ReceiptDirectoryPanel extends JPanel implements RefreshablePa
         JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         actions.setOpaque(false);
         actions.add(refresh);
+        if (importDocuments.isVisible()) actions.add(importDocuments);
         actions.add(add);
         row1.add(actions, BorderLayout.EAST);
         JPanel row2 = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));

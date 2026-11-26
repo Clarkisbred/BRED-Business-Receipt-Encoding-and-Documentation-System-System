@@ -23,6 +23,7 @@ and Maven on the computer that runs the app.
    11. `011_creator_management_and_broadcasts.sql`: Creator company controls, deleted-account message retention, global history and broadcasts
    12. `012_company_group_chat.sql`: company-wide group chat and urgent message labels
    13. `013_app_releases.sql`: shared current-version display and Creator-only version publishing
+   14. `014_ai_receipt_import_approval.sql`: server-validated administrator approval for imported receipts and audit events
 
    Migration 008 creates a `Legacy Company` only when needed and assigns previously unscoped records and profiles to it.
    Existing companies are retained. The Creator can see all companies; Admins and Encoders are restricted to their own.
@@ -32,6 +33,9 @@ and Maven on the computer that runs the app.
    Migration 012 adds a shared chat for each company; apply it to enable the group room in the desktop app.
    Migration 013 enables the public version label and the Creator-only version editor in Settings. Publishing changes
    the shared version number shown to users; it does not download or replace the installed application.
+   Migration 014 adds no table or RLS changes. Its approval RPC requires an active company Admin, derives company
+   ownership from the authenticated profile and selected in-company supplier, and delegates receipt writes to the
+   existing `save_receipt` RPC. Apply it before using AI Receipt Import approval or attachment linking.
 
    The updater expects a stable GitHub release asset named `BRED-Setup-<version>.msi` (for example, tag `v1.2.3`
    uses `BRED-Setup-1.2.3.msi`). BRED stages downloads in a per-user update directory. If GitHub supplies an asset

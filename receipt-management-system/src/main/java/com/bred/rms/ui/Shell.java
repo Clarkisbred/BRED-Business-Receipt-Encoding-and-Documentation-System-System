@@ -1,6 +1,10 @@
 package com.bred.rms.ui;
 
 import com.bred.rms.config.AppContext;
+import com.bred.rms.config.AiImportConfig;
+import com.bred.rms.ai.AIProviders;
+import com.bred.rms.ai.GroqCredentials;
+import com.bred.rms.ai.GroqDuckyService;
 import com.bred.rms.models.Role;
 import com.bred.rms.models.ChatMessage;
 import com.bred.rms.models.User;
@@ -21,6 +25,10 @@ import com.bred.rms.ui.receipts.ReceiptDetailPanel;
 import com.bred.rms.ui.reports.ReportsPanel;
 import com.bred.rms.ui.receipts.ReceiptDirectoryPanel;
 import com.bred.rms.ui.receipts.ReceiptFormDialog;
+import com.bred.rms.ui.receipts.ReceiptImportDialog;
+import com.bred.rms.importer.DocumentImportService;
+import com.bred.rms.importer.TesseractOcrService;
+import com.bred.rms.services.ReceiptImportApprovalService;
 import com.bred.rms.ui.theme.ThemeManager;
 import com.bred.rms.utils.BackgroundTask;
 import com.bred.rms.updates.UpdatePreferences;
@@ -80,6 +88,7 @@ public final class Shell extends JPanel {
     private NavListPanel navList;
     private ReceiptDirectoryPanel directory;
     private ReceiptDetailPanel detail;
+    private Module activeModule;
     private final Timer broadcastPollTimer = new Timer(2500, event -> pollBroadcasts());
     private final Queue<ChatMessage> pendingBroadcasts = new LinkedList<>();
     private final Set<UUID> seenBroadcastIds = new HashSet<>();
@@ -133,6 +142,7 @@ public final class Shell extends JPanel {
     /** Opens a screen, building it on first use. */
     public void show(Module m) {
         if (!modules.contains(m)) return;
+        activeModule = m;
         boolean existed = built.containsKey(m);
         built.computeIfAbsent(m, k -> {
             JComponent c = build(k);
@@ -149,15 +159,23 @@ public final class Shell extends JPanel {
         }
     }
 
+    Module activeModule() { return activeModule; }
+
     /** Creates the screen for a module. */
     private JComponent build(Module m) {
         return switch (m) {
             case RECEIPTS -> {
-                directory = new ReceiptDirectoryPanel(ctx, this::openReceipt, this::addReceipt);
+                directory = new ReceiptDirectoryPanel(ctx, this::openReceipt, this::addReceipt,
+                        this::importReceiptDocuments);
                 yield directory;
             }
             case DASHBOARD -> new DashboardPanel(ctx, this::openReceipt);
             case MESSAGES -> new MessagesPanel(ctx);
+            case DUCKY -> {
+                GroqCredentials credentials = new GroqCredentials();
+                yield new DuckyPanel(new GroqDuckyService(ctx, credentials, this::show, this::openReceipt),
+                        credentials);
+            }
             case REPORTS -> new ReportsPanel(ctx);
             case USERS -> new UserManagementPanel(ctx);
             case ACTIVITY_LOG -> new ActivityLogPanel(ctx);
@@ -178,6 +196,7 @@ public final class Shell extends JPanel {
 
     /** Opens a receipt's paper-style detail view in place of the current screen. */
     public void openReceipt(java.util.UUID id) {
+        activeModule = Module.RECEIPTS;
         if (detail != null) content.remove(detail);
         detail = new ReceiptDetailPanel(ctx, id, this::backToDirectory, () -> {
             if (directory != null) directory.refreshData();
@@ -203,6 +222,30 @@ public final class Shell extends JPanel {
             if (directory != null) directory.refreshData();
             openReceipt(saved.id());
         }).setVisible(true);
+    }
+
+    private void importReceiptDocuments() {
+        User user = ctx.currentUser.get();
+        if (user == null || user.role() != Role.ADMIN || !user.active()) return;
+        if (user.companyId() == null) {
+            javax.swing.JOptionPane.showMessageDialog(this,
+                    "Your administrator account is not associated with a company. Contact an administrator.",
+                    "AI Receipt Importer", javax.swing.JOptionPane.WARNING_MESSAGE);
+            return;
+        }
+        try {
+            AiImportConfig config = AiImportConfig.load();
+            DocumentImportService importer = new DocumentImportService(AIProviders.create(config),
+                    new TesseractOcrService(config.tesseractCommand(), config.requestTimeout()));
+            ReceiptImportApprovalService approval = new ReceiptImportApprovalService(ctx.receipts, ctx.suppliers,
+                    ctx.userRepository, ctx.attachments, ctx.currentUser);
+            new ReceiptImportDialog(SwingUtilities.getWindowAncestor(this), importer, approval).setVisible(true);
+            if (directory != null) directory.refreshData();
+        } catch (IllegalArgumentException | IllegalStateException error) {
+            javax.swing.JOptionPane.showMessageDialog(this,
+                    "The AI receipt importer configuration is invalid: " + error.getMessage(),
+                    "AI Receipt Importer", javax.swing.JOptionPane.WARNING_MESSAGE);
+        }
     }
 
     private boolean userIsRecipient() {

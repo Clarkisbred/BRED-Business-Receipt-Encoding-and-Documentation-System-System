@@ -23,6 +23,7 @@ but startup does not fall back to local data if configuration is missing. Admini
 - **Auth:** Supabase Auth (email + password). The role (`creator`, `admin` or `encoder`) comes from the `profiles` table, never from the client.
 - **Row Level Security is the real security boundary.** Admins and Encoders are scoped to their company; the Creator can see and manage data across companies. Receipts and their items are written only through RPCs. Deleting needs Admin or Creator. The activity log is company-scoped for Admins and global for the Creator.
 - **RPCs** (`save_receipt`, `delete_receipt`, `admin_update_profile`) run as `SECURITY DEFINER`: a receipt and its items are saved atomically, duplicates (same receipt number + same supplier, ignoring case and spaces) are refused, the last active admin cannot be demoted or deactivated, and every change is written to `activity_log`.
+- **AI receipt approval** uses `approve_ai_import_receipt`, which requires an active approved company Admin, derives company context from the authenticated profile, verifies the selected supplier and saved receipt server-side, and delegates data writes to `save_receipt`. Imported source files are uploaded only after the receipt save and linked through this same gate.
 - **Attachments** go to the private Storage bucket `receipts` under `<receipt id>/<uuid>-<file name>` and are downloaded with the user's own token. Files are uploaded when Save is pressed. Encoders cannot delete Storage objects, so an attachment removed during an edit may stay behind as an unreferenced file; they can be cleaned up by hand in the Supabase dashboard (Storage → receipts).
 - **Creating users** goes through the `admin-create-user` Edge Function. The service-role key exists only there; the desktop app holds just the public anon key and refuses a secret key at start-up.
 - **Public registration** uses `register-account`: Encoders apply to an existing company and wait for approval; Admins create a company and an immediately active account. `review-account` approves or rejects Encoder applications.
@@ -40,7 +41,7 @@ Amounts are `BigDecimal` with two decimals, rounded half-up. Subtotal = Σ quant
 | `…/repositories` | Interfaces plus `supabase/` implementations |
 | `…/supabase` | HTTP client, session handling, Auth client, config |
 | `…/ui` | Shell (sidebar + header), panels per module, theme |
-| `database/migrations` | `001`–`008` SQL, run in order |
+| `database/migrations` | `001`–`014` SQL, run in order |
 | `database/test`, `database/validate.sh` | SQL assertions run on a throwaway PostgreSQL |
 | `supabase/functions/` | Registration, account review, admin account creation and activity import Edge Functions |
 

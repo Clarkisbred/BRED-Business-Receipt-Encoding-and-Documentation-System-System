@@ -7,6 +7,7 @@ import com.bred.rms.models.ReceiptItem;
 import com.bred.rms.models.ReceiptType;
 import com.bred.rms.repositories.ReceiptRepository;
 import com.bred.rms.repositories.RepositoryException;
+import com.bred.rms.repositories.SavedReceiptReadbackException;
 import com.bred.rms.supabase.RestClient;
 import com.bred.rms.supabase.SupabaseException;
 
@@ -41,6 +42,46 @@ public final class SupabaseReceiptRepository implements ReceiptRepository {
     }
 
     @Override public Receipt save(Receipt r) {
+        return saveUsingRpc(r, "save_receipt");
+    }
+
+    @Override public Receipt saveApprovedImport(Receipt r) {
+        if (r.id() != null) {
+            throw new RepositoryException("AI receipt imports can only create new receipts.", false);
+        }
+        Map<String, Object> p = payload(r);
+        p.put("attachments", List.of());
+        p.remove("company_id");
+        return invokeSaveRpc(p, "approve_ai_import_receipt");
+    }
+
+    @Override public Receipt saveApprovedImportAttachments(Receipt r) {
+        if (r.id() == null) {
+            throw new RepositoryException("Save the imported receipt before linking attachments.", false);
+        }
+        Map<String, Object> p = payload(r);
+        p.put("operation", "attachments");
+        return invokeSaveRpc(p, "approve_ai_import_receipt");
+    }
+
+    private Receipt saveUsingRpc(Receipt r, String rpcName) {
+        return invokeSaveRpc(payload(r), rpcName);
+    }
+
+    private Receipt invokeSaveRpc(Map<String, Object> p, String rpcName) {
+        try {
+            JsonNode id = rest.rpc(rpcName, Map.of("p", p));
+            UUID savedId = UUID.fromString(id.asText());
+            try {
+                return findById(savedId).orElseThrow(() ->
+                        new RepositoryException("The receipt was saved but could not be read back.", false));
+            } catch (RuntimeException e) {
+                throw new SavedReceiptReadbackException(savedId, e);
+            }
+        } catch (SupabaseException e) { throw SupabaseErrors.translate(e); }
+    }
+
+    private static Map<String, Object> payload(Receipt r) {
         Map<String, Object> p = new LinkedHashMap<>();
         if (r.id() != null) p.put("id", r.id().toString());
         p.put("receipt_no", r.receiptNo().trim());
@@ -68,11 +109,7 @@ public final class SupabaseReceiptRepository implements ReceiptRepository {
             atts.add(m);
         }
         p.put("attachments", atts);
-        try {
-            JsonNode id = rest.rpc("save_receipt", Map.of("p", p));
-            UUID savedId = UUID.fromString(id.asText());
-            return findById(savedId).orElseThrow(() -> new RepositoryException("The receipt was saved but could not be read back.", false));
-        } catch (SupabaseException e) { throw SupabaseErrors.translate(e); }
+        return p;
     }
 
     @Override public List<String> delete(UUID id) {

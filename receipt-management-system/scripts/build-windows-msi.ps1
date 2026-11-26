@@ -112,12 +112,21 @@ $requiredJarEntries = @(
     "$($mainClass.Replace('.', '/')).class",
     'com/formdev/flatlaf/FlatLaf.class',
     'com/fasterxml/jackson/databind/ObjectMapper.class',
-    'org/apache/poi/ss/usermodel/Workbook.class'
+    'org/apache/poi/ss/usermodel/Workbook.class',
+    'com/opencsv/CSVReader.class',
+    'org/apache/pdfbox/text/PDFTextStripper.class'
 )
 foreach ($requiredEntry in $requiredJarEntries) {
     if ($entryNames -notcontains $requiredEntry) {
         throw "Required application or bundled dependency is missing from the shaded JAR: $requiredEntry"
     }
+}
+
+$ocrPayloadEntries = @($entryNames | Where-Object {
+    $_ -match '(^|/)tessdata/.*\.traineddata$|(^|/)libtesseract.*\.dll$|(^|/)libleptonica.*\.dll$'
+})
+if ($ocrPayloadEntries.Count -gt 0) {
+    throw "The shaded JAR must not bundle Tesseract engines or trained data: $($ocrPayloadEntries -join ', ')"
 }
 
 $installerPath = Join-Path (Join-Path $targetPath 'installers') "$applicationName-Setup-$Version.msi"

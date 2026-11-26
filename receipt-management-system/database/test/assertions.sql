@@ -72,6 +72,8 @@ set role authenticated;
 select tests.login('e0000000-0000-0000-0000-000000000002');
 select tests.expect_true((select count(*) from profiles) = 1, 'encoder can read only their own profile');
 select tests.expect_true((select save_receipt(tests.payload('OR-001', '11111111-0000-0000-0000-000000000001'))) is not null, 'encoder can save a receipt');
+select tests.expect_error($$select approve_ai_import_receipt(tests.payload('AI-ENC', '11111111-0000-0000-0000-000000000001'))$$,
+  'administrator role required');
 select tests.expect_true((select count(*) from receipt_items) = 2 and (select count(*) from receipt_attachments) = 1, 'items and attachment rows were stored with the receipt');
 select tests.expect_true((select encoded_by from receipts where receipt_no = 'OR-001') = 'e0000000-0000-0000-0000-000000000002', 'encoded_by is the caller');
 select tests.expect_true((select save_receipt(jsonb_set(tests.payload('OR-001', '11111111-0000-0000-0000-000000000001', '300'), '{id}', to_jsonb((select id from receipts where receipt_no = 'OR-001')::text)))) = (select id from receipts where receipt_no = 'OR-001'), 'editing a receipt keeps its id and does not clash with itself');
@@ -161,10 +163,46 @@ delete from storage.objects where bucket_id = 'receipts';
 select tests.expect_true((select count(*) from storage.objects where bucket_id = 'receipts') = 0,
   'admin can delete stored files');
 select tests.expect_true((select count(*) from activity_log where action = 'receipt.delete') = 1, 'receipt.delete is logged');
+select tests.expect_true((select approve_ai_import_receipt(jsonb_set(
+  jsonb_set(tests.payload('AI-001', '11111111-0000-0000-0000-000000000001'),
+    '{company_id}', to_jsonb('33333333-0000-0000-0000-000000000003'::text), true),
+  '{attachments}', '[]'::jsonb)) is not null, 'administrator can approve an AI import through the secured RPC');
+select tests.expect_true((select company_id = '11111111-0000-0000-0000-000000000001'
+  from receipts where receipt_no = 'AI-001'), 'AI import company comes from authenticated supplier scope, not the payload');
+select tests.expect_true((select count(*) from receipt_attachments
+  where receipt_id = (select id from receipts where receipt_no = 'AI-001')) = 0,
+  'AI import cannot attach metadata before a successful receipt save');
+insert into storage.objects(bucket_id, name)
+select 'receipts', id::text || '/ai-source.pdf'
+from receipts where receipt_no = 'AI-001';
+select tests.expect_true((select approve_ai_import_receipt(jsonb_set(
+  jsonb_set(jsonb_set(tests.payload('AI-001', '11111111-0000-0000-0000-000000000001'),
+    '{id}', to_jsonb((select id from receipts where receipt_no = 'AI-001')::text), true),
+    '{operation}', '"attachments"'::jsonb, true),
+  '{attachments}', jsonb_build_array(jsonb_build_object(
+    'file_name', 'ai-source.pdf',
+    'storage_path', (select id::text || '/ai-source.pdf' from receipts where receipt_no = 'AI-001'))), true))
+  = (select id from receipts where receipt_no = 'AI-001')),
+  'AI import links only an existing private object to its saved receipt');
+select tests.expect_true((select count(*) from receipt_attachments
+  where receipt_id = (select id from receipts where receipt_no = 'AI-001')) = 1,
+  'attachment metadata is linked after server-side receipt and object checks');
+select tests.expect_error($$select approve_ai_import_receipt(tests.payload('AI-CROSS', '33333333-0000-0000-0000-000000000003'))$$,
+  'supplier in your company');
+select tests.expect_error($$select approve_ai_import_receipt(jsonb_set(
+  tests.payload('AI-UPDATE', '11111111-0000-0000-0000-000000000001'),
+  '{id}', to_jsonb('aaaaaaaa-0000-0000-0000-000000000001'::text), true))$$,
+  'only create new receipts or attach files');
+select tests.expect_true((select count(*) from activity_log
+  where action = 'ai_receipt_import.approved') = 1, 'AI import approval is audited without receipt contents');
+select tests.expect_true((select count(*) from activity_log
+  where action = 'receipt.ai_import.created') = 1, 'AI-created receipt is audited');
 
 -- ===== creator =====
 select tests.login('c0000000-0000-0000-0000-000000000007');
 select tests.expect_true(is_admin() and is_creator(), 'Creator has administrative permissions');
+select tests.expect_error($$select approve_ai_import_receipt(tests.payload('AI-CREATOR', '33333333-0000-0000-0000-000000000003'))$$,
+  'administrator role required');
 select tests.expect_true((select count(*) from companies) = 3, 'Creator can see every company');
 select tests.expect_true((select count(*) from suppliers) = 4, 'Creator can see data across companies');
 select tests.expect_true((select count(*) from profiles) = 7, 'Creator can see every account');

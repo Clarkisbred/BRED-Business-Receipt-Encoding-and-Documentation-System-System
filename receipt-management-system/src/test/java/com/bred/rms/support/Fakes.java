@@ -8,10 +8,13 @@ import com.bred.rms.models.ReceiptType;
 import com.bred.rms.models.Role;
 import com.bred.rms.models.Supplier;
 import com.bred.rms.models.User;
+import com.bred.rms.models.ValidationException;
 import com.bred.rms.repositories.AttachmentException;
+import com.bred.rms.repositories.AttachmentRules;
 import com.bred.rms.repositories.AttachmentStore;
 import com.bred.rms.repositories.ProjectRepository;
 import com.bred.rms.repositories.ReceiptRepository;
+import com.bred.rms.repositories.RepositoryException;
 import com.bred.rms.repositories.SupplierRepository;
 
 import java.math.BigDecimal;
@@ -41,6 +44,10 @@ public final class Fakes {
 
     public static final class Receipts implements ReceiptRepository {
         public final Map<UUID, Receipt> data = new LinkedHashMap<>();
+        public String failApprovedNo;
+        public int approvedWrites;
+        public int approvedAttachmentWrites;
+        public boolean failApprovedAttachmentSave;
         @Override public List<Receipt> findAll() { return new ArrayList<>(data.values()); }
         @Override public Optional<Receipt> findById(UUID id) { return Optional.ofNullable(data.get(id)); }
         @Override public Receipt save(Receipt r) {
@@ -49,6 +56,18 @@ public final class Fakes {
                     r.createdAt(), r.modifiedAt()) : r;
             data.put(stored.id(), stored);
             return stored;
+        }
+        @Override public Receipt saveApprovedImport(Receipt r) {
+            if (r.receiptNo().equals(failApprovedNo)) {
+                throw new ValidationException("Simulated receipt save failure.");
+            }
+            approvedWrites++;
+            return save(r);
+        }
+        @Override public Receipt saveApprovedImportAttachments(Receipt r) {
+            if (failApprovedAttachmentSave) throw new RepositoryException("Simulated attachment metadata failure.", false);
+            approvedAttachmentWrites++;
+            return save(r);
         }
         @Override public List<String> delete(UUID id) {
             Receipt r = data.remove(id);
@@ -93,7 +112,15 @@ public final class Fakes {
     public static final class Attachments implements AttachmentStore {
         public final List<Attachment> removed = new ArrayList<>();
         public boolean failRemoval;
-        @Override public Attachment upload(UUID receiptId, Path source) { throw new UnsupportedOperationException(); }
+        public boolean failUpload;
+        public int uploadCalls;
+        @Override public Attachment upload(UUID receiptId, Path source) throws AttachmentException {
+            AttachmentRules.check(source);
+            uploadCalls++;
+            if (failUpload) throw new AttachmentException("Simulated attachment upload failure.");
+            String filename = source.getFileName().toString();
+            return new Attachment(filename, receiptId + "/" + UUID.randomUUID() + "-" + filename);
+        }
         @Override public byte[] download(Attachment a) { return new byte[0]; }
         @Override public void remove(Attachment a) throws AttachmentException {
             if (failRemoval) throw new AttachmentException("nope");
