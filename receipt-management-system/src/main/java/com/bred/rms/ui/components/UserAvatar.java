@@ -93,13 +93,15 @@ public final class UserAvatar extends JComponent {
         g.setColor(RmsColors.primaryLight());
         g.fill(circle);
         if (sharpImage != null) {
-            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-            g.setClip(circle);
+            Graphics2D imageGraphics = (Graphics2D) g.create();
+            imageGraphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                    RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            imageGraphics.clip(circle);
             AffineTransform place = new AffineTransform();
             place.translate(x, y);
             place.scale(diameter / sharpImage.getWidth(), diameter / sharpImage.getHeight());
-            g.drawImage(sharpImage, place, null);
-            g.setClip(null);
+            imageGraphics.drawImage(sharpImage, place, null);
+            imageGraphics.dispose();
         } else {
             g.setColor(RmsColors.primary());
             g.setFont(getFont().deriveFont(Font.BOLD, diameter < 44 ? 12f : 17f));

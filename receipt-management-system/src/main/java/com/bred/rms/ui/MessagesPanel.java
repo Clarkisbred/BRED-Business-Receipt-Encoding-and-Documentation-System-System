@@ -28,8 +28,10 @@ import javax.swing.ListCellRenderer;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.UIManager;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
+import javax.swing.border.AbstractBorder;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -42,7 +44,9 @@ import java.awt.Graphics2D;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.RenderingHints;
+import java.awt.Shape;
 import java.awt.event.ActionEvent;
+import java.awt.geom.RoundRectangle2D;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -68,7 +72,7 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
     private final DefaultListModel<User> contactModel = new DefaultListModel<>();
     private final JList<User> contactList = new JList<>(contactModel);
     private final JTextField search = new JTextField();
-    private final JButton companyChatButton = new JButton("Company chat");
+    private final JButton companyChatButton = new RoundedMessageButton("Company chat");
     private final JPanel messageList = new JPanel();
     private final JScrollPane messageScroll = new StyledScrollPane(messageList);
     private final JTextArea composer = new JTextArea(3, 24);
@@ -208,15 +212,14 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
         peopleHeader.add(teamHeading, BorderLayout.WEST);
         peopleHeader.add(contactCount, BorderLayout.EAST);
         search.setToolTipText("Find a teammate");
+        search.setOpaque(false);
         search.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(RmsColors.border(), 1, true),
+                new RoundedOutlineBorder(12),
                 BorderFactory.createEmptyBorder(8, 10, 8, 10)));
         search.setPreferredSize(new Dimension(0, 38));
         companyChatButton.setHorizontalAlignment(SwingConstants.LEFT);
         companyChatButton.setMargin(new Insets(9, 10, 9, 10));
-        companyChatButton.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(RmsColors.border(), 1, true),
-                BorderFactory.createEmptyBorder(9, 10, 9, 10)));
+        companyChatButton.setBorder(BorderFactory.createEmptyBorder(9, 10, 9, 10));
 
         JPanel peopleTop = new JPanel(new BorderLayout(0, 11));
         peopleTop.setOpaque(false);
@@ -632,11 +635,9 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
         search.setForeground(RmsColors.text());
         search.setOpaque(false);
         search.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(RmsColors.border(), 1, true),
+                new RoundedOutlineBorder(12),
                 BorderFactory.createEmptyBorder(8, 10, 8, 10)));
-        companyChatButton.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(RmsColors.border(), 1, true),
-                BorderFactory.createEmptyBorder(9, 10, 9, 10)));
+        companyChatButton.setBorder(BorderFactory.createEmptyBorder(9, 10, 9, 10));
         composer.setForeground(RmsColors.text());
         composerSurface.repaint();
         conversationTitle.setForeground(RmsColors.text());
@@ -745,6 +746,58 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
             g.setColor(RmsColors.border());
             g.setStroke(new BasicStroke(1f));
             g.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 18, 18);
+            g.dispose();
+        }
+    }
+
+    private static final class RoundedMessageButton extends JButton {
+        private RoundedMessageButton(String text) {
+            super(text);
+            setOpaque(false);
+            setContentAreaFilled(false);
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Shape shape = new RoundRectangle2D.Float(0.5f, 0.5f,
+                    getWidth() - 1f, getHeight() - 1f, 14, 14);
+            Color fill = getBackground();
+            if (getModel().isPressed()) {
+                Color pressed = UIManager.getColor("Button.pressedBackground");
+                if (pressed != null) fill = pressed;
+            } else if (getModel().isRollover()) {
+                Color hover = UIManager.getColor("Button.hoverBackground");
+                if (hover != null) fill = hover;
+            }
+            g.setColor(fill);
+            g.fill(shape);
+            g.setColor(RmsColors.border());
+            g.draw(shape);
+            g.clip(shape);
+            super.paintComponent(g);
+            g.dispose();
+        }
+    }
+
+    private static final class RoundedOutlineBorder extends AbstractBorder {
+        private final int radius;
+
+        private RoundedOutlineBorder(int radius) {
+            this.radius = radius;
+        }
+
+        @Override public Insets getBorderInsets(Component component) {
+            return new Insets(1, 1, 1, 1);
+        }
+
+        @Override public void paintBorder(Component component, Graphics graphics, int x, int y,
+                                          int width, int height) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setColor(RmsColors.border());
+            g.draw(new RoundRectangle2D.Float(x + 0.5f, y + 0.5f,
+                    width - 1f, height - 1f, radius, radius));
             g.dispose();
         }
     }

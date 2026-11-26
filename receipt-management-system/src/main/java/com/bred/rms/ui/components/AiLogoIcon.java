@@ -31,10 +31,12 @@ public final class AiLogoIcon implements Icon {
         g.translate(x, y);
         g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         Ellipse2D circle = new Ellipse2D.Float(1, 1, size - 2, size - 2);
-        g.setClip(circle);
-        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
-        g.drawImage(IMAGE, 1, 1, size - 2, size - 2, null);
-        g.setClip(null);
+        Graphics2D imageGraphics = (Graphics2D) g.create();
+        imageGraphics.clip(circle);
+        imageGraphics.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
+                RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+        imageGraphics.drawImage(IMAGE, 1, 1, size - 2, size - 2, null);
+        imageGraphics.dispose();
         g.setColor(RmsColors.primaryAccent());
         g.setStroke(new BasicStroke(1.3f));
         g.draw(new Ellipse2D.Float(1.5f, 1.5f, size - 3, size - 3));
