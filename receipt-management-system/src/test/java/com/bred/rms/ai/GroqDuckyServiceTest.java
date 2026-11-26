@@ -153,8 +153,8 @@ class GroqDuckyServiceTest {
             DuckyPreferences.setPermission(DuckyPermission.ASSIST);
             Fixture fixture = new Fixture();
             var supplier = fixture.suppliers.add("Example Supplier", "TIN-PRIVATE-111");
-            var receipt = Fakes.receipt("FICTITIOUS-RECEIPT-91", supplier, null,
-                    LocalDate.of(2026, 1, 2), "Private item", "125.00");
+            var receipt = scoped(Fakes.receipt("FICTITIOUS-RECEIPT-91", supplier, null,
+                    LocalDate.of(2026, 1, 2), "Private item", "125.00"), fixture.user.companyId());
             fixture.receipts.data.put(receipt.id(), receipt);
             AtomicInteger requests = new AtomicInteger();
             AtomicReference<String> secondRequest = new AtomicReference<>();
@@ -236,8 +236,8 @@ class GroqDuckyServiceTest {
             DuckyPreferences.setPermission(DuckyPermission.ASSIST);
             Fixture fixture = new Fixture();
             var supplier = fixture.suppliers.add("Example Supplier", "TIN-PRIVATE-333");
-            var receipt = Fakes.receipt("FICTITIOUS-RECEIPT-92", supplier, null,
-                    LocalDate.of(2026, 1, 2), "Private item", "55.00");
+            var receipt = scoped(Fakes.receipt("FICTITIOUS-RECEIPT-92", supplier, null,
+                    LocalDate.of(2026, 1, 2), "Private item", "55.00"), fixture.user.companyId());
             fixture.receipts.data.put(receipt.id(), receipt);
             AtomicInteger requests = new AtomicInteger();
             AtomicReference<String> secondRequest = new AtomicReference<>();
@@ -346,7 +346,15 @@ class GroqDuckyServiceTest {
                 AccountStatus.APPROVED, Instant.EPOCH, "Test Co", UUID.randomUUID());
     }
 
+    private static com.bred.rms.models.Receipt scoped(com.bred.rms.models.Receipt receipt, UUID companyId) {
+        return new com.bred.rms.models.Receipt(receipt.id(), receipt.receiptNo(), receipt.date(), receipt.type(),
+                receipt.supplierId(), receipt.projectId(), receipt.items(), receipt.discount(), receipt.vat(),
+                receipt.additionalCharges(), receipt.attachments(), receipt.encodedBy(), receipt.createdAt(),
+                receipt.modifiedAt(), companyId);
+    }
+
     private static final class Fixture {
+        private final User user;
         private final Fakes.Receipts receipts = new Fakes.Receipts();
         private final Fakes.Suppliers suppliers = new Fakes.Suppliers();
         private final Fakes.Projects projects = new Fakes.Projects();
@@ -354,7 +362,7 @@ class GroqDuckyServiceTest {
         private final AppContext context;
 
         private Fixture() {
-            User user = approvedUser();
+            user = approvedUser();
             CurrentUser current = () -> user;
             context = AppContext.forTesting(user,
                     new ReceiptService(receipts, suppliers, projects, attachments, current),

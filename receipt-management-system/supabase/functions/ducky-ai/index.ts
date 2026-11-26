@@ -173,7 +173,19 @@ async function updateMemory(
     },
   ], undefined);
   if (summaryResult.status !== "connected") {
-    throw new HttpError(503, "Could not update the user's Ducky memory summary.");
+    if (summaryResult.status === "not_configured") {
+      throw new HttpError(503, "The server-side Groq API key is not configured.");
+    }
+    if (summaryResult.status === "authentication_failed") {
+      throw new HttpError(502, "Groq authentication failed. Check the server-side Groq secret.");
+    }
+    if (summaryResult.status === "model_unavailable") {
+      throw new HttpError(502, "The configured Groq model is unavailable.");
+    }
+    if (summaryResult.status === "rate_limited") {
+      throw new HttpError(429, "Groq rate limit reached. Wait briefly, then try again.");
+    }
+    throw new HttpError(503, "Groq is temporarily unavailable while updating Ducky memory.");
   }
   const summary = typeof summaryResult.answer === "string" ? summaryResult.answer.trim() : "";
   if (summary.length > 4000) throw new HttpError(502, "The Ducky memory summary exceeded its size limit.");

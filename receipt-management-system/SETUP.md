@@ -25,6 +25,8 @@ and Maven on the computer that runs the app.
    13. `013_app_releases.sql`: shared current-version display and Creator-only version publishing
    14. `014_ai_receipt_import_approval.sql`: server-validated administrator approval for imported receipts and audit events
    15. `015_ducky_shared_ai.sql`: shared Ducky model configuration
+   16. `016_ducky_groq_supported_model.sql`: updates the original shared default to a supported Groq model
+   17. `017_ducky_memory.sql`: private per-user, per-company Ducky memory summaries
 
    Migration 008 creates a `Legacy Company` only when needed and assigns previously unscoped records and profiles to it.
    Existing companies are retained. The Creator can see all companies; Admins and Encoders are restricted to their own.
@@ -38,6 +40,7 @@ and Maven on the computer that runs the app.
    ownership from the authenticated profile and selected in-company supplier, and delegates receipt writes to the
    existing `save_receipt` RPC. Apply it before using AI Receipt Import approval or attachment linking.
    Migration 015 creates the shared Ducky model configuration. Apply it before deploying the `ducky-ai` function.
+   Migration 017 creates storage for non-sensitive Ducky memory summaries; clients cannot access the table directly.
 
    The updater expects a stable GitHub release asset named `BRED-Setup-<version>.msi` (for example, tag `v1.2.3`
    uses `BRED-Setup-1.2.3.msi`). BRED stages downloads in a per-user update directory. If GitHub supplies an asset
@@ -188,13 +191,19 @@ messages. Reset links open the hosted `web/reset-password.html` page (see "Reset
    `application.properties`.
 
 ## Ducky shared AI backend
-Apply `database/migrations/015_ducky_shared_ai.sql` and `database/migrations/016_ducky_groq_supported_model.sql` in the
-Supabase SQL Editor, then deploy the authenticated Edge Function and configure the server-side Groq secret:
+Apply `database/migrations/015_ducky_shared_ai.sql`, `database/migrations/016_ducky_groq_supported_model.sql`, and
+`database/migrations/017_ducky_memory.sql` in the Supabase SQL Editor, then deploy the authenticated Edge Function and
+configure the server-side Groq secret:
 ```powershell
 npx supabase functions deploy ducky-ai
 npx supabase secrets set --project-ref YOUR-PROJECT-REF GROQ_API_KEY=YOUR_GROQ_API_KEY
 ```
 The function uses Supabase's `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` environment values.
+Cross-device Ducky memory is a compact summary scoped to both the authenticated user and their current company. Raw
+chat messages, confirmed BRED tool results, and OCR are not persisted; common credential patterns are filtered before
+summaries are saved. This feature requires the Supabase-backed app and deployed function; local-only mode does not sync
+memory. Users can ask Ducky to clear their saved memory; the function verifies the user and company from the
+authenticated profile and does not expose memory through direct client table access.
 The default model is `openai/gpt-oss-120b`, which Groq lists as production and supports tool use. Migration 016 updates
 the old default only, preserving any model the Creator explicitly selected. Only the Creator can update the shared model
 or run the connection test; signed-in, approved users can use Ducky without their own Groq key. Never place

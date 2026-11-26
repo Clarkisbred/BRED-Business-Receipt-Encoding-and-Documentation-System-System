@@ -4,8 +4,14 @@ import com.bred.rms.importer.DocumentFileValidator;
 import com.bred.rms.importer.DocumentTextExtractor;
 import com.bred.rms.config.AppContext;
 import com.bred.rms.models.AccountStatus;
+import com.bred.rms.models.Receipt;
 import com.bred.rms.models.Role;
 import com.bred.rms.models.User;
+import com.bred.rms.services.ProjectService;
+import com.bred.rms.services.CurrentUser;
+import com.bred.rms.services.ReceiptService;
+import com.bred.rms.services.SupplierService;
+import com.bred.rms.support.Fakes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -109,6 +115,41 @@ class DuckyAssistantServiceTest {
         assertFalse(service(new CapturingProvider(), missingCompanyUser).canReadRecords());
     }
 
+    @Test
+    void localRecordContextExcludesReceiptsAndUnassociatedSuppliersFromOtherCompanies() throws Exception {
+        UUID companyId = UUID.randomUUID();
+        User user = new User(UUID.randomUUID(), "Test User", "user@example.test", Role.ADMIN, true,
+                AccountStatus.APPROVED, Instant.EPOCH, "Test Co", companyId);
+        Fakes.Receipts receipts = new Fakes.Receipts();
+        Fakes.Suppliers suppliers = new Fakes.Suppliers();
+        Fakes.Projects projects = new Fakes.Projects();
+        Fakes.Attachments attachments = new Fakes.Attachments();
+        var ownSupplier = suppliers.add("Own Company Supplier", "TIN-OWN");
+        var foreignSupplier = suppliers.add("Other Company Supplier", "TIN-OTHER");
+        Receipt own = scoped(Fakes.receipt("OWN-1", ownSupplier, null,
+                java.time.LocalDate.of(2026, 1, 2), "Paper", "10"), companyId);
+        Receipt foreign = scoped(Fakes.receipt("OTHER-1", foreignSupplier, null,
+                java.time.LocalDate.of(2026, 1, 3), "Ink", "20"), UUID.randomUUID());
+        receipts.data.put(own.id(), own);
+        receipts.data.put(foreign.id(), foreign);
+        CurrentUser current = () -> user;
+        AppContext context = AppContext.forTesting(user,
+                new ReceiptService(receipts, suppliers, projects, attachments, current),
+                new SupplierService(suppliers, receipts, current),
+                new ProjectService(projects, receipts, current), attachments);
+        CapturingProvider provider = new CapturingProvider();
+        DuckyAssistantService service = new DuckyAssistantService(context, provider,
+                new DocumentFileValidator(), new DocumentTextExtractor((image, temporary) -> "OCR result"),
+                temporaryDirectory);
+
+        service.respond("Summarize my authorized records.", List.of(), List.of(), true);
+
+        assertTrue(provider.request.prompt().contains("OWN-1"));
+        assertFalse(provider.request.prompt().contains("OTHER-1"));
+        assertTrue(provider.request.prompt().contains("Own Company Supplier"));
+        assertFalse(provider.request.prompt().contains("Other Company Supplier"));
+    }
+
     private DuckyAssistantService service(CapturingProvider provider) {
         return service(provider, null);
     }
@@ -117,6 +158,12 @@ class DuckyAssistantServiceTest {
         AppContext context = user == null ? null : AppContext.forTesting(user, null, null, null, null);
         return new DuckyAssistantService(context, provider, new DocumentFileValidator(),
                 new DocumentTextExtractor((image, temporary) -> "OCR result"), temporaryDirectory);
+    }
+
+    private static Receipt scoped(Receipt receipt, UUID companyId) {
+        return new Receipt(receipt.id(), receipt.receiptNo(), receipt.date(), receipt.type(), receipt.supplierId(),
+                receipt.projectId(), receipt.items(), receipt.discount(), receipt.vat(), receipt.additionalCharges(),
+                receipt.attachments(), receipt.encodedBy(), receipt.createdAt(), receipt.modifiedAt(), companyId);
     }
 
     private static final class CapturingProvider implements AIProvider {

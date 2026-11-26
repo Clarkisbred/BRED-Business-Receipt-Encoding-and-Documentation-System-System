@@ -206,6 +206,7 @@ public final class GroqDuckyService {
                                 + " BRED operations to keep this request bounded.", localResults, privateDataDisclosed);
                     }
                     if (progress != null) progress.accept("Executing authorized BRED operation: " + call.name());
+                    if (DuckyToolRegistry.isSensitiveWriteAction(call.name())) privateDataDisclosed = true;
                     String result;
                     try {
                         DuckyToolRegistry.ToolResult toolResult = tools.execute(
@@ -222,8 +223,11 @@ public final class GroqDuckyService {
                                 privateDataDisclosed = true;
                             }
                         }
-                    } catch (IllegalArgumentException | SecurityException | IllegalStateException error) {
-                        result = "The requested BRED operation was not authorized or its arguments were invalid.";
+                    } catch (IllegalArgumentException | SecurityException | IllegalStateException
+                             | com.bred.rms.models.ValidationException error) {
+                        result = error.getMessage() == null
+                                ? "The requested BRED operation could not be completed."
+                                : error.getMessage();
                     }
                     messages.add(new GroqChatClient.Message("tool", result, call.id(), List.of()));
                     callsExecuted++;
@@ -335,6 +339,7 @@ public final class GroqDuckyService {
                                 + " BRED operations to keep this request bounded.", localResults, privateDataDisclosed);
                     }
                     if (progress != null) progress.accept("Executing authorized BRED operation: " + name);
+                    if (DuckyToolRegistry.isSensitiveWriteAction(name)) privateDataDisclosed = true;
                     String result;
                     try {
                         DuckyToolRegistry.ToolResult toolResult = executeSharedTool(
@@ -352,8 +357,11 @@ public final class GroqDuckyService {
                                 privateDataDisclosed = true;
                             }
                         }
-                    } catch (IllegalArgumentException | SecurityException | IllegalStateException error) {
-                        result = "The requested BRED operation was not authorized or its arguments were invalid.";
+                    } catch (IllegalArgumentException | SecurityException | IllegalStateException
+                             | com.bred.rms.models.ValidationException error) {
+                        result = error.getMessage() == null
+                                ? "The requested BRED operation could not be completed."
+                                : error.getMessage();
                     }
                     ObjectNode toolMessage = JSON.createObjectNode();
                     toolMessage.put("role", "tool");
@@ -411,7 +419,8 @@ public final class GroqDuckyService {
                     JSON.createObjectNode().put("action", "memory_read"));
             String summary = response.path("summary").asText("");
             if (summary.length() > 4000) {
-                throw new IllegalStateException("The saved Ducky memory is larger than the allowed limit.");
+                localResults.add("Saved Ducky memory exceeded its size limit and was not used.");
+                return "";
             }
             return summary;
         } catch (SupabaseException error) {
@@ -426,7 +435,7 @@ public final class GroqDuckyService {
         ObjectNode body = JSON.createObjectNode().put("action", "memory_update");
         ArrayNode turns = body.putArray("turns");
         if (priorTurns != null) {
-            priorTurns.stream().skip(Math.max(0, priorTurns.size() - 12L)).forEach(turn ->
+            priorTurns.stream().skip(Math.max(0, priorTurns.size() - 4L)).forEach(turn ->
                     addMemoryTurn(turns, turn.startsWith("Ducky:") ? "assistant" : "user", stripSpeaker(turn)));
         }
         addMemoryTurn(turns, "user", question);
@@ -439,6 +448,8 @@ public final class GroqDuckyService {
                     localResults.add("Ducky skipped saving memory because this conversation may contain sensitive information.");
                 } else if ("company_records".equals(reason)) {
                     localResults.add("Ducky skipped saving memory because this conversation discusses BRED records.");
+                } else {
+                    localResults.add("Ducky did not save this memory summary for privacy reasons.");
                 }
             }
         } catch (SupabaseException error) {
@@ -450,7 +461,7 @@ public final class GroqDuckyService {
     private static void addMemoryTurn(ArrayNode turns, String role, String content) {
         ObjectNode turn = turns.addObject();
         turn.put("role", role);
-        turn.put("content", content);
+        turn.put("content", content.length() <= 2500 ? content : content.substring(0, 2500));
     }
 
     private static ObjectNode objectMessage(String role, String content) {
@@ -508,11 +519,11 @@ public final class GroqDuckyService {
         if (message.contains("shared ai configuration")) {
             return new AIProviderException("The shared Ducky configuration is missing. Apply migration 015_ducky_shared_ai.sql.");
         }
-        if (message.contains("ducky memory")) {
-            return new AIProviderException("Cross-device Ducky memory is unavailable. Apply migration 017_ducky_memory.sql and redeploy the ducky-ai function.");
-        }
         if (message.contains("groq is temporarily unavailable")) {
             return new AIProviderException("Groq is temporarily unavailable. Please try again later.");
+        }
+        if (message.contains("ducky memory")) {
+            return new AIProviderException("Cross-device Ducky memory is unavailable. Apply migration 017_ducky_memory.sql and redeploy the ducky-ai function.");
         }
         if (message.contains("required supabase function configuration")) {
             return new AIProviderException("Supabase is missing required Ducky Edge Function configuration. The Creator should verify its secrets.");

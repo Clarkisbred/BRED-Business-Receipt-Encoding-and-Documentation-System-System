@@ -23,6 +23,8 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -140,11 +142,23 @@ public final class DuckyAssistantService {
             throw new SecurityException("Your signed-in account does not currently have access to BRED records.");
         }
 
-        List<Receipt> receipts = context.receipts.search(ReceiptQuery.all()).stream()
+        List<Receipt> scopedReceipts = context.receipts.search(ReceiptQuery.all()).stream()
+                .filter(receipt -> user.role() == Role.CREATOR
+                        || Objects.equals(receipt.companyId(), user.companyId()))
+                .toList();
+        List<Receipt> receipts = scopedReceipts.stream()
                 .sorted(Comparator.comparing(Receipt::date).reversed())
                 .limit(MAX_CONTEXT_RECEIPTS)
                 .toList();
-        Map<UUID, Supplier> suppliers = context.suppliers.findAll().stream()
+        List<Supplier> visibleSuppliers = context.suppliers.findAll();
+        if (user.role() != Role.CREATOR && context.supabaseRest == null) {
+            Set<UUID> companySupplierIds = scopedReceipts.stream().map(Receipt::supplierId)
+                    .collect(Collectors.toSet());
+            visibleSuppliers = visibleSuppliers.stream()
+                    .filter(supplier -> companySupplierIds.contains(supplier.id()))
+                    .toList();
+        }
+        Map<UUID, Supplier> suppliers = visibleSuppliers.stream()
                 .limit(MAX_CONTEXT_SUPPLIERS)
                 .collect(Collectors.toMap(Supplier::id, Function.identity(), (first, ignored) -> first));
 

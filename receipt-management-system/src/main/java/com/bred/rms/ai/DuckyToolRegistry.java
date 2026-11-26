@@ -5,6 +5,7 @@ import com.bred.rms.models.AccountStatus;
 import com.bred.rms.models.Project;
 import com.bred.rms.models.Receipt;
 import com.bred.rms.models.ReceiptItem;
+import com.bred.rms.models.ReceiptMath;
 import com.bred.rms.models.ReceiptType;
 import com.bred.rms.models.Supplier;
 import com.bred.rms.models.User;
@@ -17,6 +18,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -88,6 +90,10 @@ public final class DuckyToolRegistry {
         return SAFE_ACTIONS.contains(name) || "clearDuckyMemory".equals(name);
     }
 
+    static boolean isSensitiveWriteAction(String name) {
+        return "createReceiptFromChat".equals(name) || "submitBugReport".equals(name);
+    }
+
     public ToolResult execute(String name, JsonNode arguments, DuckyPermission permission) {
         return execute(name, arguments, permission, null);
     }
@@ -100,6 +106,9 @@ public final class DuckyToolRegistry {
         }
         if (arguments == null || !arguments.isObject()) {
             throw new IllegalArgumentException("Tool arguments must be a JSON object.");
+        }
+        if (definitions.stream().noneMatch(definition -> definition.name().equals(name))) {
+            throw new IllegalArgumentException("This BRED tool is not authorized or available.");
         }
         requireAuthorizedUser();
         return switch (name) {
@@ -117,7 +126,7 @@ public final class DuckyToolRegistry {
             case "getCurrentUser" -> currentUser(arguments);
             case "getCurrentCompany" -> currentCompany(arguments);
             case "getApplicationVersion" -> applicationVersion(arguments);
-            default -> throw new IllegalArgumentException("This BRED tool is not available.");
+            default -> throw new IllegalArgumentException("This BRED tool is not authorized or available.");
         };
     }
 
@@ -166,7 +175,7 @@ public final class DuckyToolRegistry {
         only(args, "query", "limit");
         String query = text(args, "query", 1, 100).toLowerCase(Locale.ROOT);
         int limit = limit(args);
-        List<Supplier> found = context.suppliers.findAll().stream()
+        List<Supplier> found = authorizedSuppliers().stream()
                 .filter(supplier -> supplier.businessName() != null
                         && supplier.businessName().toLowerCase(Locale.ROOT).contains(query))
                 .limit(limit).toList();
@@ -176,7 +185,7 @@ public final class DuckyToolRegistry {
     private ToolResult getSupplierDetails(JsonNode args) {
         only(args, "supplierId");
         UUID id = uuid(args, "supplierId");
-        Supplier supplier = context.suppliers.findAll().stream().filter(item -> item.id().equals(id)).findFirst()
+        Supplier supplier = authorizedSuppliers().stream().filter(item -> item.id().equals(id)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("That supplier is not available to your account."));
         String details = "Supplier: " + safe(supplier.businessName()) + "; address: "
                 + safe(supplier.address()) + "; contact: " + safe(supplier.contactNumber());
@@ -224,12 +233,13 @@ public final class DuckyToolRegistry {
         Supplier supplier = findUniqueSupplier(text(args, "supplierName", 1, 200));
         Project project = optionalProject(args);
         List<ReceiptItem> items = receiptItems(args);
-        BigDecimal discount = amount(args, "discount");
-        BigDecimal vat = amount(args, "vat");
-        BigDecimal additionalCharges = amount(args, "additionalCharges");
+        BigDecimal discount = moneyAmount(args, "discount");
+        BigDecimal vat = moneyAmount(args, "vat");
+        BigDecimal additionalCharges = moneyAmount(args, "additionalCharges");
+        Instant createdAt = Instant.now();
         Receipt draft = new Receipt(UUID.randomUUID(), receiptNo, date, type, supplier.id(),
                 project == null ? null : project.id(), items, discount, vat, additionalCharges, List.of(),
-                user.id(), Instant.now(), Instant.now(), user.companyId());
+                user.id(), createdAt, createdAt, user.companyId());
         context.receipts.precheck(draft);
 
         String preview = receiptPreview(draft, supplier, project);
@@ -303,6 +313,24 @@ public final class DuckyToolRegistry {
         return receipts.stream().filter(receipt -> Objects.equals(receipt.companyId(), user.companyId())).toList();
     }
 
+    private List<Supplier> authorizedSuppliers() {
+        User user = requireAuthorizedUser();
+        List<Supplier> suppliers = context.suppliers.findAll();
+        if (user.role() == com.bred.rms.models.Role.CREATOR || context.supabaseRest != null) return suppliers;
+        java.util.Set<UUID> supplierIds = authorizedReceipts().stream()
+                .map(Receipt::supplierId).collect(Collectors.toSet());
+        return suppliers.stream().filter(supplier -> supplierIds.contains(supplier.id())).toList();
+    }
+
+    private List<Project> authorizedProjects() {
+        User user = requireAuthorizedUser();
+        List<Project> projects = context.projects.findAll();
+        if (user.role() == com.bred.rms.models.Role.CREATOR || context.supabaseRest != null) return projects;
+        java.util.Set<UUID> projectIds = authorizedReceipts().stream()
+                .map(Receipt::projectId).filter(Objects::nonNull).collect(Collectors.toSet());
+        return projects.stream().filter(project -> projectIds.contains(project.id())).toList();
+    }
+
     private User requireAuthorizedUser() {
         if (context == null || context.currentUser == null) {
             throw new IllegalStateException("BRED record tools are not available in this context.");
@@ -324,7 +352,7 @@ public final class DuckyToolRegistry {
     }
 
     private Supplier findUniqueSupplier(String name) {
-        List<Supplier> matches = context.suppliers.findAll().stream()
+        List<Supplier> matches = authorizedSuppliers().stream()
                 .filter(supplier -> supplier.businessName() != null
                         && supplier.businessName().trim().equalsIgnoreCase(name.trim()))
                 .toList();
@@ -340,7 +368,7 @@ public final class DuckyToolRegistry {
         if (value == null || value.isNull() || !value.isTextual() || value.asText().isBlank()) return null;
         String name = value.asText().trim();
         if (name.length() > 200) throw new IllegalArgumentException("projectName must be at most 200 characters.");
-        List<Project> matches = context.projects.findAll().stream()
+        List<Project> matches = authorizedProjects().stream()
                 .filter(project -> project.name() != null && project.name().trim().equalsIgnoreCase(name))
                 .toList();
         if (matches.isEmpty()) throw new IllegalArgumentException("Choose an existing project in your company.");
@@ -379,8 +407,8 @@ public final class DuckyToolRegistry {
             if (!value.isObject()) throw new IllegalArgumentException("Each receipt item must be an object.");
             only(value, "description", "quantity", "unitPrice");
             String description = text(value, "description", 1, 200);
-            BigDecimal quantity = requiredAmount(value, "quantity");
-            BigDecimal unitPrice = requiredAmount(value, "unitPrice");
+            BigDecimal quantity = quantityAmount(value, "quantity");
+            BigDecimal unitPrice = moneyAmount(value, "unitPrice");
             if (quantity.signum() <= 0 || unitPrice.signum() < 0) {
                 throw new IllegalArgumentException("Receipt item quantity must be positive and price cannot be negative.");
             }
@@ -389,9 +417,26 @@ public final class DuckyToolRegistry {
         return List.copyOf(items);
     }
 
-    private static BigDecimal amount(JsonNode args, String name) {
+    private static BigDecimal moneyAmount(JsonNode args, String name) {
         JsonNode value = args.get(name);
-        return value == null || value.isNull() ? BigDecimal.ZERO : requiredAmount(args, name);
+        if (value == null || value.isNull()) return BigDecimal.ZERO.setScale(2);
+        BigDecimal amount = requiredAmount(args, name);
+        if (amount.scale() < -14 || amount.scale() > 20) {
+            throw new IllegalArgumentException(name + " has too many decimal places.");
+        }
+        BigDecimal rounded = ReceiptMath.money(amount);
+        if (rounded.precision() > 14) throw new IllegalArgumentException(name + " exceeds BRED's supported amount.");
+        return rounded;
+    }
+
+    private static BigDecimal quantityAmount(JsonNode args, String name) {
+        BigDecimal quantity = requiredAmount(args, name);
+        if (quantity.scale() < -14 || quantity.scale() > 20) {
+            throw new IllegalArgumentException(name + " has too many decimal places.");
+        }
+        BigDecimal rounded = quantity.setScale(3, RoundingMode.HALF_UP);
+        if (rounded.precision() > 14) throw new IllegalArgumentException(name + " exceeds BRED's supported quantity.");
+        return rounded;
     }
 
     private static BigDecimal requiredAmount(JsonNode args, String name) {

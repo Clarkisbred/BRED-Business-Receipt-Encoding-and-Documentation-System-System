@@ -159,7 +159,8 @@ final class DuckySettingsPopup extends JDialog {
         content.add(gap(6));
         content.add(permission);
         content.add(gap(5));
-        content.add(description("Ask: no BRED tools. Assist: authorized read-only tools. "
+        content.add(description("Ask: receipt entry and bug reports require your confirmation. "
+                + "Assist: also allows authorized company-scoped record lookup. "
                 + "Execute is reserved for future development."));
 
         content.add(gap(16));

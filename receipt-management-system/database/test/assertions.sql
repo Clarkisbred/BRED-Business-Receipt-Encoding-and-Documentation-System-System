@@ -244,4 +244,11 @@ select tests.expect_true((select role = 'admin' and account_status = 'APPROVED' 
   'public Admin registration creates an active account and company');
 reset role;
 
+select tests.expect_true((select relrowsecurity from pg_class where oid = 'public.ducky_ai_memory'::regclass),
+  'Ducky memory has row-level security enabled');
+select tests.expect_true(not has_table_privilege('anon', 'public.ducky_ai_memory', 'SELECT')
+  and not has_table_privilege('authenticated', 'public.ducky_ai_memory', 'SELECT')
+  and has_table_privilege('service_role', 'public.ducky_ai_memory', 'SELECT,INSERT,UPDATE,DELETE'),
+  'only the authenticated Edge Function service role can access Ducky memory');
+
 select 'ALL ASSERTIONS PASSED' as result;
