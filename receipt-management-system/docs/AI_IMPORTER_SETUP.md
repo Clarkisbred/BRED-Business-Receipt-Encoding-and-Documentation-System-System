@@ -55,9 +55,20 @@ Invoke-RestMethod http://localhost:11434/api/tags
 `qwen2.5:3b` is a configurable starting model, not an installer requirement. It can run without a dedicated GPU, though
 performance depends on available memory and CPU. The model is downloaded and stored by Ollama outside BRED.
 
-The prepared configuration reads `RMS_AI_PROVIDER` (`ollama`, `cloud`, or `disabled`), `RMS_OLLAMA_BASE_URL`
-(defaults to `http://localhost:11434`), and `RMS_OLLAMA_MODEL` (defaults to `qwen2.5:3b`). Settings are not contacted
-until importer behavior is implemented.
+The AI provider layer supports `RMS_AI_PROVIDER` values `ollama` (default), `cloud`, `hybrid`, and `disabled`.
+`RMS_OLLAMA_BASE_URL` defaults to `http://localhost:11434`, and `RMS_OLLAMA_MODEL` defaults to `qwen2.5:3b`.
+Hybrid mode tries Ollama first and falls back to cloud only if local generation fails.
+
+Cloud mode uses an OpenAI-compatible chat-completions endpoint. Configure its HTTPS base URL with
+`RMS_CLOUD_AI_BASE_URL`, model with `RMS_CLOUD_AI_MODEL` (defaults to `gpt-4o-mini`), and optional API key with
+`RMS_CLOUD_AI_API_KEY`. Cloud provider construction does not require credentials; an actual request reports a clear
+configuration error if the endpoint or key is missing. Requests time out after 60 seconds by default;
+`RMS_AI_REQUEST_TIMEOUT_SECONDS` changes this value.
+
+Provider requests are text-only in this phase. If a request is marked as containing attachments, cloud AI rejects it
+unless an administrator explicitly sets `RMS_CLOUD_AI_ATTACHMENTS_CONSENT=true`. The text-only API does not transmit
+attachment data even when consent is enabled. Receipt extraction, attachment processing, and persistence are not part
+of this phase.
 
 ## 4. Tesseract OCR (optional external runtime)
 
