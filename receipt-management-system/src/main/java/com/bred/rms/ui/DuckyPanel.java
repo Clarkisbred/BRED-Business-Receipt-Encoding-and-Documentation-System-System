@@ -8,6 +8,7 @@ import com.bred.rms.models.Role;
 import com.bred.rms.models.User;
 import com.bred.rms.ui.components.AiLogoIcon;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.UnicodeFontSupport;
 import com.bred.rms.ui.components.UserAvatar;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.ui.theme.ThemeManager;
@@ -159,6 +160,7 @@ public final class DuckyPanel extends JPanel {
             new StyledScrollPane(messageList);
 
     private final JTextArea composer = new JTextArea(1, 32);
+    private final Font composerPreferredFont = composer.getFont();
 
     private final JButton sendButton =
             new RoundedButton("Send", true);
@@ -639,16 +641,19 @@ public final class DuckyPanel extends JPanel {
                 new DocumentListener() {
                     @Override
                     public void insertUpdate(DocumentEvent event) {
+                        updateComposerFont();
                         updateComposerSize();
                     }
 
                     @Override
                     public void removeUpdate(DocumentEvent event) {
+                        updateComposerFont();
                         updateComposerSize();
                     }
 
                     @Override
                     public void changedUpdate(DocumentEvent event) {
+                        updateComposerFont();
                         updateComposerSize();
                     }
                 }
@@ -1098,8 +1103,13 @@ public final class DuckyPanel extends JPanel {
             String displayedText
     ) {
         int maximum = messageBubbleWidth(viewportWidth, entry.sender());
-        Font textFont = new JTextArea().getFont().deriveFont(13f);
-        FontMetrics textMetrics = new JTextArea().getFontMetrics(textFont);
+        JTextArea textArea = new JTextArea();
+        String measuredText = entry.text() == null ? "" : entry.text();
+        if (entry.fileNames() != null && !entry.fileNames().isEmpty()) {
+            measuredText += " Local attachments: " + String.join(", ", entry.fileNames());
+        }
+        Font textFont = UnicodeFontSupport.forText(measuredText, textArea.getFont().deriveFont(13f));
+        FontMetrics textMetrics = textArea.getFontMetrics(textFont);
         int contentWidth = widestLine(displayedText, textMetrics);
         if (entry.fileNames() != null && !entry.fileNames().isEmpty()) {
             contentWidth = Math.max(
@@ -1161,10 +1171,13 @@ public final class DuckyPanel extends JPanel {
         int previousScrollValue = scrollBar.getValue();
         int responseLength = animation.entry.text().length();
         int chunkSize = Math.max(1, (responseLength + 199) / 200);
-        animation.revealedCharacters = Math.min(
-                responseLength,
-                animation.revealedCharacters + chunkSize
-        );
+        int nextCharacter = Math.min(responseLength, animation.revealedCharacters + chunkSize);
+        if (nextCharacter < responseLength
+                && Character.isHighSurrogate(animation.entry.text().charAt(nextCharacter - 1))
+                && Character.isLowSurrogate(animation.entry.text().charAt(nextCharacter))) {
+            nextCharacter++;
+        }
+        animation.revealedCharacters = nextCharacter;
 
         String visibleText = animation.entry.text().substring(
                 0, animation.revealedCharacters);
@@ -1280,16 +1293,16 @@ public final class DuckyPanel extends JPanel {
         return dots.append("</html>").toString();
     }
 
-    private static Color assistantBubbleColor() {
-        return ThemeManager.isDark() ? RmsColors.surface() : new Color(242, 242, 239);
+    static Color assistantBubbleColor() {
+        return RmsColors.primaryLight();
     }
 
-    private static Color userBubbleColor() {
-        return ThemeManager.isDark() ? new Color(229, 182, 63) : new Color(247, 200, 73);
+    static Color userBubbleColor() {
+        return RmsColors.primaryAccent();
     }
 
-    private static Color userBubbleTextColor() {
-        return new Color(32, 33, 36);
+    static Color userBubbleTextColor() {
+        return RmsColors.primaryForeground();
     }
 
     private void stopThinkingTimer() {
@@ -1306,6 +1319,11 @@ public final class DuckyPanel extends JPanel {
         }
         thinkingRow = null;
         thinkingDots = null;
+    }
+
+    private void updateComposerFont() {
+        Font selected = UnicodeFontSupport.forText(composer.getText(), composerPreferredFont);
+        if (!selected.equals(composer.getFont())) composer.setFont(selected);
     }
 
     private void updateComposerSize() {
@@ -1459,6 +1477,7 @@ public final class DuckyPanel extends JPanel {
 
         composer.setForeground(RmsColors.text());
         composer.setCaretColor(RmsColors.primary());
+        updateComposerFont();
 
         selectedFiles.setForeground(RmsColors.SECONDARY_TEXT);
         status.setForeground(RmsColors.SECONDARY_TEXT);
@@ -1679,6 +1698,8 @@ public final class DuckyPanel extends JPanel {
         JTextArea body = null;
         if (hasText) {
             body = messageText(displayedText, textWidth);
+            body.setFont(UnicodeFontSupport.forText(entry.text(), body.getFont()));
+            sizeMessageText(body, textWidth);
             body.setForeground(assistant ? RmsColors.text() : userBubbleTextColor());
             contents.add(body);
             textAreas.add(body);

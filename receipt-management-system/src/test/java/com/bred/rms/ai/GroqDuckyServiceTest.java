@@ -56,6 +56,16 @@ class GroqDuckyServiceTest {
         AIProviderException modelFailure = GroqDuckyService.sharedBackendFailure(
                 new SupabaseException(502, "The configured Groq model is unavailable."));
         assertTrue(modelFailure.getMessage().contains("configured Groq model is unavailable"));
+
+        AIProviderException outdatedFunction = GroqDuckyService.sharedMemoryFailure(
+                new SupabaseException(400, "Invalid Ducky AI action."));
+        assertTrue(outdatedFunction.getMessage().contains("does not support cross-device memory"));
+        assertTrue(outdatedFunction.getMessage().contains("redeploy the ducky-ai function"));
+
+        AIProviderException invalidMemoryRequest = GroqDuckyService.sharedMemoryFailure(
+                new SupabaseException(400, "A bounded set of conversation turns is required."));
+        assertTrue(invalidMemoryRequest.getMessage().contains("rejected (HTTP 400)"));
+        assertTrue(invalidMemoryRequest.getMessage().contains("Edge Function logs"));
     }
 
     @AfterEach
@@ -91,6 +101,27 @@ class GroqDuckyServiceTest {
         } finally {
             DuckyPreferences.setCloudConsent(oldConsent);
             if (oldConsent) DuckyPreferences.setPermission(oldPermission);
+        }
+    }
+
+    @Test
+    void asksForUsefulUiSymbolsAndPreservesEmojiInDuckyResponses() throws Exception {
+        boolean oldConsent = DuckyPreferences.cloudConsent();
+        try {
+            DuckyPreferences.setCloudConsent(true);
+            AtomicReference<String> requestBody = new AtomicReference<>();
+            server = server(exchange -> {
+                requestBody.set(new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
+                respond(exchange, 200, "{\"choices\":[{\"message\":{\"content\":\"✅ Done 🎉\"}}]}");
+            });
+
+            GroqDuckyService.AgentResponse result = service().respond(
+                    "Confirm the task is complete.", List.of(), List.of(), (a, b) -> true, ignored -> { });
+
+            assertTrue(requestBody.get().contains("Unicode UI symbols and emojis"));
+            assertEquals("✅ Done 🎉", result.answer());
+        } finally {
+            DuckyPreferences.setCloudConsent(oldConsent);
         }
     }
 

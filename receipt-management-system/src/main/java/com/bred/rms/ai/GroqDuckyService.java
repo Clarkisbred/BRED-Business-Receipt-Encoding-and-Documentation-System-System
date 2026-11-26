@@ -408,7 +408,7 @@ public final class GroqDuckyService {
         try {
             sharedBackend.invokeFunction("ducky-ai", body);
         } catch (SupabaseException error) {
-            throw new IllegalStateException(sharedBackendFailure(error).getMessage(), error);
+            throw new IllegalStateException(sharedMemoryFailure(error).getMessage(), error);
         }
         return new DuckyToolRegistry.ToolResult("Your saved Ducky memory for this company was cleared.", "", false);
     }
@@ -425,7 +425,7 @@ public final class GroqDuckyService {
             return summary;
         } catch (SupabaseException error) {
             localResults.add("Cross-device Ducky memory could not be loaded: "
-                    + sharedBackendFailure(error).getMessage());
+                    + sharedMemoryFailure(error).getMessage());
             return "";
         }
     }
@@ -454,7 +454,7 @@ public final class GroqDuckyService {
             }
         } catch (SupabaseException error) {
             localResults.add("Cross-device Ducky memory could not be saved: "
-                    + sharedBackendFailure(error).getMessage());
+                    + sharedMemoryFailure(error).getMessage());
         }
     }
 
@@ -482,6 +482,23 @@ public final class GroqDuckyService {
             function.set("parameters", definition.parameters());
         }
         return tools;
+    }
+
+    static AIProviderException sharedMemoryFailure(SupabaseException error) {
+        int status = error.status();
+        String message = error.getMessage() == null
+                ? ""
+                : error.getMessage().toLowerCase(java.util.Locale.ROOT);
+        if (status == 400 && message.contains("invalid ducky ai action")) {
+            return new AIProviderException("The deployed Ducky AI function does not support cross-device memory. "
+                    + "Apply migration 017_ducky_memory.sql and redeploy the ducky-ai function.");
+        }
+        if (status == 400 || status == 422) {
+            return new AIProviderException("The Ducky memory request was rejected (HTTP " + status + "). "
+                    + "The Creator should verify migration 017_ducky_memory.sql, redeploy ducky-ai, "
+                    + "and check its Edge Function logs.");
+        }
+        return sharedBackendFailure(error);
     }
 
     static AIProviderException sharedBackendFailure(SupabaseException error) {
@@ -595,6 +612,8 @@ public final class GroqDuckyService {
                 clearly says otherwise. The application's Creator is Clark Hilario. Shrimpy is your best friend.
                 Use a warm, upbeat, supportive voice and clear wording. Express personality through tone only: do not
                 roleplay, narrate actions, add stage directions, or write gestures such as "*flaps wings*".
+                Use Unicode UI symbols and emojis (such as ✓, •, ℹ️, ✅, ⚠️, and 🎉) when they improve clarity.
+                Keep them relevant and occasional, preserve them in responses, and never use them instead of clear text.
 
                 Use only authorized tool results for BRED-specific records; never invent business facts. Ordinary users
                 may access only their current company's records. Only an authenticated Creator account may access

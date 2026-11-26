@@ -5,6 +5,7 @@ import com.bred.rms.models.ChatMessage;
 import com.bred.rms.models.Role;
 import com.bred.rms.models.User;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.UnicodeFontSupport;
 import com.bred.rms.ui.components.UserAvatar;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.ui.theme.ThemeManager;
@@ -32,6 +33,7 @@ import javax.swing.UIManager;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.border.AbstractBorder;
+import javax.swing.text.BadLocationException;
 import java.awt.BasicStroke;
 import java.awt.BorderLayout;
 import java.awt.Color;
@@ -47,6 +49,9 @@ import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.Shape;
 import java.awt.event.ActionEvent;
+import java.awt.event.ComponentAdapter;
+import java.awt.event.ComponentEvent;
+import java.awt.geom.Rectangle2D;
 import java.awt.geom.RoundRectangle2D;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -76,7 +81,8 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
     private final JButton companyChatButton = new RoundedMessageButton("Company chat");
     private final JPanel messageList = new JPanel();
     private final JScrollPane messageScroll = new StyledScrollPane(messageList);
-    private final JTextArea composer = new JTextArea(3, 24);
+    private final JTextArea composer = new JTextArea(1, 24);
+    private final Font composerPreferredFont = composer.getFont().deriveFont(13f);
     private final JButton sendButton = new JButton("Send");
     private final JCheckBox urgentMessage = new JCheckBox("Urgent");
     private final RoundedSurface composerSurface = new RoundedSurface();
@@ -111,6 +117,7 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
         contactList.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION);
         contactList.setCellRenderer(new ContactRenderer());
         contactList.setOpaque(false);
+        contactList.setFocusable(false);
         companyChatButton.setVisible(current != null && current.companyId() != null);
         companyChatButton.addActionListener(e -> selectCompanyChat());
         contactList.addListSelectionListener(e -> {
@@ -269,14 +276,12 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
 
         JPanel composerBox = new JPanel(new BorderLayout(10, 0));
         composerBox.setOpaque(false);
-        composerBox.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createMatteBorder(1, 0, 0, 0, RmsColors.border()),
-                BorderFactory.createEmptyBorder(13, 16, 13, 16)));
+        composerBox.setBorder(BorderFactory.createEmptyBorder(13, 16, 13, 16));
         composer.setLineWrap(true);
         composer.setWrapStyleWord(true);
         composer.setOpaque(false);
         composer.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
-        composer.setFont(composer.getFont().deriveFont(13f));
+        composer.setFont(composerPreferredFont);
         composer.setToolTipText("Write a message. Press Enter to send; Shift+Enter for a new line.");
         JScrollPane composerScroll = new StyledScrollPane(composer);
         composerScroll.setBorder(null);
@@ -286,11 +291,11 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
         composerScroll.getVerticalScrollBar().setUnitIncrement(32);
         composerSurface.setLayout(new BorderLayout());
         composerSurface.setBorder(BorderFactory.createEmptyBorder(9, 12, 9, 10));
-        composerSurface.setPreferredSize(new Dimension(0, 66));
-        composerSurface.add(composerScroll, BorderLayout.CENTER);
-        composerBox.add(composerSurface, BorderLayout.CENTER);
         sendButton.setMargin(new Insets(6, 14, 6, 14));
         sendButton.setPreferredSize(new Dimension(sendButton.getPreferredSize().width, 36));
+        composerSurface.setPreferredSize(new Dimension(0, sendButton.getPreferredSize().height));
+        composerSurface.add(composerScroll, BorderLayout.CENTER);
+        composerBox.add(composerSurface, BorderLayout.CENTER);
         sendButton.addActionListener(e -> sendMessage());
         urgentMessage.setForeground(new Color(177, 52, 52));
         urgentMessage.setToolTipText("Mark this company chat message as urgent.");
@@ -319,6 +324,40 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
         composer.getInputMap(JComponent.WHEN_FOCUSED).put(KeyStroke.getKeyStroke("ENTER"), "send-message");
         composer.getActionMap().put("send-message", new javax.swing.AbstractAction() {
             @Override public void actionPerformed(ActionEvent e) { sendMessage(); }
+        });
+        composer.getDocument().addDocumentListener(new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent event) { updateComposerFont(); }
+            @Override public void removeUpdate(DocumentEvent event) { updateComposerFont(); }
+            @Override public void changedUpdate(DocumentEvent event) { updateComposerFont(); }
+        });
+        composer.addComponentListener(new ComponentAdapter() {
+            @Override public void componentResized(ComponentEvent event) { updateComposerHeight(); }
+        });
+    }
+
+    private void updateComposerFont() {
+        Font selected = UnicodeFontSupport.forText(composer.getText(), composerPreferredFont);
+        if (!selected.equals(composer.getFont())) composer.setFont(selected);
+        updateComposerHeight();
+    }
+
+    private void updateComposerHeight() {
+        SwingUtilities.invokeLater(() -> {
+            int textHeight = composer.getFontMetrics(composer.getFont()).getHeight();
+            try {
+                Rectangle2D caret = composer.modelToView2D(composer.getDocument().getLength());
+                if (caret != null) textHeight = (int) Math.ceil(caret.getMaxY());
+            } catch (BadLocationException error) {
+                throw new IllegalStateException("Unable to measure the message field.", error);
+            }
+            Insets insets = composerSurface.getInsets();
+            int height = Math.max(sendButton.getPreferredSize().height, textHeight + insets.top + insets.bottom);
+            Dimension preferred = composerSurface.getPreferredSize();
+            if (preferred.height != height) {
+                composerSurface.setPreferredSize(new Dimension(preferred.width, height));
+                composerSurface.revalidate();
+                if (composerSurface.getParent() != null) composerSurface.getParent().revalidate();
+            }
         });
     }
 
@@ -548,7 +587,7 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
             bubble.add(meta, BorderLayout.NORTH);
         }
         JLabel body = new JLabel();
-        Font bodyFont = body.getFont().deriveFont(13f);
+        Font bodyFont = UnicodeFontSupport.forText(message.body(), body.getFont().deriveFont(13f));
         body.setFont(bodyFont);
         int bodyWidth = messageBodyWidth(message.body(), body.getFontMetrics(bodyFont), 300);
         String html = "<html><div style='width:" + bodyWidth + "px'>"
@@ -655,6 +694,10 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
                 BorderFactory.createEmptyBorder(8, 10, 8, 10)));
         companyChatButton.setBorder(BorderFactory.createEmptyBorder(9, 10, 9, 10));
         composer.setForeground(RmsColors.text());
+        sendButton.setBackground(RmsColors.primaryAccent());
+        sendButton.setForeground(RmsColors.primaryForeground());
+        sendButton.setOpaque(true);
+        updateComposerFont();
         composerSurface.repaint();
         conversationTitle.setForeground(RmsColors.text());
         conversationSubtitle.setForeground(RmsColors.SECONDARY_TEXT);

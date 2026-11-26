@@ -7,6 +7,7 @@ import com.bred.rms.security.Module;
 import com.bred.rms.ui.auth.LoginPanel;
 import com.bred.rms.ui.auth.SetupPanel;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.UnicodeFontSupport;
 import com.bred.rms.ui.receipts.ReceiptDirectoryPanel;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.ui.theme.ThemeManager;
@@ -85,6 +86,61 @@ class ShellSmokeTest {
         int longWidth = MessagesPanel.messageBodyWidth("A longer message. ".repeat(80), metrics, 300);
         assertTrue(shortWidth < 100);
         assertEquals(300, longWidth);
+    }
+
+    @Test
+    void customMessageBubblesPreserveUiSymbolsAndEmoji() throws Exception {
+        var context = TestContexts.withUser(Role.ENCODER);
+        var user = context.currentUser.get();
+        String text = "✅ Receipt encoded • Ready 🎉 <done>";
+        var message = new com.bred.rms.models.ChatMessage(
+                java.util.UUID.randomUUID(), user.id(), java.util.UUID.randomUUID(), text, java.time.Instant.EPOCH);
+        MessagesPanel panel = new MessagesPanel(context);
+        var createMessageRow = MessagesPanel.class.getDeclaredMethod("createMessageRow",
+                com.bred.rms.models.ChatMessage.class, java.util.UUID.class);
+        createMessageRow.setAccessible(true);
+
+        JPanel row = (JPanel) createMessageRow.invoke(panel, message, user.id());
+        JLabel body = findHtmlMessageBody(row);
+
+        assertTrue(body.getText().contains("✅ Receipt encoded • Ready 🎉"));
+        assertTrue(body.getText().contains("&lt;done&gt;"));
+        assertEquals(-1, body.getFont().canDisplayUpTo(text));
+        assertTrue(MessagesPanel.messageBodyWidth(text, body.getFontMetrics(body.getFont()), 300) > 24);
+
+        var composerField = MessagesPanel.class.getDeclaredField("composer");
+        composerField.setAccessible(true);
+        JTextArea composer = (JTextArea) composerField.get(panel);
+        var preferredFontField = MessagesPanel.class.getDeclaredField("composerPreferredFont");
+        preferredFontField.setAccessible(true);
+        java.awt.Font preferredFont = (java.awt.Font) preferredFontField.get(panel);
+        composer.setText(text);
+        assertEquals(-1, composer.getFont().canDisplayUpTo(text));
+        composer.setText("Plain text");
+        assertEquals(preferredFont, composer.getFont());
+    }
+
+    @Test
+    void duckyMessageAndComposerFontsSupportEmojis() throws Exception {
+        String text = "✅ Ducky • ready 🎉";
+        java.awt.Font windowsEmojiFont = UnicodeFontSupport.forText(
+                text, new java.awt.Font("Segoe UI", java.awt.Font.PLAIN, 13));
+        assertEquals(-1, windowsEmojiFont.canDisplayUpTo(text));
+        if ("Segoe UI Emoji".equals(new java.awt.Font("Segoe UI Emoji", java.awt.Font.PLAIN, 13).getFamily())) {
+            assertEquals("Segoe UI Emoji", windowsEmojiFont.getFamily());
+        }
+
+        JPanel row = DuckyPanel.createMessage(new DuckyPanel.ChatEntry(
+                DuckyPanel.Sender.ASSISTANT, text, java.time.Instant.EPOCH, java.util.List.of()), 420);
+        JTextArea body = (JTextArea) findComponentNamed(row, "duckyMessageText");
+        assertEquals(-1, body.getFont().canDisplayUpTo(text));
+
+        DuckyPanel panel = DuckyPanel.unavailable("test configuration");
+        var composerField = DuckyPanel.class.getDeclaredField("composer");
+        composerField.setAccessible(true);
+        JTextArea composer = (JTextArea) composerField.get(panel);
+        composer.setText(text);
+        assertEquals(-1, composer.getFont().canDisplayUpTo(text));
     }
 
     @Test
@@ -170,6 +226,29 @@ class ShellSmokeTest {
         assertTrue(userBubblePoint.x > assistantBubblePoint.x);
         assertEquals(userBubblePoint.x + userBubble.getWidth() + 8, userAvatarPoint.x);
         assertTrue(userAvatarPoint.x + userAvatar.getWidth() <= userRow.getWidth());
+    }
+
+    @Test
+    void assistantBubbleColorTracksTheActiveAppearanceAndMode() {
+        ThemeManager.Appearance previousAppearance = ThemeManager.appearance();
+        boolean previousDark = ThemeManager.isDark();
+        try {
+            for (ThemeManager.Appearance appearance : new ThemeManager.Appearance[] {
+                    ThemeManager.Appearance.BREDUCK_SIGNATURE,
+                    ThemeManager.Appearance.SHRIMPS_AUCLAIR
+            }) {
+                ThemeManager.setAppearance(appearance);
+                for (boolean dark : new boolean[] {false, true}) {
+                    ThemeManager.apply(dark);
+                    assertEquals(RmsColors.primaryLight(), DuckyPanel.assistantBubbleColor());
+                    assertEquals(RmsColors.primaryAccent(), DuckyPanel.userBubbleColor());
+                    assertEquals(RmsColors.primaryForeground(), DuckyPanel.userBubbleTextColor());
+                }
+            }
+        } finally {
+            ThemeManager.setAppearance(previousAppearance);
+            ThemeManager.apply(previousDark);
+        }
     }
 
     @Test
@@ -592,6 +671,20 @@ class ShellSmokeTest {
             }
         }
         throw new AssertionError("Label not found: " + text);
+    }
+
+    private static JLabel findHtmlMessageBody(Container parent) {
+        for (Component component : parent.getComponents()) {
+            if (component instanceof JLabel label && label.getText() != null
+                    && label.getText().startsWith("<html><div style='width:")) {
+                return label;
+            }
+            if (component instanceof Container child) {
+                JLabel match = findHtmlMessageBody(child);
+                if (match != null) return match;
+            }
+        }
+        throw new AssertionError("Custom message body not found.");
     }
 
     private static boolean hasLabel(Container parent, String text) {
