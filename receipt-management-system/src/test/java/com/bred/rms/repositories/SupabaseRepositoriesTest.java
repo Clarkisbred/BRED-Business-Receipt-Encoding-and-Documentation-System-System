@@ -98,6 +98,57 @@ class SupabaseRepositoriesTest {
     }
 
     @Test
+    void approvedImportOmitsCompanyAndAttachmentMetadataFromInitialWrite() throws Exception {
+        try (TestEnv env = new TestEnv()) {
+            env.fake.on("POST", "/rest/v1/rpc/approve_ai_import_receipt", 200, "\"" + RID + "\"");
+            env.fake.on("GET", "/rest/v1/receipts", 200, RECEIPT_JSON);
+            Receipt ordinary = sample();
+            Receipt imported = new Receipt(null, ordinary.receiptNo(), ordinary.date(), ordinary.type(),
+                    ordinary.supplierId(), ordinary.projectId(), ordinary.items(), ordinary.discount(),
+                    ordinary.vat(), ordinary.additionalCharges(), ordinary.attachments(), null, null, null);
+
+            new SupabaseReceiptRepository(env.rest).saveApprovedImport(imported);
+
+            JsonNode p = M.readTree(env.fake.requests("POST", "/rest/v1/rpc/approve_ai_import_receipt")
+                    .get(0).bodyString()).get("p");
+            assertFalse(p.has("company_id"));
+            assertEquals(0, p.get("attachments").size());
+        }
+    }
+
+    @Test
+    void approvedAttachmentLinkingUsesAdministratorGate() throws Exception {
+        try (TestEnv env = new TestEnv()) {
+            env.fake.on("POST", "/rest/v1/rpc/approve_ai_import_receipt", 200, "\"" + RID + "\"");
+            env.fake.on("GET", "/rest/v1/receipts", 200, RECEIPT_JSON);
+
+            new SupabaseReceiptRepository(env.rest).saveApprovedImportAttachments(sample());
+
+            JsonNode p = M.readTree(env.fake.requests("POST", "/rest/v1/rpc/approve_ai_import_receipt")
+                    .get(0).bodyString()).get("p");
+            assertEquals(RID, p.get("id").asText());
+            assertEquals("attachments", p.get("operation").asText());
+            assertEquals(RID + "/1-scan.pdf", p.get("attachments").get(0).get("storage_path").asText());
+        }
+    }
+
+    @Test
+    void approvedImportReportsCommittedIdWhenReadbackIsUnavailable() {
+        try (TestEnv env = new TestEnv()) {
+            env.fake.on("POST", "/rest/v1/rpc/approve_ai_import_receipt", 200, "\"" + RID + "\"");
+            env.fake.on("GET", "/rest/v1/receipts", 200, "[]");
+
+            var error = assertThrows(com.bred.rms.repositories.SavedReceiptReadbackException.class,
+                    () -> new SupabaseReceiptRepository(env.rest).saveApprovedImport(
+                            new Receipt(null, sample().receiptNo(), sample().date(), sample().type(),
+                                    sample().supplierId(), null, sample().items(), sample().discount(), sample().vat(),
+                                    sample().additionalCharges(), List.of(), null, null, null)));
+
+            assertEquals(UUID.fromString(RID), error.receiptId());
+        }
+    }
+
+    @Test
     void rpcErrorMessageSurfacesAsValidationException() {
         try (TestEnv env = new TestEnv()) {
             env.fake.on("POST", "/rest/v1/rpc/save_receipt", 400,

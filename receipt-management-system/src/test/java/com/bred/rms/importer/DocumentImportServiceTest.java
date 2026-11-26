@@ -29,20 +29,21 @@ class DocumentImportServiceTest {
         Path second = csv("second.csv", "Receipt No,Total\nR-2,25.00\n");
         AtomicInteger calls = new AtomicInteger();
         List<String> progress = new ArrayList<>();
-        DocumentImportService service = service(request -> {
+        try (DocumentImportService service = service(request -> {
             calls.incrementAndGet();
             return ONE_RECEIPT;
-        });
+        })) {
+            List<ImportedDocument> results = service.importFiles(List.of(first, second),
+                    (index, filename) -> progress.add(index + ":" + filename));
 
-        List<ImportedDocument> results = service.importFiles(List.of(first, second),
-                (index, filename) -> progress.add(index + ":" + filename));
-
-        assertEquals(2, results.size());
-        assertEquals(2, calls.get());
-        assertEquals(1, results.get(0).receipts().size());
-        assertEquals(1, results.get(1).receipts().size());
-        assertEquals(List.of("1:first.csv", "2:second.csv"), progress);
-        assertTrue(results.get(1).extractedText().contains("R-2"));
+            assertEquals(2, results.size());
+            assertEquals(2, calls.get());
+            assertEquals(1, results.get(0).receipts().size());
+            assertEquals(1, results.get(1).receipts().size());
+            assertEquals(List.of("1:first.csv", "2:second.csv"), progress);
+            assertTrue(results.get(1).extractedText().contains("R-2"));
+            assertTrue(results.get(0).attachmentSource() == null);
+        }
         try (var entries = Files.list(temporaryDirectory.resolve("work"))) {
             assertEquals(0, entries.count());
         }
@@ -54,18 +55,18 @@ class DocumentImportServiceTest {
         Files.writeString(invalid, "binary", StandardCharsets.UTF_8);
         Path emptyCsv = csv("empty.csv", "");
         AtomicInteger calls = new AtomicInteger();
-        DocumentImportService service = service(request -> {
+        try (DocumentImportService service = service(request -> {
             calls.incrementAndGet();
             return ONE_RECEIPT;
-        });
+        })) {
+            List<ImportedDocument> results = service.importFiles(List.of(invalid, emptyCsv), null);
 
-        List<ImportedDocument> results = service.importFiles(List.of(invalid, emptyCsv), null);
-
-        assertEquals(2, results.size());
-        assertFalse(results.get(0).error().isBlank());
-        assertTrue(results.get(1).error().isBlank());
-        assertTrue(results.get(1).warnings().stream().anyMatch(warning -> warning.contains("No usable text")));
-        assertEquals(0, calls.get());
+            assertEquals(2, results.size());
+            assertFalse(results.get(0).error().isBlank());
+            assertTrue(results.get(1).error().isBlank());
+            assertTrue(results.get(1).warnings().stream().anyMatch(warning -> warning.contains("No usable text")));
+            assertEquals(0, calls.get());
+        }
     }
 
     private DocumentImportService service(java.util.function.Function<AIRequest, String> response) throws Exception {

@@ -176,6 +176,30 @@ class DocumentTextExtractorTest {
     }
 
     @Test
+    void routesEverySupportedImageFormatThroughOcr() throws Exception {
+        List<DocumentFileType> types = List.of(DocumentFileType.PNG, DocumentFileType.JPG,
+                DocumentFileType.JPEG, DocumentFileType.BMP, DocumentFileType.TIF, DocumentFileType.TIFF);
+        List<String> files = List.of("receipt.png", "receipt.jpg", "receipt.jpeg",
+                "receipt.bmp", "receipt.tif", "receipt.tiff");
+        List<String> formats = List.of("png", "jpeg", "jpeg", "bmp", "tiff", "tiff");
+        AtomicInteger ocrCalls = new AtomicInteger();
+        DocumentTextExtractor extractor = new DocumentTextExtractor((image, workspace) -> {
+            ocrCalls.incrementAndGet();
+            return "recognized receipt text";
+        });
+
+        for (int i = 0; i < files.size(); i++) {
+            Path image = temporaryDirectory.resolve(files.get(i));
+            BufferedImage pixels = new BufferedImage(2, 2, BufferedImage.TYPE_INT_RGB);
+            assertTrue(ImageIO.write(pixels, formats.get(i), image.toFile()));
+            ExtractedDocumentText extracted = extractor.extract(image, types.get(i), temporaryDirectory);
+            assertTrue(extracted.text().contains("recognized receipt text"), files.get(i));
+        }
+
+        assertEquals(types.size(), ocrCalls.get());
+    }
+
+    @Test
     void reportsWhenAWorkbookHasNoWorksheetsOrRows() throws Exception {
         Path workbookPath = temporaryDirectory.resolve("empty.xlsx");
         try (Workbook workbook = new XSSFWorkbook()) {

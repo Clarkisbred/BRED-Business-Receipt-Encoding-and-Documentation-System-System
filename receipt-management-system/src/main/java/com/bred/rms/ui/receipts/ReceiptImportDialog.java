@@ -5,11 +5,18 @@ import com.bred.rms.importer.DocumentImportService;
 import com.bred.rms.importer.ImportSessionModel;
 import com.bred.rms.importer.ImportedDocument;
 import com.bred.rms.importer.ReceiptCandidate;
+import com.bred.rms.models.Supplier;
+import com.bred.rms.services.ReceiptImportApprovalService;
+import com.bred.rms.services.ReceiptImportApprovalService.Draft;
+import com.bred.rms.services.ReceiptImportApprovalService.Prepared;
+import com.bred.rms.services.ReceiptImportApprovalService.ResultType;
+import com.bred.rms.services.ReceiptImportApprovalService.SaveResult;
 import com.bred.rms.ui.components.StyledScrollPane;
 import com.bred.rms.ui.theme.RmsColors;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultListModel;
+import javax.swing.DefaultListCellRenderer;
 import javax.swing.JButton;
 import javax.swing.JDialog;
 import javax.swing.JFileChooser;
@@ -29,15 +36,19 @@ import java.awt.FlowLayout;
 import java.awt.Window;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 
-/** Multi-document import session and pending-review workspace; it has no persistence actions. */
+/** Multi-document import session, administrator approval and per-receipt save results. */
 public final class ReceiptImportDialog extends JDialog {
     private record Progress(int current, int total, String filename) { }
 
     private final DocumentImportService importService;
+    private final ReceiptImportApprovalService approvalService;
     private final ImportSessionModel session = new ImportSessionModel(List.of());
     private final DefaultListModel<ImportedDocument> documentListModel = new DefaultListModel<>();
     private final DefaultListModel<ReceiptCandidate> receiptListModel = new DefaultListModel<>();
@@ -50,25 +61,38 @@ public final class ReceiptImportDialog extends JDialog {
     private final JButton reviewButton = new JButton("Review Receipt");
     private final JButton removeReceiptButton = new JButton("Remove");
     private final JButton removeDocumentButton = new JButton("Remove document");
+    private final JButton approveButton = new JButton("Approve and Save");
     private final JButton cancelButton = new JButton("Cancel");
     private final javax.swing.JProgressBar progress = new javax.swing.JProgressBar();
+    private final Map<UUID, UUID> selectedSupplierByReceipt = new HashMap<>();
+    private final Map<UUID, SaveResult> approvalResults = new HashMap<>();
+    private List<Supplier> companySuppliers = List.of();
     private SwingWorker<List<ImportedDocument>, Progress> worker;
+    private SwingWorker<List<Supplier>, Void> supplierWorker;
+    private SwingWorker<List<SaveResult>, SaveResult> approvalWorker;
+    private boolean supplierLoading;
+    private boolean approvalBusy;
+    private boolean closeAfterImport;
+    private boolean closing;
 
-    public ReceiptImportDialog(Window owner, DocumentImportService importService) {
+    public ReceiptImportDialog(Window owner, DocumentImportService importService,
+                               ReceiptImportApprovalService approvalService) {
         super(owner, "AI Receipt Importer — Pending Review", ModalityType.APPLICATION_MODAL);
         this.importService = importService;
+        this.approvalService = approvalService;
         buildLayout();
         wireEvents();
         setSize(1080, 720);
         setMinimumSize(new Dimension(900, 600));
         setLocationRelativeTo(owner);
+        loadCompanySuppliers();
     }
 
     private void buildLayout() {
         JPanel root = new JPanel(new BorderLayout(8, 8));
         root.setBorder(BorderFactory.createEmptyBorder(14, 16, 12, 16));
         JLabel pending = new JLabel(
-                "PENDING ADMINISTRATOR REVIEW — imported data remains in this session and is not saved.");
+                "Review each receipt before approval. Nothing is saved until you choose Approve and Save; failed drafts remain available.");
         pending.setForeground(RmsColors.WARNING);
         pending.setBorder(BorderFactory.createEmptyBorder(2, 2, 8, 2));
         root.add(pending, BorderLayout.NORTH);
@@ -77,6 +101,26 @@ public final class ReceiptImportDialog extends JDialog {
         receipts.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         documents.setVisibleRowCount(7);
         receipts.setVisibleRowCount(9);
+        receipts.setCellRenderer(new DefaultListCellRenderer() {
+            @Override public java.awt.Component getListCellRendererComponent(
+                    JList<?> list, Object value, int index, boolean selected, boolean focus) {
+                super.getListCellRendererComponent(list, value, index, selected, focus);
+                if (value instanceof ReceiptCandidate candidate) {
+                    SaveResult result = approvalResults.get(candidate.id());
+                    if (result != null) {
+                        setText(candidate + " — " + statusLabel(result));
+                        setToolTipText(result.message());
+                        if (!selected && result.type() == ResultType.FAILED
+                                || !selected && result.type() == ResultType.ATTACHMENT_FAILED) {
+                            setForeground(RmsColors.DANGER);
+                        }
+                    } else {
+                        setToolTipText(null);
+                    }
+                }
+                return this;
+            }
+        });
         JPanel documentPanel = titled("Documents", new StyledScrollPane(documents));
         JPanel receiptPanel = titled("Extracted receipts", new StyledScrollPane(receipts));
         JSplitPane lists = new JSplitPane(JSplitPane.VERTICAL_SPLIT, documentPanel, receiptPanel);
@@ -105,6 +149,9 @@ public final class ReceiptImportDialog extends JDialog {
         actions.add(reviewButton);
         actions.add(removeReceiptButton);
         actions.add(removeDocumentButton);
+        approveButton.setBackground(RmsColors.primaryAccent());
+        approveButton.setForeground(RmsColors.primaryForeground());
+        actions.add(approveButton);
         actions.add(cancelButton);
         progress.setStringPainted(true);
         progress.setString("Ready");
@@ -117,6 +164,7 @@ public final class ReceiptImportDialog extends JDialog {
         reviewButton.setEnabled(false);
         removeReceiptButton.setEnabled(false);
         removeDocumentButton.setEnabled(false);
+        approveButton.setEnabled(false);
         setDefaultCloseOperation(DO_NOTHING_ON_CLOSE);
     }
 
@@ -132,6 +180,7 @@ public final class ReceiptImportDialog extends JDialog {
         reviewButton.addActionListener(event -> reviewReceipt());
         removeReceiptButton.addActionListener(event -> removeSelectedReceipt());
         removeDocumentButton.addActionListener(event -> removeSelectedDocument());
+        approveButton.addActionListener(event -> approveReceipts());
         cancelButton.addActionListener(event -> cancelSession());
         documents.addListSelectionListener(event -> {
             if (!event.getValueIsAdjusting()) showSelectedDocument();
@@ -158,7 +207,6 @@ public final class ReceiptImportDialog extends JDialog {
     }
 
     private void startImport(List<Path> selectedFiles) {
-        setBusy(true);
         progress.setMinimum(0);
         progress.setMaximum(selectedFiles.size());
         progress.setValue(0);
@@ -181,8 +229,12 @@ public final class ReceiptImportDialog extends JDialog {
 
             @Override
             protected void done() {
-                setBusy(false);
                 worker = null;
+                updateActions();
+                if (closeAfterImport) {
+                    cleanupAndClose();
+                    return;
+                }
                 if (isCancelled()) {
                     status.setText("Import cancelled. Temporary files are being cleaned up.");
                     return;
@@ -205,7 +257,36 @@ public final class ReceiptImportDialog extends JDialog {
                 }
             }
         };
+        updateActions();
         worker.execute();
+    }
+
+    private void loadCompanySuppliers() {
+        supplierLoading = true;
+        updateActions();
+        supplierWorker = new SwingWorker<>() {
+            @Override protected List<Supplier> doInBackground() {
+                return approvalService.loadCompanySuppliers();
+            }
+
+            @Override protected void done() {
+                supplierLoading = false;
+                supplierWorker = null;
+                try {
+                    companySuppliers = get();
+                    status.setText(companySuppliers.isEmpty()
+                            ? "No company suppliers are available. Add a supplier before approval."
+                            : "Select an existing company supplier for each receipt before approval.");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    status.setText("Supplier authorization check was interrupted.");
+                } catch (ExecutionException e) {
+                    status.setText("Approval unavailable: " + safeMessage(e.getCause()));
+                }
+                updateActions();
+            }
+        };
+        supplierWorker.execute();
     }
 
     private record FileSelection(List<Path> paths) { }
@@ -252,16 +333,19 @@ public final class ReceiptImportDialog extends JDialog {
         ImportedDocument document = documents.getSelectedValue();
         ReceiptCandidate candidate = receipts.getSelectedValue();
         if (document == null || candidate == null) return;
-        ReceiptCandidate updated = ReceiptReviewDialog.showDialog(this, document, candidate);
-        if (updated != null) {
-            session.replaceReceipt(updated);
+        ReceiptReviewDialog.Result result = ReceiptReviewDialog.showDialog(this, document, candidate,
+                companySuppliers, selectedSupplierByReceipt.get(candidate.id()));
+        if (result != null) {
+            session.replaceReceipt(result.candidate());
+            selectedSupplierByReceipt.put(candidate.id(), result.supplierId());
             showSelectedDocument();
             for (int i = 0; i < receiptListModel.size(); i++) {
-                if (receiptListModel.get(i).id().equals(updated.id())) {
+                if (receiptListModel.get(i).id().equals(result.candidate().id())) {
                     receipts.setSelectedIndex(i);
                     break;
                 }
             }
+            receipts.repaint();
         }
     }
 
@@ -269,22 +353,36 @@ public final class ReceiptImportDialog extends JDialog {
         ImportedDocument document = documents.getSelectedValue();
         ReceiptCandidate candidate = receipts.getSelectedValue();
         if (document == null || candidate == null) return;
+        if (isPersisted(candidate.id())) {
+            status.setText("This receipt has already been saved and cannot be removed from the review session.");
+            return;
+        }
         int answer = JOptionPane.showConfirmDialog(this,
                 "Remove this extracted receipt from the current review session?",
                 "Remove receipt", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         if (answer != JOptionPane.YES_OPTION) return;
         session.removeReceipt(document.id(), candidate.id());
+        selectedSupplierByReceipt.remove(candidate.id());
+        approvalResults.remove(candidate.id());
         showSelectedDocument();
     }
 
     private void removeSelectedDocument() {
         ImportedDocument document = documents.getSelectedValue();
         if (document == null) return;
+        if (document.receipts().stream().anyMatch(candidate -> isPersisted(candidate.id()))) {
+            status.setText("This document contains a saved receipt and cannot be removed from the review session.");
+            return;
+        }
         int answer = JOptionPane.showConfirmDialog(this,
                 "Remove " + document.filename() + " and all its receipt candidates from this review session?",
                 "Remove document", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
         if (answer != JOptionPane.YES_OPTION) return;
         session.removeDocument(document.id());
+        document.receipts().forEach(candidate -> {
+            selectedSupplierByReceipt.remove(candidate.id());
+            approvalResults.remove(candidate.id());
+        });
         refreshDocuments(null);
     }
 
@@ -304,25 +402,223 @@ public final class ReceiptImportDialog extends JDialog {
     }
 
     private void updateActions() {
-        boolean busy = worker != null;
+        boolean busy = worker != null || supplierLoading || approvalBusy || closing;
         boolean hasDocument = documents.getSelectedValue() != null;
-        boolean hasReceipt = receipts.getSelectedValue() != null;
-        reviewButton.setEnabled(!busy && hasReceipt);
-        removeReceiptButton.setEnabled(!busy && hasReceipt);
-        removeDocumentButton.setEnabled(!busy && hasDocument);
+        ReceiptCandidate selectedReceipt = receipts.getSelectedValue();
+        boolean hasReceipt = selectedReceipt != null;
+        reviewButton.setEnabled(!busy && hasReceipt && !isPersisted(selectedReceipt.id()));
+        removeReceiptButton.setEnabled(!busy && hasReceipt && !isPersisted(selectedReceipt.id()));
+        boolean documentHasSavedReceipt = hasDocument && documents.getSelectedValue().receipts().stream()
+                .anyMatch(candidate -> isPersisted(candidate.id()));
+        removeDocumentButton.setEnabled(!busy && hasDocument && !documentHasSavedReceipt);
         importButton.setEnabled(!busy);
+        approveButton.setEnabled(!busy && suppliersWorkerReady() && hasPendingCandidates());
+        cancelButton.setEnabled(!approvalBusy && !closing);
     }
 
-    private void setBusy(boolean busy) {
-        importButton.setEnabled(!busy);
-        reviewButton.setEnabled(!busy && receipts.getSelectedValue() != null);
-        removeReceiptButton.setEnabled(!busy && receipts.getSelectedValue() != null);
-        removeDocumentButton.setEnabled(!busy && documents.getSelectedValue() != null);
-        cancelButton.setText(busy ? "Cancel import" : "Cancel");
+    private boolean suppliersWorkerReady() {
+        return supplierWorker == null && !supplierLoading && !companySuppliers.isEmpty();
+    }
+
+    private boolean hasPendingCandidates() {
+        return session.documents().stream().flatMap(document -> document.receipts().stream())
+                .anyMatch(candidate -> {
+                    SaveResult result = approvalResults.get(candidate.id());
+                    return result == null || result.type() == ResultType.FAILED
+                            || result.type() == ResultType.ATTACHMENT_FAILED;
+                });
+    }
+
+    private boolean isPersisted(UUID candidateId) {
+        SaveResult result = approvalResults.get(candidateId);
+        return result != null && result.type() != ResultType.FAILED;
+    }
+
+    private void approveReceipts() {
+        if (approvalBusy || worker != null || !suppliersWorkerReady()) return;
+        List<Draft> drafts = new ArrayList<>();
+        for (ImportedDocument document : session.documents()) {
+            for (ReceiptCandidate candidate : document.receipts()) {
+                SaveResult previous = approvalResults.get(candidate.id());
+                if (previous != null && (previous.type() == ResultType.SAVED
+                        || previous.type() == ResultType.SAVED_WITHOUT_ATTACHMENT)) continue;
+                UUID supplierId = selectedSupplierByReceipt.get(candidate.id());
+                if (supplierId == null) {
+                    status.setText("Review every receipt and link it to an existing company supplier first.");
+                    return;
+                }
+                drafts.add(new Draft(candidate.id(), candidate, supplierId, document.attachmentSource()));
+            }
+        }
+        if (drafts.isEmpty()) return;
+
+        approvalBusy = true;
+        status.setText("Revalidating administrator access and checking company-scoped duplicates…");
+        updateActions();
+        SwingWorker<List<Prepared>, Void> previewWorker = new SwingWorker<>() {
+            @Override protected List<Prepared> doInBackground() {
+                return approvalService.preview(drafts);
+            }
+
+            @Override protected void done() {
+                try {
+                    List<Prepared> prepared = get();
+                    if (prepared.isEmpty()) {
+                        approvalBusy = false;
+                        status.setText("There are no receipts awaiting approval.");
+                        updateActions();
+                        return;
+                    }
+                    if (confirmApproval(prepared)) {
+                        savePrepared(prepared);
+                    } else {
+                        approvalBusy = false;
+                        status.setText("Approval cancelled. No receipts were saved.");
+                        updateActions();
+                    }
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    approvalBusy = false;
+                    status.setText("Approval preview was interrupted. No receipts were saved.");
+                    updateActions();
+                } catch (ExecutionException e) {
+                    approvalBusy = false;
+                    status.setText("Approval could not proceed: " + safeMessage(e.getCause()));
+                    updateActions();
+                }
+            }
+        };
+        previewWorker.execute();
+    }
+
+    private boolean confirmApproval(List<Prepared> prepared) {
+        StringBuilder summary = new StringBuilder("Review this approval summary. Each receipt will be saved separately.\n\n");
+        for (Prepared item : prepared) {
+            summary.append("• ").append(item.receipt().receiptNo()).append(" — ")
+                    .append(item.supplierName()).append(" — ").append(item.receipt().date())
+                    .append(" — total ").append(item.receipt().grandTotal().toPlainString())
+                    .append("\n  Source: ").append(session.documents().stream()
+                            .filter(document -> document.receipts().stream()
+                                    .anyMatch(candidate -> candidate.id().equals(item.candidateId())))
+                            .map(ImportedDocument::filename).findFirst().orElse("unknown"))
+                    .append('\n');
+            item.possibleDuplicates().forEach(duplicate -> summary.append("  DUPLICATE WARNING: ")
+                    .append(duplicate).append('\n'));
+            item.warnings().forEach(warning -> summary.append("  Review: ").append(warning).append('\n'));
+            summary.append('\n');
+        }
+        if (prepared.stream().anyMatch(item -> !item.possibleDuplicates().isEmpty())) {
+            summary.append("Possible duplicates are company-scoped. The server may still reject an exact duplicate.\n\n");
+        }
+        summary.append("Only receipts explicitly approved here will be saved. Continue?");
+        javax.swing.JTextArea text = new javax.swing.JTextArea(summary.toString(), 22, 72);
+        text.setEditable(false);
+        text.setLineWrap(true);
+        text.setWrapStyleWord(true);
+        Object[] options = {"Approve and Save", "Cancel Approval"};
+        return JOptionPane.showOptionDialog(this, new StyledScrollPane(text), "Approve imported receipts",
+                JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[1]) == 0;
+    }
+
+    private void savePrepared(List<Prepared> prepared) {
+        status.setText("Saving approved receipts and handling attachments…");
+        approvalWorker = new SwingWorker<>() {
+            @Override protected List<SaveResult> doInBackground() {
+                return approvalService.approve(prepared, this::publish);
+            }
+
+            @Override protected void process(List<SaveResult> updates) {
+                for (SaveResult result : updates) {
+                    approvalResults.put(result.candidateId(), result);
+                    status.setText(statusLabel(result));
+                }
+                receipts.repaint();
+                updateActions();
+            }
+
+            @Override protected void done() {
+                approvalWorker = null;
+                approvalBusy = false;
+                try {
+                    List<SaveResult> results = get();
+                    long saved = results.stream().filter(result -> result.type() == ResultType.SAVED
+                            || result.type() == ResultType.SAVED_WITHOUT_ATTACHMENT).count();
+                    long failed = results.size() - saved;
+                    status.setText(saved + " receipt(s) saved; " + failed
+                            + " receipt(s) need attention. Failed drafts remain available for correction.");
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    status.setText("Saving was interrupted. Check each receipt status before retrying.");
+                } catch (ExecutionException e) {
+                    status.setText("The approval batch stopped: " + safeMessage(e.getCause()));
+                }
+                receipts.repaint();
+                updateActions();
+            }
+        };
+        updateActions();
+        approvalWorker.execute();
+    }
+
+    private static String statusLabel(SaveResult result) {
+        return switch (result.type()) {
+            case SAVED -> "Saved";
+            case SAVED_WITHOUT_ATTACHMENT -> "Saved — attachment not uploaded";
+            case ATTACHMENT_FAILED -> "Saved — attachment needs attention";
+            case FAILED -> "Not saved — " + result.message();
+        };
+    }
+
+    private static String safeMessage(Throwable error) {
+        Throwable cause = error;
+        while (cause instanceof ExecutionException && cause.getCause() != null) cause = cause.getCause();
+        return cause.getMessage() == null || cause.getMessage().isBlank()
+                ? "Please verify your access and try again." : cause.getMessage();
     }
 
     private void cancelSession() {
-        if (worker != null) worker.cancel(true);
-        dispose();
+        if (approvalBusy || closing) return;
+        if (!session.documents().isEmpty()) {
+            int choice = JOptionPane.showConfirmDialog(this,
+                    "Close this review session? Unsaved drafts will be discarded, and saved receipts will remain in the database.",
+                    "Close receipt import", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (choice != JOptionPane.YES_OPTION) return;
+        }
+        if (worker != null) {
+            closeAfterImport = true;
+            worker.cancel(true);
+            status.setText("Cancelling import and cleaning temporary files…");
+            updateActions();
+            return;
+        }
+        cleanupAndClose();
+    }
+
+    private void cleanupAndClose() {
+        if (closing) return;
+        closing = true;
+        updateActions();
+        new SwingWorker<Void, Void>() {
+            @Override protected Void doInBackground() throws Exception {
+                importService.close();
+                return null;
+            }
+
+            @Override protected void done() {
+                try {
+                    get();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    JOptionPane.showMessageDialog(ReceiptImportDialog.this,
+                            "Temporary import files may not have been fully cleaned up.",
+                            "Cleanup warning", JOptionPane.WARNING_MESSAGE);
+                } catch (ExecutionException e) {
+                    JOptionPane.showMessageDialog(ReceiptImportDialog.this,
+                            "Temporary import files could not be fully cleaned up: " + safeMessage(e.getCause()),
+                            "Cleanup warning", JOptionPane.WARNING_MESSAGE);
+                }
+                dispose();
+            }
+        }.execute();
     }
 }

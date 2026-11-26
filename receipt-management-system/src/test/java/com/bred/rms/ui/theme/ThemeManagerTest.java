@@ -3,10 +3,31 @@ package com.bred.rms.ui.theme;
 import org.junit.jupiter.api.Test;
 
 import java.awt.Color;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ThemeManagerTest {
+    @Test
+    void themeChangesAndListenersRunOnTheSwingEventThreadWithoutDuplicateCallbacks() {
+        boolean previousDark = ThemeManager.isDark();
+        AtomicInteger notifications = new AtomicInteger();
+        java.util.function.Consumer<Boolean> listener = ignored -> {
+            assertTrue(javax.swing.SwingUtilities.isEventDispatchThread());
+            notifications.incrementAndGet();
+        };
+        try {
+            ThemeManager.addThemeListener(listener);
+            ThemeManager.addThemeListener(listener);
+            ThemeManager.apply(!previousDark);
+            assertEquals(1, notifications.get());
+        } finally {
+            ThemeManager.removeThemeListener(listener);
+            ThemeManager.apply(previousDark);
+        }
+    }
+
     @Test
     void signatureAppearanceKeepsItsColorsReadableInBothModes() {
         ThemeManager.installSaved();

@@ -81,7 +81,8 @@ public final class ReceiptDirectoryPanel extends JPanel implements RefreshablePa
         styleAddButton();
         add.addActionListener(e -> onAdd.run());
         User user = ctx.currentUser.get();
-        if (onImport != null && user != null && user.role().canManageCompany()) {
+        if (onImport != null && user != null && user.role() == com.bred.rms.models.Role.ADMIN
+                && user.active() && user.companyId() != null) {
             importDocuments.addActionListener(e -> onImport.run());
         } else {
             importDocuments.setVisible(false);

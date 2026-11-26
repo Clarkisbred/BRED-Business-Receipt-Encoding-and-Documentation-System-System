@@ -15,7 +15,9 @@ final class TestContexts {
     private TestContexts() { }
 
     static AppContext withUser(Role role) {
-        User user = new User(UUID.randomUUID(), "Test User", "t@x.test", role, true);
+        UUID companyId = role == Role.CREATOR ? null : UUID.randomUUID();
+        User user = new User(UUID.randomUUID(), "Test User", "t@x.test", role, true,
+                com.bred.rms.models.AccountStatus.APPROVED, java.time.Instant.EPOCH, "Test Company", companyId);
         var receipts = new Fakes.Receipts();
         var suppliers = new Fakes.Suppliers();
         var projects = new Fakes.Projects();

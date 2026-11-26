@@ -5,12 +5,15 @@ import com.bred.rms.importer.ImportedLineItemsTableModel;
 import com.bred.rms.importer.ReceiptCandidate;
 import com.bred.rms.importer.ReceiptCandidateValidator;
 import com.bred.rms.importer.ReceiptField;
+import com.bred.rms.models.Supplier;
 import com.bred.rms.ui.components.StyledScrollPane;
 import com.bred.rms.ui.theme.RmsColors;
 
 import javax.swing.BorderFactory;
+import javax.swing.DefaultComboBoxModel;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
+import javax.swing.JComboBox;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JList;
@@ -33,22 +36,48 @@ import java.awt.Window;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /** Editable, in-memory review of one extracted receipt candidate. */
 public final class ReceiptReviewDialog extends JDialog {
+    public record Result(ReceiptCandidate candidate, UUID supplierId) { }
+
     private final ImportedDocument document;
     private final ReceiptCandidate draft;
+    private final JComboBox<Supplier> supplierBox = new JComboBox<>();
     private final Map<ReceiptField, JTextField> fields = new EnumMap<>(ReceiptField.class);
     private final DefaultListModel<String> warningModel = new DefaultListModel<>();
     private final ReceiptCandidateValidator validator = new ReceiptCandidateValidator();
     private final ImportedLineItemsTableModel lineItemsModel;
-    private ReceiptCandidate result;
+    private Result result;
     private boolean initializing = true;
 
-    private ReceiptReviewDialog(Window owner, ImportedDocument document, ReceiptCandidate candidate) {
+    private ReceiptReviewDialog(Window owner, ImportedDocument document, ReceiptCandidate candidate,
+                                List<Supplier> suppliers, UUID selectedSupplierId) {
         super(owner, "Review Receipt", ModalityType.APPLICATION_MODAL);
         this.document = document;
         this.draft = candidate.copy();
+        DefaultComboBoxModel<Supplier> supplierModel = new DefaultComboBoxModel<>();
+        supplierModel.addElement(null);
+        suppliers.forEach(supplierModel::addElement);
+        supplierBox.setModel(supplierModel);
+        supplierBox.setRenderer(new javax.swing.DefaultListCellRenderer() {
+            @Override public java.awt.Component getListCellRendererComponent(
+                    javax.swing.JList<?> list, Object value, int index, boolean selected, boolean focus) {
+                String label = value instanceof Supplier supplier
+                        ? supplier.businessName() + "  ·  TIN " + supplier.tin()
+                        : "Select an existing company supplier…";
+                return super.getListCellRendererComponent(list, label, index, selected, focus);
+            }
+        });
+        if (selectedSupplierId != null) {
+            for (int i = 1; i < supplierModel.getSize(); i++) {
+                if (selectedSupplierId.equals(supplierModel.getElementAt(i).id())) {
+                    supplierBox.setSelectedIndex(i);
+                    break;
+                }
+            }
+        }
         this.lineItemsModel = new ImportedLineItemsTableModel(draft, this::refreshWarnings);
         buildLayout();
         populateFields();
@@ -59,8 +88,9 @@ public final class ReceiptReviewDialog extends JDialog {
         setLocationRelativeTo(owner);
     }
 
-    public static ReceiptCandidate showDialog(Window owner, ImportedDocument document, ReceiptCandidate candidate) {
-        ReceiptReviewDialog dialog = new ReceiptReviewDialog(owner, document, candidate);
+    public static Result showDialog(Window owner, ImportedDocument document, ReceiptCandidate candidate,
+                                    List<Supplier> suppliers, UUID selectedSupplierId) {
+        ReceiptReviewDialog dialog = new ReceiptReviewDialog(owner, document, candidate, suppliers, selectedSupplierId);
         dialog.setVisible(true);
         return dialog.result;
     }
@@ -90,7 +120,14 @@ public final class ReceiptReviewDialog extends JDialog {
         done.setBackground(RmsColors.primaryAccent());
         done.setForeground(RmsColors.primaryForeground());
         done.addActionListener(event -> {
-            result = draft;
+            Supplier supplier = (Supplier) supplierBox.getSelectedItem();
+            if (supplier == null) {
+                javax.swing.JOptionPane.showMessageDialog(this,
+                        "Choose an existing supplier in your company before continuing.",
+                        "Supplier required", javax.swing.JOptionPane.WARNING_MESSAGE);
+                return;
+            }
+            result = new Result(draft, supplier.id());
             dispose();
         });
         buttons.add(cancel);
@@ -103,8 +140,22 @@ public final class ReceiptReviewDialog extends JDialog {
 
     private JPanel buildDetails() {
         JPanel details = new JPanel(new BorderLayout(8, 8));
-        JLabel source = new JLabel("Source: " + document.filename() + " — " + draft.sourceReference());
-        details.add(source, BorderLayout.NORTH);
+        JPanel sourceAndSupplier = new JPanel(new GridBagLayout());
+        GridBagConstraints header = new GridBagConstraints();
+        header.insets = new Insets(3, 5, 3, 8);
+        header.anchor = GridBagConstraints.WEST;
+        header.fill = GridBagConstraints.HORIZONTAL;
+        header.gridx = 0;
+        header.gridy = 0;
+        header.weightx = 1;
+        sourceAndSupplier.add(new JLabel("Source: " + document.filename() + " — " + draft.sourceReference()), header);
+        header.gridy = 1;
+        header.weightx = 0;
+        sourceAndSupplier.add(new JLabel("Link to existing company supplier (required)"), header);
+        header.gridx = 1;
+        header.weightx = 1;
+        sourceAndSupplier.add(supplierBox, header);
+        details.add(sourceAndSupplier, BorderLayout.NORTH);
 
         JPanel editor = new JPanel(new BorderLayout(8, 8));
         JPanel fieldPanel = new JPanel(new GridBagLayout());

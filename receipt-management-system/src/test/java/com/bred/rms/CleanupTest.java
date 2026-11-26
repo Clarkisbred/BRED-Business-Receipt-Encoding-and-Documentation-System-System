@@ -41,7 +41,8 @@ class CleanupTest {
             if (f.getFileName().toString().equals("CleanupTest.java") || f.getFileName().toString().endsWith(".class")) continue;
             String text;
             try {
-                text = Files.readString(f).toLowerCase(Locale.ROOT).replace(ALLOWED_PHRASE, "");
+                text = Files.readString(f).toLowerCase(Locale.ROOT).replace(ALLOWED_PHRASE, "")
+                        .replace("eventdispatchthread", "");
             } catch (IOException notText) {
                 continue; // binary file
             }

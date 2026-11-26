@@ -23,9 +23,9 @@ class ReceiptExtractionServiceTest {
     private static final String TWO_RECEIPTS = """
             {"receipts":[
               {"receipt_date":"2026-11-02","tin":"123-456","receipt_number":"R-1","supplier_name":"Store A",
-               "supplier_address":null,"supplier_contact":null,
+               "supplier_address":"1 Main Street","supplier_contact":"555-0100",
                "line_items":[{"description":"Paper","quantity":2,"unit":"ream","unit_price":"10.00","line_total":"20.00"}],
-               "subtotal":"20.00","tax":"0","discount":null,"grand_total":"20.00","currency":"PHP",
+               "subtotal":"20.00","tax":"1.00","discount":"1.00","grand_total":"20.00","currency":"PHP",
                "source_reference":"Sheet1 rows 2-3","confidence":{"supplier_name":"high"},"review_flags":[]},
               {"receipt_number":"R-2","supplier_name":"Store B","line_items":[],
                "source_reference":"Page 2","review_flags":["Two totals need comparison."]}
@@ -43,6 +43,19 @@ class ReceiptExtractionServiceTest {
 
         assertEquals(2, candidates.size());
         assertEquals("R-1", candidates.get(0).value(ReceiptField.RECEIPT_NUMBER));
+        assertEquals("2026-11-02", candidates.get(0).value(ReceiptField.DATE));
+        assertEquals("123-456", candidates.get(0).value(ReceiptField.TIN));
+        assertEquals("1 Main Street", candidates.get(0).value(ReceiptField.SUPPLIER_ADDRESS));
+        assertEquals("555-0100", candidates.get(0).value(ReceiptField.SUPPLIER_CONTACT));
+        assertEquals("20.00", candidates.get(0).value(ReceiptField.SUBTOTAL));
+        assertEquals("1.00", candidates.get(0).value(ReceiptField.TAX));
+        assertEquals("1.00", candidates.get(0).value(ReceiptField.DISCOUNT));
+        assertEquals("20.00", candidates.get(0).value(ReceiptField.GRAND_TOTAL));
+        assertEquals("PHP", candidates.get(0).value(ReceiptField.CURRENCY));
+        assertEquals("Paper", candidates.get(0).lineItems().get(0).description());
+        assertEquals("2", candidates.get(0).lineItems().get(0).quantity());
+        assertEquals("ream", candidates.get(0).lineItems().get(0).unit());
+        assertEquals("10.00", candidates.get(0).lineItems().get(0).unitPrice());
         assertEquals("20.00", candidates.get(0).lineItems().get(0).lineTotal());
         assertEquals("Sheet1 rows 2-3", candidates.get(0).sourceReference());
         assertEquals("high", candidates.get(0).confidence(ReceiptField.SUPPLIER_NAME));
@@ -152,6 +165,19 @@ class ReceiptExtractionServiceTest {
     }
 
     @Test
+    void rejectsAmbiguousEuropeanSeparatorsInsteadOfMisreadingAmounts() {
+        EnumMap<ReceiptField, String> fields = new EnumMap<>(ReceiptField.class);
+        fields.put(ReceiptField.SUBTOTAL, "1.234,56");
+        ReceiptCandidate candidate = new ReceiptCandidate(UUID.randomUUID(), UUID.randomUUID(), "receipt.csv",
+                "row 2", fields, null, null, null);
+
+        List<String> warnings = new ReceiptCandidateValidator().validate(candidate);
+
+        assertTrue(warnings.stream().anyMatch(warning -> warning.contains("subtotal is not a valid number")));
+        assertEquals("1.234,56", candidate.value(ReceiptField.SUBTOTAL));
+    }
+
+    @Test
     void leavesOversizedExtractedTextForReviewWithoutCallingAi() {
         AtomicReference<AIRequest> request = new AtomicReference<>();
         ReceiptExtractionService service = new ReceiptExtractionService(provider(TWO_RECEIPTS, request));
@@ -182,6 +208,7 @@ class ReceiptExtractionServiceTest {
 
         assertTrue(result.extractedText().contains("R-1"));
         assertTrue(result.error().contains("provider offline"));
+        service.close();
         try (var entries = java.nio.file.Files.list(tempRoot)) {
             assertEquals(0, entries.count());
         }

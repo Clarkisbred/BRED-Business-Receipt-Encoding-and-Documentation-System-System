@@ -2,6 +2,8 @@ package com.bred.rms.importer;
 
 import com.bred.rms.ai.AIProvider;
 import com.bred.rms.ai.AIProviderException;
+import com.bred.rms.repositories.AttachmentException;
+import com.bred.rms.repositories.AttachmentRules;
 
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -14,13 +16,15 @@ import java.util.UUID;
 import java.util.function.BiConsumer;
 
 /** Validates, snapshots, reads, and extracts receipt drafts from selected files without saving them. */
-public final class DocumentImportService {
+public final class DocumentImportService implements AutoCloseable {
     public static final int MAX_FILES_PER_SESSION = 50;
     public static final long MAX_SESSION_BYTES = 100L * 1024 * 1024;
     private final DocumentFileValidator validator;
     private final DocumentTextExtractor textExtractor;
     private final ReceiptExtractionService extractionService;
     private final Path temporaryRoot;
+    private Path sessionWorkspace;
+    private boolean closed;
 
     public DocumentImportService(AIProvider provider, OcrService ocrService) {
         this(provider, ocrService, Path.of(System.getProperty("java.io.tmpdir")),
@@ -35,8 +39,9 @@ public final class DocumentImportService {
         this.temporaryRoot = temporaryRoot.toAbsolutePath().normalize();
     }
 
-    public List<ImportedDocument> importFiles(List<Path> files, BiConsumer<Integer, String> progress)
+    public synchronized List<ImportedDocument> importFiles(List<Path> files, BiConsumer<Integer, String> progress)
             throws DocumentImportException, InterruptedException {
+        ensureOpen();
         if (files == null || files.isEmpty()) return List.of();
         if (files.size() > MAX_FILES_PER_SESSION) {
             throw new DocumentImportException("Select no more than " + MAX_FILES_PER_SESSION + " documents at a time.");
@@ -67,7 +72,8 @@ public final class DocumentImportService {
         return List.copyOf(results);
     }
 
-    public ImportedDocument importFile(Path source) throws InterruptedException {
+    public synchronized ImportedDocument importFile(Path source) throws InterruptedException {
+        ensureOpen();
         UUID documentId = UUID.randomUUID();
         String filename = source == null || source.getFileName() == null
                 ? "Unknown document" : source.getFileName().toString();
@@ -75,22 +81,22 @@ public final class DocumentImportService {
         List<String> warnings = new ArrayList<>();
         try {
             DocumentFileType type = validator.validate(source);
-            Files.createDirectories(temporaryRoot);
+            Path retainedSource = retainedSourcePath(documentId, type.extension());
+            copyWithinLimit(source, retainedSource);
+            DocumentFileType snapshotType = validator.validate(retainedSource);
+            if (snapshotType != type) {
+                return failed(documentId, filename, extractedText, warnings,
+                        "The selected file changed while it was being imported.");
+            }
+            Path attachmentSource = attachmentSource(retainedSource, warnings);
             try (TemporaryWorkspace workspace = TemporaryWorkspace.create(temporaryRoot)) {
-                Path snapshot = workspace.path().resolve("source." + type.extension());
-                copyWithinLimit(source, snapshot);
-                DocumentFileType snapshotType = validator.validate(snapshot);
-                if (snapshotType != type) {
-                    return failed(documentId, filename, extractedText, warnings,
-                            "The selected file changed while it was being imported.");
-                }
-
-                ExtractedDocumentText extracted = textExtractor.extract(snapshot, snapshotType, workspace.path());
+                ExtractedDocumentText extracted = textExtractor.extract(retainedSource, snapshotType, workspace.path());
                 extractedText = extracted.text();
                 warnings.addAll(extracted.warnings());
                 if (!hasUsableText(extracted.text())) {
                     warnings.add("No usable text could be extracted; AI receipt extraction was skipped.");
-                    return new ImportedDocument(documentId, filename, extracted.text(), "", warnings, List.of());
+                    return new ImportedDocument(documentId, filename, extracted.text(), "", warnings, List.of(),
+                            attachmentSource);
                 }
                 try {
                     List<ReceiptCandidate> receipts = extractionService.extract(
@@ -98,7 +104,8 @@ public final class DocumentImportService {
                     if (receipts.isEmpty()) {
                         warnings.add("The AI did not identify a receipt. Review the extracted text before closing.");
                     }
-                    return new ImportedDocument(documentId, filename, extracted.text(), "", warnings, receipts);
+                    return new ImportedDocument(documentId, filename, extracted.text(), "", warnings, receipts,
+                            attachmentSource);
                 } catch (AIProviderException | DocumentImportException e) {
                     return failed(documentId, filename, extractedText, warnings,
                             "Receipt extraction did not complete: " + safeMessage(e));
@@ -115,6 +122,24 @@ public final class DocumentImportService {
         } catch (SecurityException e) {
             return failed(documentId, filename, extractedText, warnings,
                     "The document or temporary import workspace could not be accessed.");
+        }
+    }
+
+    private Path retainedSourcePath(UUID documentId, String extension) throws IOException {
+        if (sessionWorkspace == null) {
+            Files.createDirectories(temporaryRoot);
+            sessionWorkspace = Files.createTempDirectory(temporaryRoot, "rms-receipt-import-session-");
+        }
+        return sessionWorkspace.resolve(documentId + "." + extension);
+    }
+
+    private static Path attachmentSource(Path snapshot, List<String> warnings) {
+        try {
+            AttachmentRules.check(snapshot);
+            return snapshot;
+        } catch (AttachmentException e) {
+            warnings.add("The source document cannot be attached under the existing attachment rules: " + e.getMessage());
+            return null;
         }
     }
 
@@ -151,6 +176,23 @@ public final class DocumentImportService {
 
     private static void checkInterrupted() throws InterruptedException {
         if (Thread.currentThread().isInterrupted()) throw new InterruptedException("Document import cancelled.");
+    }
+
+    @Override
+    public synchronized void close() throws IOException {
+        closed = true;
+        if (sessionWorkspace == null) return;
+        try (var paths = Files.walk(sessionWorkspace)) {
+            for (Path entry : paths.sorted(java.util.Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(entry);
+            }
+        } finally {
+            sessionWorkspace = null;
+        }
+    }
+
+    private void ensureOpen() {
+        if (closed) throw new IllegalStateException("This import session has already been closed.");
     }
 
     private static final class TemporaryWorkspace implements AutoCloseable {

@@ -108,6 +108,28 @@ class AIProvidersTest {
     }
 
     @Test
+    void cloudProviderRejectsMalformedAndIncompleteResponses() throws Exception {
+        server = server(exchange -> respond(exchange, 200, "{not-json"));
+        assertThrows(AIProviderException.class,
+                () -> cloudProvider(true).generate(new AIRequest("hello", false)));
+
+        server.stop(0);
+        server = server(exchange -> respond(exchange, 200, "{\"choices\":[]}"));
+        assertThrows(AIProviderException.class,
+                () -> cloudProvider(true).generate(new AIRequest("hello", false)));
+    }
+
+    @Test
+    void disabledProviderIsUnavailableAndRejectsGeneration() {
+        AIProvider provider = new DisabledAIProvider();
+
+        assertEquals("disabled", provider.name());
+        assertFalse(provider.isAvailable());
+        assertThrows(AIProviderException.class,
+                () -> provider.generate(new AIRequest("hello", false)));
+    }
+
+    @Test
     void hybridProviderFallsBackToCloudOnlyWhenLocalGenerationFails() throws Exception {
         server = server(exchange -> respond(exchange, 200,
                 "{\"choices\":[{\"message\":{\"content\":\"cloud fallback\"}}]}"));
@@ -125,6 +147,26 @@ class AIProvidersTest {
         HybridAIProvider hybrid = new HybridAIProvider(localFailure, cloudProvider(false));
         assertTrue(hybrid.isAvailable());
         assertEquals("cloud fallback", hybrid.generate(new AIRequest("hello", false)));
+    }
+
+    @Test
+    void hybridFallbackStillBlocksImportedDocumentsWithoutCloudConsent() throws Exception {
+        AtomicInteger requests = new AtomicInteger();
+        server = server(exchange -> {
+            requests.incrementAndGet();
+            respond(exchange, 200, "{\"choices\":[{\"message\":{\"content\":\"cloud fallback\"}}]}");
+        });
+        AIProvider localFailure = new AIProvider() {
+            @Override public String name() { return "test-local"; }
+            @Override public boolean isAvailable() { return false; }
+            @Override public String generate(AIRequest request) throws AIProviderException {
+                throw new AIProviderException("local offline");
+            }
+        };
+        HybridAIProvider hybrid = new HybridAIProvider(localFailure, cloudProvider(false));
+
+        assertThrows(AIProviderException.class, () -> hybrid.generate(new AIRequest("receipt text", true)));
+        assertEquals(0, requests.get());
     }
 
     private LocalAIProvider localProvider() {

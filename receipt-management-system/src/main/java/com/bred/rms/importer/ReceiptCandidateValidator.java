@@ -133,17 +133,7 @@ public final class ReceiptCandidateValidator {
     }
 
     private static Optional<BigDecimal> number(String value) {
-        if (value == null || value.isBlank()) return Optional.empty();
-        String normalized = value.trim().replace(",", "").replace("₱", "").replace("$", "")
-                .replaceAll("(?i)PHP", "").trim();
-        boolean parenthesizedNegative = normalized.startsWith("(") && normalized.endsWith(")");
-        if (parenthesizedNegative) normalized = normalized.substring(1, normalized.length() - 1).trim();
-        try {
-            BigDecimal result = new BigDecimal(normalized);
-            return Optional.of(parenthesizedNegative ? result.negate() : result);
-        } catch (NumberFormatException e) {
-            return Optional.empty();
-        }
+        return ReceiptAmountParser.parse(value);
     }
 
     private static void warnNegative(BigDecimal value, String label, List<String> warnings) {

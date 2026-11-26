@@ -3,13 +3,14 @@ package com.bred.rms.ui.theme;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.GraphicsEnvironment;
-import java.util.ArrayList;
+import java.lang.reflect.InvocationTargetException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 import java.util.prefs.BackingStoreException;
 import java.util.prefs.Preferences;
@@ -31,7 +32,7 @@ public final class ThemeManager {
     private static final String KEY_APPEARANCE = "theme.appearance";
     private static boolean dark;
     private static Appearance appearance = Appearance.DEFAULT;
-    private static final List<Consumer<Boolean>> listeners = new ArrayList<>();
+    private static final List<Consumer<Boolean>> listeners = new CopyOnWriteArrayList<>();
 
     /** Available application color palettes. */
     public enum Appearance {
@@ -112,6 +113,25 @@ public final class ThemeManager {
 
     /** Safe to call at startup or later; refreshes all open windows and notifies listeners. */
     public static void apply(boolean useDark) {
+        Runnable update = () -> applyOnEventDispatchThread(useDark);
+        if (SwingUtilities.isEventDispatchThread()) {
+            update.run();
+            return;
+        }
+        try {
+            SwingUtilities.invokeAndWait(update);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while applying the application theme.", ex);
+        } catch (InvocationTargetException ex) {
+            Throwable cause = ex.getCause();
+            if (cause instanceof RuntimeException runtimeException) throw runtimeException;
+            if (cause instanceof Error error) throw error;
+            throw new IllegalStateException("Unable to apply the application theme.", cause);
+        }
+    }
+
+    private static void applyOnEventDispatchThread(boolean useDark) {
         dark = useDark;
         PREFS.putBoolean(KEY_DARK, dark);
         PREFS.put(KEY_APPEARANCE, appearance.name());
@@ -144,17 +164,7 @@ public final class ThemeManager {
 
         UIManager.put("defaultFont", baseFont());
         FlatLaf.updateUI();
-
-        // Notify custom components on the Swing Event Dispatch Thread
-        SwingUtilities.invokeLater(() -> {
-            for (Consumer<Boolean> listener : new ArrayList<>(listeners)) {
-                try {
-                    listener.accept(dark);
-                } catch (Exception ex) {
-                    ex.printStackTrace();
-                }
-            }
-        });
+        for (Consumer<Boolean> listener : listeners) listener.accept(dark);
     }
 
     private static String toHex(Color color) {

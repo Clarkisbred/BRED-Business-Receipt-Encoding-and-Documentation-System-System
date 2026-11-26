@@ -1,8 +1,7 @@
 # AI Receipt Importer Development Setup
 
-This prepares the Java dependencies and optional local OCR/AI tools for future importer work. It does not implement
-receipt extraction, call an AI provider, or upload attachments. BRED's existing features remain usable if Ollama or
-Tesseract is unavailable.
+This documents the Java dependencies and optional local OCR/AI tools used by the receipt importer. BRED's existing
+features remain usable if Ollama or Tesseract is unavailable.
 
 ## 1. Required software
 
@@ -74,9 +73,9 @@ under that same consent setting.
 
 Administrators can import `.xlsx`, `.xls`, `.csv`, `.pdf`, `.png`, `.jpg`, `.jpeg`, `.bmp`, `.tif`, and `.tiff` files
 from the Receipts screen. The importer checks extension, file signature, and readability; each file is limited to
-20 MiB, and a session is limited to 50 files / 100 MiB total. Files are staged in a private temporary directory and
-removed after processing. Extracted data remains in the review session only: this phase does not create receipts,
-upload attachments, assign company ownership, or save to the database.
+20 MiB, and a session is limited to 50 files / 100 MiB total. Private temporary copies are retained for the review
+session so eligible source files can be attached after a receipt has been saved, then removed when the session closes.
+Nothing is saved until an administrator explicitly approves it.
 To avoid oversized prompts, AI extraction is limited to 100,000 extracted characters per document; longer text is
 preserved for review but is not sent to an AI provider.
 
@@ -84,6 +83,40 @@ Excel and CSV rows retain headings and row references; PDF pages retain page ref
 at 200 DPI and images are passed to Tesseract. The selected AI provider receives only extracted text, never the
 original document bytes. The AI response is parsed as a list of receipt drafts; discrepancies and low-confidence
 values remain visible for administrator review.
+
+Approval is limited to an active, approved company Admin. The administrator must link each draft to an existing
+company supplier; the extracted supplier name and TIN are not treated as ownership evidence. Apply
+`database/migrations/014_ai_receipt_import_approval.sql` after migration 013 before enabling approvals. Its RPC
+derives the company from the authenticated profile, verifies the supplier and receipt company server-side, and
+delegates receipt creation to the existing `save_receipt` function. It rejects the global Creator role for imports.
+Duplicate warnings are checked against company-scoped receipts; the existing server duplicate rule remains decisive.
+After a confirmed receipt insert, allowed source attachments are uploaded through the existing `AttachmentStore`
+rules (PDF/PNG/JPG/JPEG, maximum 10 MiB) and linked through the same administrator-gated RPC. Attachment problems
+are reported separately; the receipt remains saved and visible with an attachment status.
+
+### Ducky AI chat
+
+The sidebar's **Ducky** screen uses Groq's OpenAI-compatible chat-completions API. Ducky does not use Ollama; the
+`RMS_AI_PROVIDER` setting above applies to the receipt importer only. General prompts are sent to Groq only after a
+user explicitly enables cloud AI in Ducky Settings. The selected model is configurable there. A user-initiated
+connection test sends a generic test prompt.
+
+On Windows, the settings screen saves API keys in the signed-in user's Windows Credential Manager. For development,
+`GROQ_API_KEY` is read from the process environment and takes precedence over a saved key. The key input is masked,
+saved keys are never displayed, and keys are not written to application settings, logs, or this repository. Do not
+paste API keys into source code, issue reports, or chat.
+
+Ducky's default permission is **Ask**, with no BRED tools. **Assist** enables only the registered read-only receipt,
+supplier, totals, and navigation tools. Each operation checks the signed-in user's approved account and uses BRED
+services, which continue to enforce company scope and Supabase RLS. Receipt and supplier results are shown locally
+unless the user confirms the exact result for sharing with Groq. Declining keeps the result on the computer.
+**Execute** is displayed as unavailable; no create, edit, approve, or delete tools are implemented.
+
+Attachments are validated and extracted locally using Tesseract where OCR is required. Images are never sent
+automatically. Extracted OCR text is sent to Groq only after a separate prompt displays the text and the user approves
+that disclosure. OCR temporary files are cleaned up after each request; selected originals remain in place. If
+business data was disclosed, it is omitted from subsequent chat-history prompts. Conversations remain in memory only
+and are not written to the database.
 
 ## 5. Tesseract OCR (optional external runtime)
 
@@ -128,8 +161,9 @@ Set the key only in the environment of the process that launches BRED or inject 
 manager. Do not add a real key to `application.properties`, source control, logs, screenshots, or support reports.
 `RMS_CLOUD_AI_BASE_URL` must use HTTPS. No credentials are generated by this project.
 
-Configuration does not enable any uploads. The importer is not implemented; when cloud processing is added, private
-receipt attachments must not be sent until an administrator explicitly enables and consents to that behavior.
+Imported-document requests send extracted text only, never original document bytes. Requests are blocked unless
+`RMS_CLOUD_AI_ATTACHMENTS_CONSENT=true` explicitly enables cloud processing for imported-document text. Original
+source files are only uploaded after an administrator approves a receipt, using the existing private receipt bucket.
 
 ## 7. Verification commands
 
@@ -153,8 +187,8 @@ Invoke-RestMethod http://localhost:11434/api/tags
 tesseract --version
 ```
 
-The application can still be built and used without Ollama or Tesseract installed. The importer cannot perform local
-AI/OCR work until its respective external tool is installed and the feature is implemented.
+The application can still be built and used without Ollama or Tesseract installed. Extraction features that depend
+on either tool are unavailable until it is installed.
 
 ## 8. Windows packaging
 
@@ -165,7 +199,8 @@ Tess4J is `provided` and its native OCR engines/trained data are explicitly reje
 
 Ollama, its model files, Tesseract, and Tesseract language data are separate user-managed installations and are not
 copied into the MSI. OCR requires a working Tesseract installation and, where needed, the Microsoft Visual C++ v14
-Redistributable. No Supabase database or production configuration changes are part of this setup.
+Redistributable. Apply migration 014 separately to Supabase before enabling approval; this repository does not
+deploy migrations or modify a production database automatically.
 
 ## 9. Troubleshooting
 
