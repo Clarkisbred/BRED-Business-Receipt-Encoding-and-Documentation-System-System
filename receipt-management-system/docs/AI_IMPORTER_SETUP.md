@@ -65,12 +65,27 @@ Cloud mode uses an OpenAI-compatible chat-completions endpoint. Configure its HT
 configuration error if the endpoint or key is missing. Requests time out after 60 seconds by default;
 `RMS_AI_REQUEST_TIMEOUT_SECONDS` changes this value.
 
-Provider requests are text-only in this phase. If a request is marked as containing attachments, cloud AI rejects it
-unless an administrator explicitly sets `RMS_CLOUD_AI_ATTACHMENTS_CONSENT=true`. The text-only API does not transmit
-attachment data even when consent is enabled. Receipt extraction, attachment processing, and persistence are not part
-of this phase.
+Provider requests are text-only; the Phase 2 API does not transmit attachment data. When a request is derived from an
+imported document, cloud AI rejects it unless an administrator explicitly sets
+`RMS_CLOUD_AI_ATTACHMENTS_CONSENT=true`. In hybrid mode, an unavailable Ollama provider falls back to cloud only
+under that same consent setting.
 
-## 4. Tesseract OCR (optional external runtime)
+## 4. Receipt document import and review
+
+Administrators can import `.xlsx`, `.xls`, `.csv`, `.pdf`, `.png`, `.jpg`, `.jpeg`, `.bmp`, `.tif`, and `.tiff` files
+from the Receipts screen. The importer checks extension, file signature, and readability; each file is limited to
+20 MiB, and a session is limited to 50 files / 100 MiB total. Files are staged in a private temporary directory and
+removed after processing. Extracted data remains in the review session only: this phase does not create receipts,
+upload attachments, assign company ownership, or save to the database.
+To avoid oversized prompts, AI extraction is limited to 100,000 extracted characters per document; longer text is
+preserved for review but is not sent to an AI provider.
+
+Excel and CSV rows retain headings and row references; PDF pages retain page references. Scanned PDF pages are rendered
+at 200 DPI and images are passed to Tesseract. The selected AI provider receives only extracted text, never the
+original document bytes. The AI response is parsed as a list of receipt drafts; discrepancies and low-confidence
+values remain visible for administrator review.
+
+## 5. Tesseract OCR (optional external runtime)
 
 Official Windows installer/project: <https://github.com/UB-Mannheim/tesseract/wiki>
 
@@ -82,16 +97,18 @@ tesseract --version
 (Get-Command tesseract.exe).Source
 ```
 
-Keep Tesseract and its language data outside the BRED application package. If the executable is not on `PATH`, set
-`RMS_TESSERACT_EXE` in the process environment to the executable's actual path on that computer. Do not put a
-developer-specific absolute path in source or shared configuration. The prepared config leaves this unset by default,
-so future OCR code can use `tesseract.exe` from `PATH`.
+Keep Tesseract and its English language data outside the BRED application package. The importer invokes the installed
+executable with `ProcessBuilder` (English language, `RMS_AI_REQUEST_TIMEOUT_SECONDS` per-operation timeout); it does
+not load Tess4J or bundle Tesseract.
+If the executable is not on `PATH`, set `RMS_TESSERACT_EXE` in the process environment to the executable's actual path
+on that computer. Do not put a developer-specific absolute path in source or shared configuration. The default is
+`tesseract.exe` from `PATH`.
 
 Tess4J's Windows native integration may require the Microsoft Visual C++ v14 Redistributable. Install the supported
 x64 runtime separately if the OCR runtime reports a missing Visual C++ DLL:
 <https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist>.
 
-## 5. PDFBox 3 configuration
+## 6. PDFBox 3 configuration
 
 Use the PDFBox 3 API. For example, load documents with `org.apache.pdfbox.Loader.loadPDF(...)` and extract text with
 `org.apache.pdfbox.text.PDFTextStripper`. PDFBox is a Java dependency and needs no separate PDFBox installer.

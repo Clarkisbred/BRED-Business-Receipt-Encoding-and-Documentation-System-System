@@ -7,6 +7,7 @@ import com.bred.rms.security.Module;
 import com.bred.rms.ui.auth.LoginPanel;
 import com.bred.rms.ui.auth.SetupPanel;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.receipts.ReceiptDirectoryPanel;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.ui.theme.ThemeManager;
 import java.awt.Color;
@@ -55,6 +56,17 @@ class ShellSmokeTest {
         assertFalse(shell.visibleModules().contains(Module.COMPANIES));
         assertFalse(shell.visibleModules().contains(Module.HISTORY));
         assertTrue(shell.visibleModules().contains(Module.USERS));
+    }
+
+    @Test
+    void documentImportEntryPointIsVisibleOnlyToAdministrators() throws Exception {
+        ReceiptDirectoryPanel encoder = new ReceiptDirectoryPanel(TestContexts.withUser(Role.ENCODER),
+                ignored -> { }, () -> { }, () -> { });
+        ReceiptDirectoryPanel admin = new ReceiptDirectoryPanel(TestContexts.withUser(Role.ADMIN),
+                ignored -> { }, () -> { }, () -> { });
+
+        assertFalse(directoryImportButton(encoder).isVisible());
+        assertTrue(directoryImportButton(admin).isVisible());
     }
 
     @Test
@@ -196,6 +208,12 @@ class ShellSmokeTest {
         var field = Shell.class.getDeclaredField("title");
         field.setAccessible(true);
         return (JLabel) field.get(shell);
+    }
+
+    private static JButton directoryImportButton(ReceiptDirectoryPanel panel) throws ReflectiveOperationException {
+        var field = ReceiptDirectoryPanel.class.getDeclaredField("importDocuments");
+        field.setAccessible(true);
+        return (JButton) field.get(panel);
     }
 }
 

@@ -27,6 +27,9 @@ public final class HybridAIProvider implements AIProvider {
         try {
             return localProvider.generate(request);
         } catch (AIProviderException localFailure) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw localFailure;
+            }
             try {
                 return cloudProvider.generate(request);
             } catch (AIProviderException cloudFailure) {

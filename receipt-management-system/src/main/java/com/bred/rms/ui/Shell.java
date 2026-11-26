@@ -1,6 +1,8 @@
 package com.bred.rms.ui;
 
 import com.bred.rms.config.AppContext;
+import com.bred.rms.config.AiImportConfig;
+import com.bred.rms.ai.AIProviders;
 import com.bred.rms.models.Role;
 import com.bred.rms.models.ChatMessage;
 import com.bred.rms.models.User;
@@ -21,6 +23,9 @@ import com.bred.rms.ui.receipts.ReceiptDetailPanel;
 import com.bred.rms.ui.reports.ReportsPanel;
 import com.bred.rms.ui.receipts.ReceiptDirectoryPanel;
 import com.bred.rms.ui.receipts.ReceiptFormDialog;
+import com.bred.rms.ui.receipts.ReceiptImportDialog;
+import com.bred.rms.importer.DocumentImportService;
+import com.bred.rms.importer.TesseractOcrService;
 import com.bred.rms.ui.theme.ThemeManager;
 import com.bred.rms.utils.BackgroundTask;
 import com.bred.rms.updates.UpdatePreferences;
@@ -153,7 +158,8 @@ public final class Shell extends JPanel {
     private JComponent build(Module m) {
         return switch (m) {
             case RECEIPTS -> {
-                directory = new ReceiptDirectoryPanel(ctx, this::openReceipt, this::addReceipt);
+                directory = new ReceiptDirectoryPanel(ctx, this::openReceipt, this::addReceipt,
+                        this::importReceiptDocuments);
                 yield directory;
             }
             case DASHBOARD -> new DashboardPanel(ctx, this::openReceipt);
@@ -203,6 +209,21 @@ public final class Shell extends JPanel {
             if (directory != null) directory.refreshData();
             openReceipt(saved.id());
         }).setVisible(true);
+    }
+
+    private void importReceiptDocuments() {
+        User user = ctx.currentUser.get();
+        if (user == null || !user.role().canManageCompany()) return;
+        try {
+            AiImportConfig config = AiImportConfig.load();
+            DocumentImportService importer = new DocumentImportService(AIProviders.create(config),
+                    new TesseractOcrService(config.tesseractCommand(), config.requestTimeout()));
+            new ReceiptImportDialog(SwingUtilities.getWindowAncestor(this), importer).setVisible(true);
+        } catch (IllegalArgumentException | IllegalStateException error) {
+            javax.swing.JOptionPane.showMessageDialog(this,
+                    "The AI receipt importer configuration is invalid: " + error.getMessage(),
+                    "AI Receipt Importer", javax.swing.JOptionPane.WARNING_MESSAGE);
+        }
     }
 
     private boolean userIsRecipient() {
