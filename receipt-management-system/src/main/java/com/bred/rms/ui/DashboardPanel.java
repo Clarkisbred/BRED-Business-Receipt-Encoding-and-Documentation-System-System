@@ -37,7 +37,7 @@ public final class DashboardPanel extends JPanel implements RefreshablePanel {
 
     private final AppContext ctx;
     private final Consumer<UUID> onOpen;
-    private final StatCard monthCount = new StatCard("Receipts this month", "–", RmsColors::primaryAccent);
+    private final StatCard totalSpend = new StatCard("Total expenses", "–", RmsColors::primaryAccent);
     private final StatCard monthSpend = new StatCard("Spend this month", "–", RmsColors.SUCCESS);
     private final StatCard totalCount = new StatCard("Total receipts", "–", RmsColors.INFO);
     private final StatCard projectCount = new StatCard("Projects with spend", "–", RmsColors.WARNING);
@@ -55,7 +55,7 @@ public final class DashboardPanel extends JPanel implements RefreshablePanel {
         this.onOpen = onOpen;
         JPanel cards = new JPanel(new GridLayout(1, 4, 12, 0));
         cards.setOpaque(false);
-        for (StatCard c : List.of(monthCount, monthSpend, totalCount, projectCount)) {
+        for (StatCard c : List.of(totalSpend, monthSpend, totalCount, projectCount)) {
             cards.add(c);
         }
         add(cards, BorderLayout.NORTH);
@@ -90,7 +90,7 @@ public final class DashboardPanel extends JPanel implements RefreshablePanel {
 
     private void fill(Loaded loaded) {
         ReportService.Summary s = ReportService.summarize(loaded.receipts(), YearMonth.now());
-        monthCount.setValue(String.valueOf(s.monthCount()));
+        totalSpend.setValue(ReceiptMath.format(s.totalSpend()));
         monthSpend.setValue(ReceiptMath.format(s.monthSpend()));
         totalCount.setValue(String.valueOf(s.totalCount()));
         projectCount.setValue(String.valueOf(s.projectsWithSpend()));

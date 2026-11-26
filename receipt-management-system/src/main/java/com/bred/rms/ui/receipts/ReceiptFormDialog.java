@@ -42,6 +42,11 @@ import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.Window;
+import java.awt.Rectangle;
+import java.awt.GraphicsEnvironment;
+import java.awt.GraphicsConfiguration;
+import java.awt.Insets;
+import java.awt.Toolkit;
 import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.time.LocalDate;
@@ -114,9 +119,7 @@ public final class ReceiptFormDialog extends JDialog {
         error.setText("Loading suppliers and projects…");
         BackgroundTask.run(() -> new Lists(ctx.suppliers.findAll(), ctx.projects.findAll()), this::populate,
                 e -> { setBusy(false); showError(e); });
-        setSize(920, 680);
-        setMinimumSize(new Dimension(820, 600));
-        setLocationRelativeTo(owner);
+        fitToScreen(owner, 920, 680, 820, 600);
     }
 
     private record Lists(List<Supplier> suppliers, List<Project> projects) { }
@@ -244,7 +247,12 @@ public final class ReceiptFormDialog extends JDialog {
         charges.setHorizontalAlignment(SwingConstants.RIGHT);
         lower.add(totals, BorderLayout.EAST);
         middle.add(lower, BorderLayout.SOUTH);
-        root.add(middle, BorderLayout.CENTER);
+        JScrollPane middleScroll = new StyledScrollPane(middle);
+        middleScroll.setBorder(BorderFactory.createEmptyBorder());
+        middleScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
+        middleScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
+        middleScroll.getVerticalScrollBar().setUnitIncrement(24);
+        root.add(middleScroll, BorderLayout.CENTER);
 
         JPanel bottom = new JPanel(new BorderLayout());
         error.setForeground(RmsColors.DANGER);
@@ -258,6 +266,24 @@ public final class ReceiptFormDialog extends JDialog {
         root.add(bottom, BorderLayout.SOUTH);
         setContentPane(root);
         getRootPane().setDefaultButton(save);
+    }
+
+    private void fitToScreen(Window owner, int preferredWidth, int preferredHeight,
+                             int minimumWidth, int minimumHeight) {
+        GraphicsConfiguration gc = owner == null ? null : owner.getGraphicsConfiguration();
+        if (gc == null) gc = GraphicsEnvironment.getLocalGraphicsEnvironment()
+                .getDefaultScreenDevice().getDefaultConfiguration();
+        Rectangle bounds = gc.getBounds();
+        Insets insets = Toolkit.getDefaultToolkit().getScreenInsets(gc);
+        bounds.x += insets.left;
+        bounds.y += insets.top;
+        bounds.width -= insets.left + insets.right;
+        bounds.height -= insets.top + insets.bottom;
+        int width = Math.max(minimumWidth, Math.min(preferredWidth, bounds.width - 40));
+        int height = Math.max(minimumHeight, Math.min(preferredHeight, bounds.height - 40));
+        setSize(Math.min(width, bounds.width), Math.min(height, bounds.height));
+        setLocation(bounds.x + (bounds.width - getWidth()) / 2,
+                bounds.y + (bounds.height - getHeight()) / 2);
     }
 
     private static void row(JPanel p, GridBagConstraints g, int y, String l1, java.awt.Component c1, String l2, java.awt.Component c2) {

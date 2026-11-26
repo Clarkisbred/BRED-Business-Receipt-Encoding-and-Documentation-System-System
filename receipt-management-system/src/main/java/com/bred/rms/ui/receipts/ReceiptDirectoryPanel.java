@@ -47,7 +47,8 @@ public final class ReceiptDirectoryPanel extends JPanel implements RefreshablePa
         @Override public String toString() { return label; }
     }
 
-    private record Loaded(List<Receipt> receipts, List<Supplier> suppliers, List<Project> projects) { }
+    private record Loaded(List<Receipt> receipts, List<Supplier> suppliers, List<Project> projects,
+                          Map<java.util.UUID, String> companies) { }
 
     private final AppContext ctx;
     private final Consumer<UUID> onOpen;
@@ -202,13 +203,13 @@ public final class ReceiptDirectoryPanel extends JPanel implements RefreshablePa
         table.setModel(model);
         TableRowSorter<ReceiptTableModel> sorter = new TableRowSorter<>(model);
         sorter.setComparator(1, (a, b) -> ReceiptTableModel.parseDate((String) a).compareTo(ReceiptTableModel.parseDate((String) b)));
-        sorter.setComparator(4, (a, b) -> ReceiptTableModel.parseMoney((String) a).compareTo(ReceiptTableModel.parseMoney((String) b)));
-        sorter.setComparator(5, (a, b) -> Integer.compare(count((String) a), count((String) b)));
+        sorter.setComparator(5, (a, b) -> ReceiptTableModel.parseMoney((String) a).compareTo(ReceiptTableModel.parseMoney((String) b)));
+        sorter.setComparator(6, (a, b) -> Integer.compare(count((String) a), count((String) b)));
         table.setRowSorter(sorter);
         sorter.setSortKeys(List.of(new javax.swing.RowSorter.SortKey(1, SortOrder.DESCENDING)));
         DefaultTableCellRenderer link = (DefaultTableCellRenderer) table.getClientProperty("rms.linkRenderer");
         table.getColumnModel().getColumn(0).setCellRenderer(link);
-        int[] widths = {130, 110, 240, 200, 120, 60};
+        int[] widths = {130, 110, 220, 180, 180, 120, 60};
         for (int i = 0; i < widths.length; i++) table.getColumnModel().getColumn(i).setPreferredWidth(widths[i]);
     }
 
@@ -224,7 +225,19 @@ public final class ReceiptDirectoryPanel extends JPanel implements RefreshablePa
                 ((Choice) supplierBox.getSelectedItem()).id(), ((Choice) projectBox.getSelectedItem()).id());
         int id = ++requestId;
         showMessage("Loading…", false);
-        BackgroundTask.run(() -> new Loaded(ctx.receipts.search(q), ctx.suppliers.findAll(), ctx.projects.findAll()), loaded -> {
+        BackgroundTask.run(() -> {
+            List<Receipt> receipts = ctx.receipts.search(q);
+            Map<java.util.UUID, String> companies = new HashMap<>();
+            if (ctx.userRepository != null) {
+                for (Receipt receipt : receipts) {
+                    java.util.UUID encoderId = receipt.encodedBy();
+                    if (encoderId == null || companies.containsKey(encoderId)) continue;
+                    ctx.userRepository.findById(encoderId).ifPresent(user ->
+                            companies.put(encoderId, user.companyName().isBlank() ? "No company" : user.companyName()));
+                }
+            }
+            return new Loaded(receipts, ctx.suppliers.findAll(), ctx.projects.findAll(), companies);
+        }, loaded -> {
             if (id != requestId) return;
             show(loaded);
         }, error -> {
@@ -241,7 +254,7 @@ public final class ReceiptDirectoryPanel extends JPanel implements RefreshablePa
         loaded.projects().forEach(p -> proj.put(p.id(), p));
         fillCombo(supplierBox, "All suppliers", loaded.suppliers().stream().map(s -> new Choice(s.id(), s.businessName())).toList());
         fillCombo(projectBox, "All projects", loaded.projects().stream().map(p -> new Choice(p.id(), p.name())).toList());
-        setModel(new ReceiptTableModel(loaded.receipts(), sup, proj));
+        setModel(new ReceiptTableModel(loaded.receipts(), sup, proj, loaded.companies()));
         BigDecimal total = loaded.receipts().stream().map(Receipt::grandTotal).reduce(BigDecimal.ZERO, BigDecimal::add);
         if (loaded.receipts().isEmpty()) showMessage("No receipts match your search.", false);
         else showMessage(loaded.receipts().size() + " receipt(s) · Total " + ReceiptMath.format(total), false);

@@ -106,6 +106,7 @@ public final class DuckyPanel extends JPanel {
 
     private final GroqDuckyService assistant;
     private final GroqCredentials credentials;
+    private final boolean creatorAccess;
 
     private final List<ChatSession> sessions = new ArrayList<>();
 
@@ -144,6 +145,9 @@ public final class DuckyPanel extends JPanel {
 
     private final JLabel status =
             new JLabel("Groq cloud AI is opt-in. Configure Ducky in Settings.");
+    private final JLabel recentChatsHeading = new JLabel("RECENT CHATS");
+    private final JLabel conversationTitle = new JLabel("Ducky chat");
+    private final JLabel conversationType = new JLabel("DUCKY AI");
 
     private ChatSession activeSession;
     private ChatSession renderedSession;
@@ -153,15 +157,25 @@ public final class DuckyPanel extends JPanel {
 
     private boolean sending;
     private boolean selectingSession;
+    private DuckySettingsPopup settingsDialog;
 
     public DuckyPanel(
             GroqDuckyService assistant,
             GroqCredentials credentials
     ) {
+        this(assistant, credentials, false);
+    }
+
+    public DuckyPanel(
+            GroqDuckyService assistant,
+            GroqCredentials credentials,
+            boolean creatorAccess
+    ) {
         super(new BorderLayout(0, 12));
 
         this.assistant = assistant;
         this.credentials = credentials;
+        this.creatorAccess = creatorAccess;
 
         setOpaque(false);
         setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
@@ -236,6 +250,7 @@ public final class DuckyPanel extends JPanel {
                     && sessionList.getSelectedValue() != null) {
 
                 activeSession = sessionList.getSelectedValue();
+                conversationTitle.setText(activeSession.title);
 
                 updateSelectedFiles();
                 renderMessages(true);
@@ -372,15 +387,14 @@ public final class DuckyPanel extends JPanel {
         sessions.setBorder(
                 BorderFactory.createEmptyBorder(12, 10, 10, 10)
         );
-        sessions.setPreferredSize(new Dimension(200, 0));
+        sessions.setPreferredSize(new Dimension(280, 0));
 
-        JLabel heading = new JLabel("RECENT CHATS");
-        heading.setFont(
-                heading.getFont().deriveFont(Font.BOLD, 10f)
+        recentChatsHeading.setFont(
+                recentChatsHeading.getFont().deriveFont(Font.BOLD, 10f)
         );
-        heading.setName("duckyRecentChats");
-        heading.setForeground(RmsColors.SECONDARY_TEXT);
-        heading.setBorder(
+        recentChatsHeading.setName("duckyRecentChats");
+        recentChatsHeading.setForeground(RmsColors.text());
+        recentChatsHeading.setBorder(
                 BorderFactory.createEmptyBorder(2, 5, 5, 5)
         );
 
@@ -392,7 +406,7 @@ public final class DuckyPanel extends JPanel {
                 javax.swing.JViewport.SIMPLE_SCROLL_MODE
         );
 
-        sessions.add(heading, BorderLayout.NORTH);
+        sessions.add(recentChatsHeading, BorderLayout.NORTH);
         sessions.add(listScroll, BorderLayout.CENTER);
 
         JPanel conversation = new JPanel(
@@ -400,6 +414,28 @@ public final class DuckyPanel extends JPanel {
         );
         conversation.setOpaque(false);
 
+        JPanel chatHeader = new JPanel(new BorderLayout(10, 0));
+        chatHeader.setOpaque(false);
+        chatHeader.setBorder(BorderFactory.createEmptyBorder(6, 8, 8, 8));
+        JPanel chatLabels = new JPanel();
+        chatLabels.setOpaque(false);
+        chatLabels.setLayout(new BoxLayout(chatLabels, BoxLayout.Y_AXIS));
+        conversationTitle.setFont(conversationTitle.getFont().deriveFont(Font.BOLD, 16f));
+        JLabel chatSubtitle = new JLabel("Private chat with Ducky");
+        chatSubtitle.setName("duckyConversationSubtitle");
+        chatSubtitle.setForeground(RmsColors.SECONDARY_TEXT);
+        chatSubtitle.setFont(chatSubtitle.getFont().deriveFont(12f));
+        chatLabels.add(conversationTitle);
+        chatLabels.add(Box.createVerticalStrut(4));
+        chatLabels.add(chatSubtitle);
+        conversationType.setFont(conversationType.getFont().deriveFont(Font.BOLD, 9f));
+        conversationType.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(RmsColors.border(), 1, true),
+                BorderFactory.createEmptyBorder(5, 8, 5, 8)));
+        chatHeader.add(chatLabels, BorderLayout.WEST);
+        chatHeader.add(conversationType, BorderLayout.EAST);
+
+        conversation.add(chatHeader, BorderLayout.NORTH);
         conversation.add(messageFrame, BorderLayout.CENTER);
         conversation.add(buildComposer(), BorderLayout.SOUTH);
 
@@ -487,7 +523,8 @@ public final class DuckyPanel extends JPanel {
                 new FlowLayout(FlowLayout.RIGHT, 0, 0)
         );
         controls.setOpaque(false);
-        controls.add(settingsButton);
+        settingsButton.setVisible(creatorAccess);
+        if (creatorAccess) controls.add(settingsButton);
 
         topRow.add(controls, BorderLayout.EAST);
 
@@ -675,6 +712,7 @@ public final class DuckyPanel extends JPanel {
 
         if ("New chat".equals(requestedSession.title)) {
             requestedSession.title = titleFrom(submittedQuestion);
+            conversationTitle.setText(requestedSession.title);
             sessionList.repaint();
         }
 
@@ -782,6 +820,7 @@ public final class DuckyPanel extends JPanel {
         sessionModel.add(0, session);
 
         activeSession = session;
+        conversationTitle.setText("New chat");
 
         selectingSession = true;
         sessionList.setSelectedIndex(0);
@@ -802,7 +841,7 @@ public final class DuckyPanel extends JPanel {
 
         attachButton.setEnabled(!busy);
         clearButton.setEnabled(!busy);
-        settingsButton.setEnabled(!busy);
+        settingsButton.setEnabled(!busy && creatorAccess);
         composer.setEnabled(!busy);
         sessionList.setEnabled(!busy);
     }
@@ -987,25 +1026,25 @@ public final class DuckyPanel extends JPanel {
     }
 
     private void showSettings() {
-        if (activeSession == null) {
+        if (!creatorAccess || activeSession == null) {
             return;
         }
 
-        if (credentials == null) {
-            status.setText("Ducky settings are unavailable.");
+        if (settingsDialog != null && settingsDialog.isDisplayable()) {
+            settingsDialog.toFront();
+            settingsDialog.requestFocus();
             return;
         }
 
-        DuckySettingsPopup popup = new DuckySettingsPopup(
-                credentials,
-                () -> status.setText("Ducky settings updated.")
-        );
-
-        popup.show(
-                settingsButton,
-                0,
-                settingsButton.getHeight()
-        );
+        java.awt.Window owner = SwingUtilities.getWindowAncestor(this);
+        settingsDialog = assistant.sharedBackend() == null
+                ? new DuckySettingsPopup(owner, credentials,
+                        () -> status.setText("Ducky settings updated."),
+                        true)
+                : new DuckySettingsPopup(owner, assistant.sharedBackend(),
+                        () -> status.setText("Ducky shared AI settings updated."),
+                        true);
+        settingsDialog.setVisible(true);
     }
 
     private boolean confirmDisclosure(
@@ -1105,6 +1144,11 @@ public final class DuckyPanel extends JPanel {
 
         selectedFiles.setForeground(RmsColors.SECONDARY_TEXT);
         status.setForeground(RmsColors.SECONDARY_TEXT);
+        recentChatsHeading.setForeground(RmsColors.text());
+        conversationTitle.setForeground(RmsColors.text());
+        conversationType.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(RmsColors.border(), 1, true),
+                BorderFactory.createEmptyBorder(5, 8, 5, 8)));
 
         updateThemeComponents(this);
 
@@ -1224,16 +1268,14 @@ public final class DuckyPanel extends JPanel {
 
         @Override
         protected void paintComponent(Graphics graphics) {
+            super.paintComponent(graphics);
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setRenderingHint(
+                    RenderingHints.KEY_ANTIALIASING,
+                    RenderingHints.VALUE_ANTIALIAS_ON
+            );
             if (selected) {
-                Graphics2D g = (Graphics2D) graphics.create();
-
-                g.setRenderingHint(
-                        RenderingHints.KEY_ANTIALIASING,
-                        RenderingHints.VALUE_ANTIALIAS_ON
-                );
-
                 g.setColor(RmsColors.primaryLight());
-
                 g.fill(
                         new RoundRectangle2D.Float(
                                 0, 0,
@@ -1242,11 +1284,10 @@ public final class DuckyPanel extends JPanel {
                                 10, 10
                         )
                 );
-
-                g.dispose();
             }
-
-            super.paintComponent(graphics);
+            g.setColor(RmsColors.border());
+            g.drawRoundRect(1, 1, getWidth() - 3, getHeight() - 3, 10, 10);
+            g.dispose();
         }
     }
 
@@ -1630,6 +1671,22 @@ public final class DuckyPanel extends JPanel {
             g.setStroke(new BasicStroke(1f));
             g.draw(shape);
 
+            g.dispose();
+        }
+
+        @Override
+        protected void paintChildren(Graphics graphics) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            float inset = 1.5f;
+            g.clip(new RoundRectangle2D.Float(
+                    inset,
+                    inset,
+                    Math.max(0, getWidth() - inset * 2),
+                    Math.max(0, getHeight() - inset * 2),
+                    Math.max(0, radius - 2),
+                    Math.max(0, radius - 2)
+            ));
+            super.paintChildren(g);
             g.dispose();
         }
     }

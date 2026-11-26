@@ -173,8 +173,12 @@ public final class Shell extends JPanel {
             case MESSAGES -> new MessagesPanel(ctx);
             case DUCKY -> {
                 GroqCredentials credentials = new GroqCredentials();
-                yield new DuckyPanel(new GroqDuckyService(ctx, credentials, this::show, this::openReceipt),
-                        credentials);
+                GroqDuckyService service = ctx.supabaseRest == null
+                        ? new GroqDuckyService(ctx, credentials, this::show, this::openReceipt)
+                        : new GroqDuckyService(ctx, credentials, ctx.supabaseRest, this::show, this::openReceipt);
+                var signedIn = ctx.currentUser.get();
+                yield new DuckyPanel(service, credentials,
+                        signedIn != null && signedIn.role() == Role.CREATOR);
             }
             case REPORTS -> new ReportsPanel(ctx);
             case USERS -> new UserManagementPanel(ctx);
@@ -483,7 +487,7 @@ public final class Shell extends JPanel {
         tools.add(storage);
         if (user != null) {
             if (user.role() == Role.CREATOR || UserAvatar.isDuckProfile(user.email())) {
-                UserAvatar avatar = new UserAvatar(38, 36, false);
+                UserAvatar avatar = new UserAvatar(44, 40, false);
                 avatar.setProfile(user.fullName(), user.email());
                 tools.add(avatar);
             }

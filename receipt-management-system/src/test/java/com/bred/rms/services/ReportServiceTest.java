@@ -112,5 +112,6 @@ class ReportServiceTest {
         assertEquals(new BigDecimal("15.00"), s.monthSpend());
         assertEquals(4, s.totalCount());
         assertEquals(2, s.projectsWithSpend());
+        assertEquals(new BigDecimal("116.00"), s.totalSpend());
     }
 }

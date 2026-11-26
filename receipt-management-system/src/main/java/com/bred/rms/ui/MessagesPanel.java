@@ -214,6 +214,9 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
         search.setPreferredSize(new Dimension(0, 38));
         companyChatButton.setHorizontalAlignment(SwingConstants.LEFT);
         companyChatButton.setMargin(new Insets(9, 10, 9, 10));
+        companyChatButton.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(RmsColors.border(), 1, true),
+                BorderFactory.createEmptyBorder(9, 10, 9, 10)));
 
         JPanel peopleTop = new JPanel(new BorderLayout(0, 11));
         peopleTop.setOpaque(false);
@@ -510,6 +513,7 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
                 sender == null ? message.senderEmail() : avatarEmail(sender));
         JPanel bubble = new JPanel(new BorderLayout(0, 5)) {
             @Override protected void paintComponent(Graphics graphics) {
+                super.paintComponent(graphics);
                 Graphics2D g = (Graphics2D) graphics.create();
                 g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                 Color base = mine ? RmsColors.primaryAccent() : RmsColors.surface();
@@ -620,9 +624,19 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
     }
 
     private void applyTheme() {
+        if (!SwingUtilities.isEventDispatchThread()) {
+            SwingUtilities.invokeLater(this::applyTheme);
+            return;
+        }
         setForeground(RmsColors.text());
         search.setForeground(RmsColors.text());
         search.setOpaque(false);
+        search.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(RmsColors.border(), 1, true),
+                BorderFactory.createEmptyBorder(8, 10, 8, 10)));
+        companyChatButton.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(RmsColors.border(), 1, true),
+                BorderFactory.createEmptyBorder(9, 10, 9, 10)));
         composer.setForeground(RmsColors.text());
         composerSurface.repaint();
         conversationTitle.setForeground(RmsColors.text());
@@ -677,13 +691,13 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
         }
 
         @Override protected void paintComponent(Graphics graphics) {
+            super.paintComponent(graphics);
             Graphics2D g = (Graphics2D) graphics.create();
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            if (getBackground().getAlpha() != 0) {
-                g.setColor(new Color(RmsColors.primaryAccent().getRed(), RmsColors.primaryAccent().getGreen(),
-                        RmsColors.primaryAccent().getBlue(), ThemeManager.isDark() ? 40 : 35));
-                g.fillRoundRect(1, 1, getWidth() - 2, getHeight() - 2, 14, 14);
-            }
+            g.setColor(getBackground().getAlpha() == 0 ? RmsColors.surface() : RmsColors.primaryLight());
+            g.fillRoundRect(1, 1, getWidth() - 2, getHeight() - 2, 14, 14);
+            g.setColor(RmsColors.border());
+            g.drawRoundRect(1, 1, getWidth() - 3, getHeight() - 3, 14, 14);
             g.dispose();
         }
     }
@@ -695,6 +709,7 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
         }
 
         @Override protected void paintComponent(Graphics graphics) {
+            super.paintComponent(graphics);
             Graphics2D g = (Graphics2D) graphics.create();
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g.setColor(RmsColors.surface());
@@ -704,8 +719,16 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
             g.setStroke(new BasicStroke(1f));
             g.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 22, 22);
             g.dispose();
-            super.paintComponent(graphics);
         }
+
+        @Override protected void paintChildren(Graphics graphics) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.clip(new java.awt.geom.RoundRectangle2D.Float(
+                    1, 1, getWidth() - 2, getHeight() - 2, 20, 20));
+            super.paintChildren(g);
+            g.dispose();
+        }
+
     }
 
     private static final class RoundedSurface extends JPanel {
@@ -714,6 +737,7 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
         }
 
         @Override protected void paintComponent(Graphics graphics) {
+            super.paintComponent(graphics);
             Graphics2D g = (Graphics2D) graphics.create();
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
             g.setColor(RmsColors.surface());
@@ -722,7 +746,6 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
             g.setStroke(new BasicStroke(1f));
             g.drawRoundRect(0, 0, getWidth() - 1, getHeight() - 1, 18, 18);
             g.dispose();
-            super.paintComponent(graphics);
         }
     }
 

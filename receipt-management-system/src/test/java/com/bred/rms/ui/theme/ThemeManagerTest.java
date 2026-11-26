@@ -58,6 +58,23 @@ class ThemeManagerTest {
     }
 
     @Test
+    void defaultSelectionHighlightDarkensWithDarkTheme() {
+        ThemeManager.Appearance previousAppearance = ThemeManager.appearance();
+        boolean previousDark = ThemeManager.isDark();
+        try {
+            ThemeManager.setAppearance(ThemeManager.Appearance.DEFAULT);
+            ThemeManager.apply(false);
+            assertEquals(RmsColors.PRIMARY_LIGHT, RmsColors.primaryLight());
+
+            ThemeManager.apply(true);
+            assertEquals(Color.decode("#30394B"), RmsColors.primaryLight());
+        } finally {
+            ThemeManager.setAppearance(previousAppearance);
+            ThemeManager.apply(previousDark);
+        }
+    }
+
+    @Test
     void dutertesSignatureUsesModeAppropriateGreens() {
         ThemeManager.installSaved();
         ThemeManager.Appearance previousAppearance = ThemeManager.appearance();

@@ -17,6 +17,7 @@ import java.util.prefs.Preferences;
 
 import javax.swing.SwingUtilities;
 import javax.swing.UIManager;
+import java.awt.Window;
 
 import com.formdev.flatlaf.FlatDarkLaf;
 import com.formdev.flatlaf.FlatLaf;
@@ -165,6 +166,17 @@ public final class ThemeManager {
         UIManager.put("defaultFont", baseFont());
         FlatLaf.updateUI();
         for (Consumer<Boolean> listener : listeners) listener.accept(dark);
+        refreshApplicationHierarchy();
+    }
+
+    /** Clears and repaints every open window after a theme change, on the EDT. */
+    private static void refreshApplicationHierarchy() {
+        for (Window window : Window.getWindows()) {
+            if (!window.isDisplayable()) continue;
+            window.invalidate();
+            window.validate();
+            window.repaint();
+        }
     }
 
     private static String toHex(Color color) {

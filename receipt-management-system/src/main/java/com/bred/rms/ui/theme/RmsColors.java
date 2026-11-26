@@ -130,7 +130,7 @@ public final class RmsColors {
         if (ThemeManager.appearance() == ThemeManager.Appearance.SILVER_LINING) {
             return ThemeManager.isDark() ? Color.decode("#30383C") : Color.decode("#ECEFF1");
         }
-        return PRIMARY_LIGHT;
+        return ThemeManager.isDark() ? Color.decode("#30394B") : PRIMARY_LIGHT;
     }
 
     /** Returns a foreground color with sufficient contrast on the primary accent. */

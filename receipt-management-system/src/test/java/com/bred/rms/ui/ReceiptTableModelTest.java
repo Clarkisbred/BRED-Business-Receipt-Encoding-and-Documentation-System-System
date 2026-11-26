@@ -22,14 +22,16 @@ class ReceiptTableModelTest {
     void columnsAndValuesMatchReceipt() {
         Receipt r = Fakes.receipt("OR-100", acme, null, LocalDate.of(2026, 11, 5), "Nails", "1234.50");
         ReceiptTableModel m = new ReceiptTableModel(List.of(r), Map.of(acme.id(), acme), Map.of());
-        assertEquals(List.of("Receipt No.", "Date", "Supplier", "Project", "Total", "Files"),
-                List.of(m.getColumnName(0), m.getColumnName(1), m.getColumnName(2), m.getColumnName(3), m.getColumnName(4), m.getColumnName(5)));
+        assertEquals(List.of("Receipt No.", "Date", "Supplier", "Project", "Company", "Total", "Files"),
+                List.of(m.getColumnName(0), m.getColumnName(1), m.getColumnName(2), m.getColumnName(3),
+                        m.getColumnName(4), m.getColumnName(5), m.getColumnName(6)));
         assertEquals("OR-100", m.getValueAt(0, 0));
         assertEquals("Nov 5, 2026", m.getValueAt(0, 1));
         assertEquals("Acme Hardware", m.getValueAt(0, 2));
         assertEquals("—", m.getValueAt(0, 3));
-        assertEquals("₱1,234.50", m.getValueAt(0, 4));
-        assertEquals("—", m.getValueAt(0, 5));
+        assertEquals("—", m.getValueAt(0, 4));
+        assertEquals("₱1,234.50", m.getValueAt(0, 5));
+        assertEquals("—", m.getValueAt(0, 6));
         assertEquals(r.id(), m.receiptAt(0).id());
     }
 
@@ -42,7 +44,8 @@ class ReceiptTableModelTest {
                 null, base.createdAt(), base.modifiedAt());
         ReceiptTableModel m = new ReceiptTableModel(List.of(r), Map.of(acme.id(), acme), Map.of(bridge.id(), bridge));
         assertEquals("Bridge Repair", m.getValueAt(0, 3));
-        assertEquals("2", m.getValueAt(0, 5));
+        assertEquals("—", m.getValueAt(0, 4));
+        assertEquals("2", m.getValueAt(0, 6));
     }
 
     @Test

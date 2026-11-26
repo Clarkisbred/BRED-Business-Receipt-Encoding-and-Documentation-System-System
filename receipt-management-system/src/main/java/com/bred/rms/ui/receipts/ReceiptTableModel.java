@@ -19,18 +19,25 @@ import java.util.UUID;
 public final class ReceiptTableModel extends AbstractTableModel {
     public static final String DASH = "—";
     private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("MMM d, yyyy", Locale.US);
-    private static final String[] COLUMNS = {"Receipt No.", "Date", "Supplier", "Project", "Total", "Files"};
+    private static final String[] COLUMNS = {"Receipt No.", "Date", "Supplier", "Project", "Company", "Total", "Files"};
 
     private final List<Receipt> rows;
     private final Map<UUID, Supplier> suppliers;
     private final Map<UUID, Project> projects;
+    private final Map<UUID, String> companies;
 
     public ReceiptTableModel(List<Receipt> receipts, Map<UUID, Supplier> suppliers, Map<UUID, Project> projects) {
+        this(receipts, suppliers, projects, Map.of());
+    }
+
+    public ReceiptTableModel(List<Receipt> receipts, Map<UUID, Supplier> suppliers, Map<UUID, Project> projects,
+                             Map<UUID, String> companies) {
         this.rows = receipts.stream()
                 .sorted(Comparator.comparing(Receipt::date).reversed().thenComparing(Receipt::receiptNo))
                 .toList();
         this.suppliers = suppliers;
         this.projects = projects;
+        this.companies = Map.copyOf(companies);
     }
 
     public Receipt receiptAt(int row) { return rows.get(row); }
@@ -48,7 +55,8 @@ public final class ReceiptTableModel extends AbstractTableModel {
             case 1 -> DATE.format(r.date());
             case 2 -> { Supplier s = suppliers.get(r.supplierId()); yield s == null ? DASH : s.businessName(); }
             case 3 -> { Project p = r.projectId() == null ? null : projects.get(r.projectId()); yield p == null ? DASH : p.name(); }
-            case 4 -> ReceiptMath.format(r.grandTotal());
+            case 4 -> r.encodedBy() == null ? DASH : companies.getOrDefault(r.encodedBy(), DASH);
+            case 5 -> ReceiptMath.format(r.grandTotal());
             default -> r.attachments().isEmpty() ? DASH : String.valueOf(r.attachments().size());
         };
     }

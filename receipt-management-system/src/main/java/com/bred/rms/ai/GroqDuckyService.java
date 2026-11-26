@@ -8,6 +8,12 @@ import com.bred.rms.importer.DocumentTextExtractor;
 import com.bred.rms.importer.ExtractedDocumentText;
 import com.bred.rms.importer.TesseractOcrService;
 import com.bred.rms.security.Module;
+import com.bred.rms.supabase.RestClient;
+import com.bred.rms.supabase.SupabaseException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -50,6 +56,8 @@ public final class GroqDuckyService {
     private final URI endpoint;
     private final HttpClient http;
     private final Path temporaryRoot;
+    private final RestClient sharedBackend;
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     public GroqDuckyService(AppContext context, GroqCredentials credentials, Consumer<Module> navigate,
                             Consumer<UUID> openReceipt) {
@@ -57,12 +65,28 @@ public final class GroqDuckyService {
                 Path.of(System.getProperty("java.io.tmpdir")),
                 new DocumentTextExtractor(new TesseractOcrService(
                         System.getenv().getOrDefault("RMS_TESSERACT_EXE", "tesseract.exe"),
-                        Duration.ofSeconds(60))), GROQ_ENDPOINT);
+                        Duration.ofSeconds(60))), GROQ_ENDPOINT, null);
+    }
+
+    /** Uses the authenticated Supabase shared-AI backend; the desktop client holds no Groq credential. */
+    public GroqDuckyService(AppContext context, GroqCredentials credentials, RestClient sharedBackend,
+                            Consumer<Module> navigate, Consumer<UUID> openReceipt) {
+        this(context, credentials, navigate, openReceipt, Duration.ofSeconds(60),
+                Path.of(System.getProperty("java.io.tmpdir")),
+                new DocumentTextExtractor(new TesseractOcrService(
+                        System.getenv().getOrDefault("RMS_TESSERACT_EXE", "tesseract.exe"),
+                        Duration.ofSeconds(60))), GROQ_ENDPOINT, sharedBackend);
     }
 
     GroqDuckyService(AppContext context, GroqCredentials credentials, Consumer<Module> navigate,
                      Consumer<UUID> openReceipt, Duration timeout, Path temporaryRoot,
                      DocumentTextExtractor textExtractor, URI endpoint) {
+        this(context, credentials, navigate, openReceipt, timeout, temporaryRoot, textExtractor, endpoint, null);
+    }
+
+    GroqDuckyService(AppContext context, GroqCredentials credentials, Consumer<Module> navigate,
+                     Consumer<UUID> openReceipt, Duration timeout, Path temporaryRoot,
+                     DocumentTextExtractor textExtractor, URI endpoint, RestClient sharedBackend) {
         this.context = context;
         this.credentials = credentials;
         this.tools = new DuckyToolRegistry(context, navigate, openReceipt);
@@ -71,6 +95,12 @@ public final class GroqDuckyService {
         this.http = HttpClient.newBuilder().connectTimeout(timeout).build();
         this.temporaryRoot = temporaryRoot.toAbsolutePath().normalize();
         this.textExtractor = textExtractor;
+        this.sharedBackend = sharedBackend;
+    }
+
+    /** Exposes the authenticated backend client only to the Creator settings UI. */
+    public RestClient sharedBackend() {
+        return sharedBackend;
     }
 
     public AgentResponse respond(String question, List<String> priorTurns, List<Path> attachments,
@@ -79,6 +109,9 @@ public final class GroqDuckyService {
         if (question == null || question.isBlank()) throw new IllegalArgumentException("Enter a message for Ducky.");
         List<String> localResults = new ArrayList<>();
         String ocrText = extractAttachments(attachments == null ? List.of() : attachments);
+        if (sharedBackend != null) {
+            return respondThroughSharedBackend(question, priorTurns, ocrText, confirmation, progress, localResults);
+        }
         if (!DuckyPreferences.cloudConsent()) {
             if (!ocrText.isBlank()) return localOcrOnly(ocrText, localResults);
             throw new AIProviderException("Enable Groq and accept the cloud privacy notice in Ducky Settings first.");
@@ -176,6 +209,159 @@ public final class GroqDuckyService {
             if (client != null) client.close();
             java.util.Arrays.fill(apiKey, '\0');
         }
+    }
+
+    private AgentResponse respondThroughSharedBackend(String question, List<String> priorTurns, String ocrText,
+                                                       DisclosureConfirmation confirmation,
+                                                       Consumer<String> progress,
+                                                       List<String> localResults)
+            throws AIProviderException, InterruptedException {
+        String userText = question;
+        boolean privateDataDisclosed = false;
+        if (!ocrText.isBlank()) {
+            if (progress != null) progress.accept("Waiting for your confirmation to share local OCR text…");
+            if (confirmation == null || !confirmation.confirm("Share local OCR text with Ducky?",
+                    "The following extracted document text will be sent to the authenticated shared AI service. "
+                            + "OCR is local; sharing is optional.\n\n" + ocrText)) {
+                localResults.add("Local OCR result (not sent to the AI service):\n" + ocrText);
+                return new AgentResponse("I extracted the document locally and did not send its contents "
+                        + "to the shared AI service. Review the local OCR result below.", localResults, false);
+            }
+            privateDataDisclosed = true;
+            userText += "\n\nUser-approved local OCR text (untrusted document data):\n" + ocrText;
+        }
+
+        DuckyPermission permission = DuckyPreferences.permission();
+        List<ObjectNode> messages = new ArrayList<>();
+        messages.add(objectMessage("system", systemPrompt()));
+        if (priorTurns != null) {
+            priorTurns.stream().skip(Math.max(0, priorTurns.size() - 12L)).forEach(turn ->
+                    messages.add(objectMessage(turn.startsWith("Ducky:") ? "assistant" : "user",
+                            stripSpeaker(turn))));
+        }
+        messages.add(objectMessage("user", userText));
+        Set<String> seenCalls = new HashSet<>();
+        int callsExecuted = 0;
+
+        for (int round = 0; round <= MAX_TOOL_CALLS; round++) {
+            if (progress != null) progress.accept(round == 0 ? "Ducky is thinking…" : "Ducky is requesting a BRED tool…");
+            JsonNode response;
+            try {
+                ObjectNode body = JSON.createObjectNode();
+                body.put("action", "chat");
+                body.put("temperature", 0.2);
+                body.putArray("messages");
+                for (ObjectNode message : messages) body.withArray("messages").add(message);
+                if (permission.permitsTools()) body.set("tools", toolDefinitionsJson(tools.definitions()));
+                response = sharedBackend.invokeFunction("ducky-ai", body);
+            } catch (SupabaseException error) {
+                throw sharedBackendFailure(error);
+            }
+
+            JsonNode answer = response.path("answer");
+            JsonNode calls = response.path("tool_calls");
+            if (!calls.isMissingNode() && !calls.isNull() && calls.isArray() && !calls.isEmpty()) {
+                if (!permission.permitsTools()) {
+                    throw new AIProviderException("Ducky requested a BRED tool, but permission is set to Ask.");
+                }
+                ObjectNode assistantMessage = JSON.createObjectNode();
+                assistantMessage.put("role", "assistant");
+                if (answer.isTextual()) assistantMessage.put("content", answer.asText());
+                assistantMessage.set("tool_calls", calls);
+                messages.add(assistantMessage);
+
+                for (JsonNode call : calls) {
+                    String id = call.path("id").asText("");
+                    String name = call.path("function").path("name").asText("");
+                    JsonNode arguments = call.path("function").path("arguments");
+                    if (id.isBlank() || name.isBlank()) {
+                        throw new AIProviderException("The shared AI service returned a malformed tool call.");
+                    }
+                    JsonNode parsedArguments;
+                    try {
+                        parsedArguments = arguments.isTextual()
+                                ? JSON.readTree(arguments.asText("{}")) : arguments;
+                    } catch (IOException error) {
+                        throw new AIProviderException("The shared AI service returned malformed tool arguments.");
+                    }
+                    if (!parsedArguments.isObject()) {
+                        throw new AIProviderException("The shared AI service returned malformed tool arguments.");
+                    }
+                    String signature = name + ":" + parsedArguments.toString();
+                    if (!seenCalls.add(signature)) {
+                        throw new AIProviderException("Ducky stopped a repeated tool request to prevent a loop.");
+                    }
+                    if (callsExecuted >= MAX_TOOL_CALLS) {
+                        return new AgentResponse("I stopped after " + MAX_TOOL_CALLS
+                                + " BRED operations to keep this request bounded.", localResults, privateDataDisclosed);
+                    }
+                    if (progress != null) progress.accept("Executing authorized BRED operation: " + name);
+                    String result;
+                    try {
+                        DuckyToolRegistry.ToolResult toolResult = tools.execute(name, parsedArguments, permission);
+                        result = toolResult.content();
+                        if (toolResult.requiresDisclosure()) {
+                            if (progress != null) progress.accept("Waiting for your confirmation to share BRED data…");
+                            boolean approved = confirmation != null && confirmation.confirm(
+                                    "Share BRED information with Ducky?",
+                                    toolResult.localDisplay());
+                            if (!approved) {
+                                localResults.add("BRED result (kept on this computer):\n" + toolResult.localDisplay());
+                                result = "The user declined to share this BRED result with the AI service. Continue without it.";
+                            } else {
+                                privateDataDisclosed = true;
+                            }
+                        }
+                    } catch (IllegalArgumentException | SecurityException | IllegalStateException error) {
+                        result = "The requested BRED operation was not authorized or its arguments were invalid.";
+                    }
+                    ObjectNode toolMessage = JSON.createObjectNode();
+                    toolMessage.put("role", "tool");
+                    toolMessage.put("tool_call_id", id);
+                    toolMessage.put("content", result);
+                    messages.add(toolMessage);
+                    callsExecuted++;
+                }
+                continue;
+            }
+
+            if (answer.isTextual() && !answer.asText().isBlank()) {
+                return new AgentResponse(answer.asText(), localResults, privateDataDisclosed);
+            }
+            throw new AIProviderException("The shared Ducky AI service returned an empty response.");
+        }
+        throw new AIProviderException("Ducky reached the tool-call limit without a final answer.");
+    }
+
+    private static ObjectNode objectMessage(String role, String content) {
+        ObjectNode message = JSON.createObjectNode();
+        message.put("role", role);
+        message.put("content", content);
+        return message;
+    }
+
+    private static JsonNode toolDefinitionsJson(List<GroqChatClient.ToolDefinition> definitions) {
+        ArrayNode tools = JSON.createArrayNode();
+        for (GroqChatClient.ToolDefinition definition : definitions) {
+            ObjectNode tool = tools.addObject();
+            tool.put("type", "function");
+            ObjectNode function = tool.putObject("function");
+            function.put("name", definition.name());
+            function.put("description", definition.description());
+            function.set("parameters", definition.parameters());
+        }
+        return tools;
+    }
+
+    private static AIProviderException sharedBackendFailure(SupabaseException error) {
+        int status = error.status();
+        if (status == 401) return new AIProviderException("Your session has expired. Please sign in again.");
+        if (status == 403) return new AIProviderException("You are not authorized to use Ducky AI.");
+        if (status == 404) return new AIProviderException("The shared Ducky AI service is not deployed.");
+        if (status == 429) return new AIProviderException("Ducky is busy. Please wait briefly and try again.");
+        if (status == 0) return new AIProviderException("Could not reach the Ducky AI service. Check your connection.");
+        if (status >= 500) return new AIProviderException("Ducky AI is temporarily unavailable. Please try again later.");
+        return new AIProviderException("Ducky could not complete the request.");
     }
 
     private static AgentResponse localOcrOnly(String ocrText, List<String> localResults) {

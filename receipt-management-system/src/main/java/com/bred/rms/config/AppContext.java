@@ -65,6 +65,8 @@ public final class AppContext {
     public final String storageLabel;
     /** Optional first-run hint shown on the sign-in screen; null when not needed. */
     public final String loginHint;
+    /** Supabase REST and Edge Function client for authenticated shared services; null in local/test mode. */
+    public final RestClient supabaseRest;
 
     private AppContext(AuthApi auth, CurrentUser currentUser, ReceiptService receipts, SupplierService suppliers,
                        ProjectService projects, AttachmentStore attachments, UserRepository userRepository,
@@ -72,9 +74,21 @@ public final class AppContext {
                        SupabaseLocalDataImporter localDataImporter, BugReportRepository bugReportRepository,
                        MessageRepository messages, CompanyRepository companyRepository,
                        AppReleaseRepository appReleaseRepository) {
+        this(auth, currentUser, receipts, suppliers, projects, attachments, userRepository, activityLog,
+                storageLabel, loginHint, localDataImporter, bugReportRepository, messages,
+                companyRepository, appReleaseRepository, null);
+    }
+
+    private AppContext(AuthApi auth, CurrentUser currentUser, ReceiptService receipts, SupplierService suppliers,
+                       ProjectService projects, AttachmentStore attachments, UserRepository userRepository,
+                       ActivityLogRepository activityLog, String storageLabel, String loginHint,
+                       SupabaseLocalDataImporter localDataImporter, BugReportRepository bugReportRepository,
+                       MessageRepository messages, CompanyRepository companyRepository,
+                       AppReleaseRepository appReleaseRepository, RestClient supabaseRest) {
         this.auth = auth;
         this.storageLabel = storageLabel;
         this.loginHint = loginHint;
+        this.supabaseRest = supabaseRest;
         this.localDataImporter = localDataImporter;
         this.currentUser = currentUser;
         this.receipts = receipts;
@@ -111,7 +125,7 @@ public final class AppContext {
                 new SupplierService(supplierRepo, receiptRepo, who), new ProjectService(projectRepo, receiptRepo, who),
                 attachments, userRepo, new SupabaseActivityLogRepository(rest), "Supabase project " + config.supabaseUrl(), null,
                 localDataImporter, new SupabaseBugReportRepository(rest), new SupabaseMessageRepository(rest),
-                new SupabaseCompanyRepository(rest), new SupabaseAppReleaseRepository(http, rest));
+                new SupabaseCompanyRepository(rest), new SupabaseAppReleaseRepository(http, rest), rest);
     }
 
     /**

@@ -29,6 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ShellSmokeTest {
@@ -62,7 +63,7 @@ class ShellSmokeTest {
         assertNotNull(findComponentNamed(panel, "duckySessionsSurface"));
         assertNotNull(findComponentNamed(panel, "duckySessionList"));
         assertNotNull(findComponentNamed(panel, "duckyNewChat"));
-        assertNotNull(findComponentNamed(panel, "duckySettings"));
+        assertNull(findComponentNamed(panel, "duckySettings"));
         assertFalse(panel.activeRecordAccessEnabled());
         assertFalse(hasComponentType(panel, JCheckBox.class));
     }

@@ -26,7 +26,8 @@ public final class ReportService {
     public record Total(String label, int receiptCount, BigDecimal amount) { }
 
     /** Headline numbers for the dashboard. */
-    public record Summary(int monthCount, BigDecimal monthSpend, int totalCount, int projectsWithSpend) { }
+    public record Summary(int monthCount, BigDecimal monthSpend, int totalCount, int projectsWithSpend,
+                          BigDecimal totalSpend) { }
 
     private static final String[] HEADER = {"Receipt No.", "Date", "Type", "Supplier", "TIN", "Project", "Subtotal", "Discount",
             "VAT", "Additional Charges", "Grand Total"};
@@ -70,15 +71,18 @@ public final class ReportService {
     public static Summary summarize(List<Receipt> all, java.time.YearMonth month) {
         int count = 0;
         BigDecimal spend = BigDecimal.ZERO;
+        BigDecimal totalSpend = BigDecimal.ZERO;
         java.util.Set<UUID> projectsUsed = new java.util.HashSet<>();
         for (Receipt r : all) {
+            totalSpend = totalSpend.add(r.grandTotal());
             if (java.time.YearMonth.from(r.date()).equals(month)) {
                 count++;
                 spend = spend.add(r.grandTotal());
             }
             if (r.projectId() != null) projectsUsed.add(r.projectId());
         }
-        return new Summary(count, ReceiptMath.money(spend), all.size(), projectsUsed.size());
+        return new Summary(count, ReceiptMath.money(spend), all.size(), projectsUsed.size(),
+                ReceiptMath.money(totalSpend));
     }
 
     private static List<Total> group(List<Receipt> list, Function<Receipt, String> key, boolean biggestFirst) {

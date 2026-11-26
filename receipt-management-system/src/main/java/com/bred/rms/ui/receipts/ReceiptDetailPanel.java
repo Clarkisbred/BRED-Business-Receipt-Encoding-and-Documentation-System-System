@@ -31,7 +31,8 @@ import java.util.UUID;
 
 /** Shows one receipt as a paper slip, with Edit, Delete (admins) and attachment buttons. */
 public final class ReceiptDetailPanel extends JPanel implements RefreshablePanel {
-    private record Loaded(Optional<Receipt> receipt, Supplier supplier, Project project, String encodedBy) { }
+    private record Loaded(Optional<Receipt> receipt, Supplier supplier, Project project, String encodedBy,
+                          String companyName) { }
 
     private final AppContext ctx;
     private final UUID receiptId;
@@ -85,19 +86,22 @@ public final class ReceiptDetailPanel extends JPanel implements RefreshablePanel
         status.setText("Loading…");
         BackgroundTask.run(() -> {
             Optional<Receipt> r = ctx.receipts.find(receiptId);
-            if (r.isEmpty()) return new Loaded(r, null, null, null);
+            if (r.isEmpty()) return new Loaded(r, null, null, null, null);
             Supplier supplier = ctx.suppliers.findAll().stream().filter(s -> s.id().equals(r.get().supplierId())).findFirst().orElse(null);
             Project project = r.get().projectId() == null ? null
                     : ctx.projects.findAll().stream().filter(p -> p.id().equals(r.get().projectId())).findFirst().orElse(null);
-            return new Loaded(r, supplier, project, encoderName(r.get().encodedBy()));
+            User encoder = encoder(r.get().encodedBy());
+            return new Loaded(r, supplier, project,
+                    encoder == null ? null : encoder.fullName(),
+                    encoder == null ? null : encoder.companyName());
         }, this::show, e -> status.setText(message(e)));
     }
 
     /** Looks up who encoded it; any failure just leaves the name out. */
-    private String encoderName(UUID id) {
+    private User encoder(UUID id) {
         if (id == null || ctx.userRepository == null) return null;
         try {
-            return ctx.userRepository.findById(id).map(User::fullName).orElse(null);
+            return ctx.userRepository.findById(id).orElse(null);
         } catch (RuntimeException e) {
             return null;
         }
@@ -116,7 +120,8 @@ public final class ReceiptDetailPanel extends JPanel implements RefreshablePanel
             edit.setEnabled(true);
             delete.setEnabled(true);
             status.setText(" ");
-            paperHolder.add(new PaperReceiptView(current, loaded.supplier(), loaded.project(), loaded.encodedBy()));
+            paperHolder.add(new PaperReceiptView(current, loaded.supplier(), loaded.project(),
+                    loaded.encodedBy(), loaded.companyName()));
             for (Attachment a : current.attachments()) {
                 JButton open = new JButton("Open " + a.fileName());
                 open.addActionListener(e -> openAttachment(a, open));

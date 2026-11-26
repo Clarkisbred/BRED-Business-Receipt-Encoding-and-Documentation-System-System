@@ -37,7 +37,12 @@ public final class PaperReceiptView extends JPanel {
 
     /** Builds the slip. Supplier, project and encoder name may be null (removed or unknown). */
     public PaperReceiptView(Receipt receipt, Supplier supplier, Project project, String encodedByName) {
-        this.text = render(receipt, supplier, project, encodedByName);
+        this(receipt, supplier, project, encodedByName, null);
+    }
+
+    public PaperReceiptView(Receipt receipt, Supplier supplier, Project project, String encodedByName,
+                            String companyName) {
+        this.text = render(receipt, supplier, project, encodedByName, companyName);
         setLayout(new BorderLayout());
         setBackground(Color.WHITE);
         setBorder(BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(new Color(0xCCCCCC)),
@@ -57,7 +62,8 @@ public final class PaperReceiptView extends JPanel {
     /** Returns the text currently shown on screen. */
     public String displayedText() { return area.getText(); }
 
-    private static String render(Receipt r, Supplier supplier, Project project, String encodedBy) {
+    private static String render(Receipt r, Supplier supplier, Project project, String encodedBy,
+                                 String companyName) {
         List<String> out = new ArrayList<>();
         if (supplier == null) {
             out.add(center("(supplier removed)"));
@@ -93,6 +99,7 @@ public final class PaperReceiptView extends JPanel {
         out.add(rule('='));
         out.add(total("TOTAL", ReceiptMath.format(r.grandTotal())));
         out.add(rule('='));
+        if (notBlank(companyName)) out.add("Company: " + companyName);
         if (notBlank(encodedBy)) out.add("Encoded by: " + encodedBy);
         if (r.createdAt() != null) out.add("Created: " + STAMP.format(r.createdAt().atZone(ZoneId.systemDefault())));
         if (r.modifiedAt() != null) out.add("Last modified: " + STAMP.format(r.modifiedAt().atZone(ZoneId.systemDefault())));
