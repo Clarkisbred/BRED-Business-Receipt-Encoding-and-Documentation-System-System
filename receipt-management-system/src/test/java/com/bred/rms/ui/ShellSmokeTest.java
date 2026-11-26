@@ -265,6 +265,15 @@ class ShellSmokeTest {
     }
 
     @Test
+    void selectedNavigationOutlineIsInsetOnlyForCreatorSidebar() throws Exception {
+        Shell creatorShell = new Shell(TestContexts.withUser(Role.CREATOR), () -> { });
+        Shell encoderShell = new Shell(TestContexts.withUser(Role.ENCODER), () -> { });
+
+        assertEquals(12, selectionTrailingInset(creatorShell));
+        assertEquals(0, selectionTrailingInset(encoderShell));
+    }
+
+    @Test
     void settingsOffersTheSignatureAppearance() throws Exception {
         SettingsPanel settings = new SettingsPanel(TestContexts.withUser(Role.ENCODER));
         JComboBox<?> appearances = java.util.Arrays.stream(settings.getComponents())
@@ -463,6 +472,15 @@ class ShellSmokeTest {
         var field = Shell.class.getDeclaredField("title");
         field.setAccessible(true);
         return (JLabel) field.get(shell);
+    }
+
+    private static int selectionTrailingInset(Shell shell) throws ReflectiveOperationException {
+        var navField = Shell.class.getDeclaredField("navList");
+        navField.setAccessible(true);
+        Object navList = navField.get(shell);
+        var insetField = navList.getClass().getDeclaredField("selectionTrailingInset");
+        insetField.setAccessible(true);
+        return insetField.getInt(navList);
     }
 
     private static JButton directoryImportButton(ReceiptDirectoryPanel panel) throws ReflectiveOperationException {

@@ -37,16 +37,17 @@ class SupabaseRepositoriesTest {
     private static final String RID = "aaaaaaaa-0000-0000-0000-000000000001";
     private static final String SID = "bbbbbbbb-0000-0000-0000-000000000001";
     private static final String PID = "cccccccc-0000-0000-0000-000000000001";
+    private static final String CID = "eeeeeeee-0000-0000-0000-000000000001";
 
     private static final String RECEIPT_JSON = """
             [{"id":"%s","receipt_no":"OR-100","receipt_date":"2026-11-05","receipt_type":"sales_invoice",
-              "supplier_id":"%s","project_id":"%s","discount":11.00,"vat":28.80,"additional_charges":5,
+              "supplier_id":"%s","project_id":"%s","company_id":"%s","discount":11.00,"vat":28.80,"additional_charges":5,
               "encoded_by":"dddddddd-0000-0000-0000-000000000001",
               "created_at":"2026-11-05T01:02:03.123456+00:00","modified_at":"2026-11-06T01:02:03+00:00",
               "receipt_items":[{"line_no":2,"description":"Hammer","quantity":1,"unit_price":50},
                                {"line_no":1,"description":"Nails","quantity":2.000,"unit_price":100.50}],
               "receipt_attachments":[{"file_name":"scan.pdf","storage_path":"%s/1-scan.pdf"}]}]
-            """.formatted(RID, SID, PID, RID);
+            """.formatted(RID, SID, PID, CID, RID);
 
     @Test
     void receiptRepositoryMapsRowsWithItemsAndAttachments() {
@@ -58,6 +59,7 @@ class SupabaseRepositoriesTest {
             assertEquals("OR-100", r.receiptNo());
             assertEquals(ReceiptType.SALES_INVOICE, r.type());
             assertEquals(LocalDate.of(2026, 11, 5), r.date());
+            assertEquals(UUID.fromString(CID), r.companyId());
             assertEquals("Nails", r.items().get(0).description());
             assertEquals("Hammer", r.items().get(1).description());
             assertEquals(new BigDecimal("273.80"), r.grandTotal());

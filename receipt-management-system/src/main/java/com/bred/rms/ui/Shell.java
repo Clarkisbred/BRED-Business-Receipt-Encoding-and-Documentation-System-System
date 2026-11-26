@@ -361,6 +361,9 @@ public final class Shell extends JPanel {
         JScrollBar navBar = navScroll.getVerticalScrollBar();
         navBar.setUnitIncrement(42);
         navBar.setBlockIncrement(168);
+        if (user != null && user.role() == Role.CREATOR) {
+            navList.setSelectionTrailingInset(navBar.getPreferredSize().width);
+        }
         side.add(navScroll);
         side.add(Box.createVerticalGlue());
         return side;
@@ -398,6 +401,7 @@ public final class Shell extends JPanel {
         private static final int ARC = 14;
         private final List<JToggleButton> buttons = new ArrayList<>();
         private final Timer animation;
+        private int selectionTrailingInset;
         private double y = -1;
         private double targetY = -1;
 
@@ -418,6 +422,11 @@ public final class Shell extends JPanel {
         private void addButton(JToggleButton button) {
             buttons.add(button);
             add(button);
+        }
+
+        private void setSelectionTrailingInset(int inset) {
+            selectionTrailingInset = Math.max(0, inset);
+            repaint();
         }
 
         private void select(int index) {
@@ -445,8 +454,9 @@ public final class Shell extends JPanel {
             if (y < 0 || getWidth() <= 2) return;
             Graphics2D g = (Graphics2D) graphics.create();
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            int selectionWidth = Math.max(0, getWidth() - 3 - selectionTrailingInset);
             RoundRectangle2D outline = new RoundRectangle2D.Float(1, (float) y + 1,
-                    getWidth() - 3, ROW_HEIGHT - 3, ARC, ARC);
+                    selectionWidth, ROW_HEIGHT - 3, ARC, ARC);
             g.setColor(ThemeManager.isDark()
                     ? new Color(RmsColors.primaryAccent().getRed(), RmsColors.primaryAccent().getGreen(), RmsColors.primaryAccent().getBlue(), 38)
                     : RmsColors.primaryLight());

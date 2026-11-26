@@ -132,6 +132,7 @@ public final class SupabaseReceiptRepository implements ReceiptRepository {
         return new Receipt(Json.uuid(row, "id"), Json.text(row, "receipt_no"), Json.date(row, "receipt_date"),
                 ReceiptType.fromDb(Json.text(row, "receipt_type")), Json.uuid(row, "supplier_id"), Json.uuid(row, "project_id"),
                 items, Json.decimal(row, "discount"), Json.decimal(row, "vat"), Json.decimal(row, "additional_charges"),
-                atts, Json.uuid(row, "encoded_by"), Json.instant(row, "created_at"), Json.instant(row, "modified_at"));
+                atts, Json.uuid(row, "encoded_by"), Json.instant(row, "created_at"), Json.instant(row, "modified_at"),
+                Json.uuid(row, "company_id"));
     }
 }

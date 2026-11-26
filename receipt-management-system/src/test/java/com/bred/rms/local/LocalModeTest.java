@@ -81,6 +81,7 @@ class LocalModeTest {
         Attachment att = first.attachments.upload(id, scan);
         Receipt saved = first.receipts.save(receipt(id, "OR-1", s, p, List.of(att)));
         assertEquals(first.auth.current().id(), saved.encodedBy());
+        assertEquals(first.auth.current().companyId(), saved.companyId());
         assertTrue(saved.createdAt() != null && saved.modifiedAt() != null);
 
         AppContext second = adminContext(dir);
@@ -88,6 +89,7 @@ class LocalModeTest {
         assertEquals(1, all.size());
         Receipt r = all.get(0);
         assertEquals("OR-1", r.receiptNo());
+        assertEquals(second.auth.current().companyId(), r.companyId());
         assertEquals(new BigDecimal("225.12"), r.grandTotal());
         assertEquals(p.id(), r.projectId());
         assertEquals(1, r.attachments().size());

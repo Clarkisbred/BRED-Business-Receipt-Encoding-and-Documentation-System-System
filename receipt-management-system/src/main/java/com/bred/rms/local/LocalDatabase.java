@@ -405,7 +405,9 @@ public final class LocalDatabase {
                     Receipt stored = new Receipt(id, r.receiptNo().trim(), r.date(), r.type(), r.supplierId(), r.projectId(), r.items(),
                             r.discount(), r.vat(), r.additionalCharges(), r.attachments(),
                             previous.map(Receipt::encodedBy).orElse(me == null ? null : me.id()),
-                            previous.map(Receipt::createdAt).orElse(now), now);
+                            previous.map(Receipt::createdAt).orElse(now), now,
+                            previous.map(Receipt::companyId).orElseGet(() ->
+                                    me != null && me.companyId() != null ? me.companyId() : s.companies.get(0).id()));
                     s.receipts.removeIf(x -> x.id().equals(id));
                     s.receipts.add(stored);
                     log(s, previous.isPresent() ? "receipt.update" : "receipt.create", stored.receiptNo());
@@ -624,7 +626,7 @@ public final class LocalDatabase {
             for (JsonNode n : root.path("projects")) {
                 s.projects.add(new Project(UUID.fromString(n.path("id").asText()), n.path("name").asText(), n.path("code").asText(), n.path("fundSource").asText()));
             }
-            for (JsonNode n : root.path("receipts")) s.receipts.add(readReceipt(n));
+            for (JsonNode n : root.path("receipts")) s.receipts.add(readReceipt(n, s.accounts, defaultCompany));
             for (JsonNode n : root.path("activity")) {
                 s.activity.add(new ActivityEntry(Instant.parse(n.path("at").asText()), uuidOrNull(n.path("userId")), n.path("userName").asText(),
                         n.path("action").asText(), n.path("detail").asText()));
@@ -659,17 +661,26 @@ public final class LocalDatabase {
 
     private static UUID uuidOrNull(JsonNode n) { return n.isMissingNode() || n.isNull() || n.asText().isBlank() ? null : UUID.fromString(n.asText()); }
 
-    private static Receipt readReceipt(JsonNode n) {
+    private static Receipt readReceipt(JsonNode n, List<Account> accounts, Company defaultCompany) {
         List<ReceiptItem> items = new ArrayList<>();
         for (JsonNode i : n.path("items")) {
             items.add(new ReceiptItem(i.path("description").asText(), new BigDecimal(i.path("quantity").asText()), new BigDecimal(i.path("unitPrice").asText())));
         }
         List<Attachment> atts = new ArrayList<>();
         for (JsonNode a : n.path("attachments")) atts.add(new Attachment(a.path("fileName").asText(), a.path("storagePath").asText()));
+        UUID encodedBy = uuidOrNull(n.path("encodedBy"));
+        UUID companyId = uuidOrNull(n.path("companyId"));
+        if (companyId == null) {
+            companyId = accounts.stream().map(Account::user)
+                    .filter(user -> user.id().equals(encodedBy))
+                    .map(User::companyId).filter(java.util.Objects::nonNull)
+                    .findFirst().orElse(defaultCompany.id());
+        }
         return new Receipt(UUID.fromString(n.path("id").asText()), n.path("receiptNo").asText(), LocalDate.parse(n.path("date").asText()),
                 ReceiptType.fromDb(n.path("type").asText()), UUID.fromString(n.path("supplierId").asText()), uuidOrNull(n.path("projectId")), items,
                 new BigDecimal(n.path("discount").asText("0")), new BigDecimal(n.path("vat").asText("0")), new BigDecimal(n.path("additionalCharges").asText("0")),
-                atts, uuidOrNull(n.path("encodedBy")), Instant.parse(n.path("createdAt").asText()), Instant.parse(n.path("modifiedAt").asText()));
+                atts, encodedBy, Instant.parse(n.path("createdAt").asText()), Instant.parse(n.path("modifiedAt").asText()),
+                companyId);
     }
 
     private void save() {
@@ -711,6 +722,7 @@ public final class LocalDatabase {
             ArrayNode atts = n.putArray("attachments");
             for (Attachment a : r.attachments()) atts.addObject().put("fileName", a.fileName()).put("storagePath", a.storagePath());
             if (r.encodedBy() != null) n.put("encodedBy", r.encodedBy().toString());
+            if (r.companyId() != null) n.put("companyId", r.companyId().toString());
             n.put("createdAt", r.createdAt().toString()).put("modifiedAt", r.modifiedAt().toString());
         }
         ArrayNode activity = root.putArray("activity");

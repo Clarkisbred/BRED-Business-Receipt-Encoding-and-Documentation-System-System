@@ -9,13 +9,22 @@ import java.util.UUID;
 /** An encoded receipt with its line items, charges and attachments. {@code projectId} may be null. */
 public record Receipt(UUID id, String receiptNo, LocalDate date, ReceiptType type, UUID supplierId, UUID projectId,
                       List<ReceiptItem> items, BigDecimal discount, BigDecimal vat, BigDecimal additionalCharges,
-                      List<Attachment> attachments, UUID encodedBy, Instant createdAt, Instant modifiedAt) {
+                      List<Attachment> attachments, UUID encodedBy, Instant createdAt, Instant modifiedAt,
+                      UUID companyId) {
     public Receipt {
         items = items == null ? List.of() : List.copyOf(items);
         attachments = attachments == null ? List.of() : List.copyOf(attachments);
         discount = discount == null ? BigDecimal.ZERO : discount;
         vat = vat == null ? BigDecimal.ZERO : vat;
         additionalCharges = additionalCharges == null ? BigDecimal.ZERO : additionalCharges;
+    }
+
+    /** Compatibility constructor for callers without persisted company scope. */
+    public Receipt(UUID id, String receiptNo, LocalDate date, ReceiptType type, UUID supplierId, UUID projectId,
+                   List<ReceiptItem> items, BigDecimal discount, BigDecimal vat, BigDecimal additionalCharges,
+                   List<Attachment> attachments, UUID encodedBy, Instant createdAt, Instant modifiedAt) {
+        this(id, receiptNo, date, type, supplierId, projectId, items, discount, vat, additionalCharges,
+                attachments, encodedBy, createdAt, modifiedAt, null);
     }
 
     /** Returns the sum of all item subtotals. */
@@ -31,6 +40,6 @@ public record Receipt(UUID id, String receiptNo, LocalDate date, ReceiptType typ
     /** Returns a copy of this receipt with the given attachments. */
     public Receipt withAttachments(List<Attachment> newAttachments) {
         return new Receipt(id, receiptNo, date, type, supplierId, projectId, items, discount, vat, additionalCharges,
-                newAttachments, encodedBy, createdAt, modifiedAt);
+                newAttachments, encodedBy, createdAt, modifiedAt, companyId);
     }
 }
