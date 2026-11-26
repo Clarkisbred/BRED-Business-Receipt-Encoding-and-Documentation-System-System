@@ -24,6 +24,7 @@ and Maven on the computer that runs the app.
    12. `012_company_group_chat.sql`: company-wide group chat and urgent message labels
    13. `013_app_releases.sql`: shared current-version display and Creator-only version publishing
    14. `014_ai_receipt_import_approval.sql`: server-validated administrator approval for imported receipts and audit events
+   15. `015_ducky_shared_ai.sql`: shared Ducky model configuration
 
    Migration 008 creates a `Legacy Company` only when needed and assigns previously unscoped records and profiles to it.
    Existing companies are retained. The Creator can see all companies; Admins and Encoders are restricted to their own.
@@ -36,6 +37,7 @@ and Maven on the computer that runs the app.
    Migration 014 adds no table or RLS changes. Its approval RPC requires an active company Admin, derives company
    ownership from the authenticated profile and selected in-company supplier, and delegates receipt writes to the
    existing `save_receipt` RPC. Apply it before using AI Receipt Import approval or attachment linking.
+   Migration 015 creates the shared Ducky model configuration. Apply it before deploying the `ducky-ai` function.
 
    The updater expects a stable GitHub release asset named `BRED-Setup-<version>.msi` (for example, tag `v1.2.3`
    uses `BRED-Setup-1.2.3.msi`). BRED stages downloads in a per-user update directory. If GitHub supplies an asset
@@ -184,6 +186,23 @@ messages. Reset links open the hosted `web/reset-password.html` page (see "Reset
    service role for listing active company names and for creating either a pending Encoder profile or a company plus
    immediately active Admin profile. Keep the service-role key in Supabase's function secrets only; never put it in
    `application.properties`.
+
+## Ducky shared AI backend
+Apply `database/migrations/015_ducky_shared_ai.sql` and `database/migrations/016_ducky_groq_supported_model.sql` in the
+Supabase SQL Editor, then deploy the authenticated Edge Function and configure the server-side Groq secret:
+```powershell
+npx supabase functions deploy ducky-ai
+npx supabase secrets set --project-ref YOUR-PROJECT-REF GROQ_API_KEY=YOUR_GROQ_API_KEY
+```
+The function uses Supabase's `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` environment values.
+The default model is `openai/gpt-oss-120b`, which Groq lists as production and supports tool use. Migration 016 updates
+the old default only, preserving any model the Creator explicitly selected. Only the Creator can update the shared model
+or run the connection test; signed-in, approved users can use Ducky without their own Groq key. Never place
+`GROQ_API_KEY` or the service-role key in the desktop app. In Ducky AI Settings, use
+**Test connection** to verify the configured model and Groq secret; the status check alone only confirms that settings
+are present.
+After changing the function code, deploy `ducky-ai` again. For an unexpected chat server error, inspect the
+`ducky-ai` Edge Function logs in the Supabase Dashboard; unexpected errors include a sanitized summary, not secret values.
 
 ## 5. Point the app at your project
 1. In Supabase open **Project Settings → API**. Copy the **Project URL** and the **anon / publishable** key.

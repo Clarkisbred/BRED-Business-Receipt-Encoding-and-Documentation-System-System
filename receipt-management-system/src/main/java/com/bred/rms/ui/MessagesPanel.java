@@ -39,6 +39,7 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridBagLayout;
@@ -546,11 +547,15 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
             }
             bubble.add(meta, BorderLayout.NORTH);
         }
-        String html = "<html><div style='width:300px'>" + escapeHtml(message.body()).replace("\n", "<br>")
+        JLabel body = new JLabel();
+        Font bodyFont = body.getFont().deriveFont(13f);
+        body.setFont(bodyFont);
+        int bodyWidth = messageBodyWidth(message.body(), body.getFontMetrics(bodyFont), 300);
+        String html = "<html><div style='width:" + bodyWidth + "px'>"
+                + escapeHtml(message.body()).replace("\n", "<br>")
                 + "</div></html>";
-        JLabel body = new JLabel(html);
+        body.setText(html);
         body.setForeground(RmsColors.text());
-        body.setFont(body.getFont().deriveFont(13f));
         JLabel time = new JLabel(message.sentAt() == null ? ""
                 : TIME.format(message.sentAt().atZone(ZoneId.systemDefault())));
         time.setHorizontalAlignment(mine ? SwingConstants.RIGHT : SwingConstants.LEFT);
@@ -568,6 +573,17 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
             row.add(avatar);
         }
         return row;
+    }
+
+    static int messageBodyWidth(String text, FontMetrics metrics, int maximumWidth) {
+        int widestLine = 0;
+        if (text != null) {
+            for (String line : text.split("\\R", -1)) {
+                widestLine = Math.max(widestLine, metrics.stringWidth(line));
+            }
+        }
+        int cap = Math.max(1, maximumWidth);
+        return Math.min(cap, Math.max(Math.min(24, cap), widestLine + 8));
     }
 
     private static String avatarEmail(User user) {

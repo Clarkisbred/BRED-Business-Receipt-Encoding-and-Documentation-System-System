@@ -8,13 +8,14 @@ public final class DuckyPreferences {
     private static final String MODEL = "ducky.groq.model";
     private static final String CONSENT = "ducky.groq.cloudConsent";
     private static final String PERMISSION = "ducky.permission";
-    private static final String DEFAULT_MODEL = "llama-3.3-70b-versatile";
+    private static final String DEFAULT_MODEL = "openai/gpt-oss-120b";
     private static final Preferences VALUES = Preferences.userNodeForPackage(DuckyPreferences.class);
 
     private DuckyPreferences() { }
 
     public static String model() {
-        return VALUES.get(MODEL, DEFAULT_MODEL);
+        String configured = VALUES.get(MODEL, DEFAULT_MODEL);
+        return "llama-3.3-70b-versatile".equals(configured) ? DEFAULT_MODEL : configured;
     }
 
     public static void setModel(String model) {

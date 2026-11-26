@@ -2,44 +2,67 @@ package com.bred.rms.ai;
 
 import com.bred.rms.config.AppContext;
 import com.bred.rms.models.AccountStatus;
+import com.bred.rms.models.Project;
 import com.bred.rms.models.Receipt;
+import com.bred.rms.models.ReceiptItem;
+import com.bred.rms.models.ReceiptType;
 import com.bred.rms.models.Supplier;
 import com.bred.rms.models.User;
 import com.bred.rms.security.AccessPolicy;
 import com.bred.rms.security.Module;
+import com.bred.rms.services.BugReportService;
 import com.bred.rms.services.ReceiptQuery;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.UUID;
 import java.lang.reflect.InvocationTargetException;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
-/** Explicit, allow-listed read-only actions available to Ducky Assist mode. */
+/** Explicit, allow-listed BRED actions available to Ducky. */
 public final class DuckyToolRegistry {
     public record ToolResult(String content, String localDisplay, boolean requiresDisclosure) { }
 
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int DEFAULT_LIMIT = 5;
     private static final int MAX_LIMIT = 10;
+    private static final java.util.Set<String> SAFE_ACTIONS = java.util.Set.of(
+            "openReceiptEntry", "createReceiptFromChat", "submitBugReport");
 
     private final AppContext context;
     private final Consumer<Module> navigate;
     private final Consumer<UUID> openReceipt;
+    private final Runnable openReceiptEntry;
+    private final BugReportService bugReports;
     private final List<GroqChatClient.ToolDefinition> definitions;
 
     public DuckyToolRegistry(AppContext context, Consumer<Module> navigate, Consumer<UUID> openReceipt) {
+        this(context, navigate, openReceipt, null);
+    }
+
+    public DuckyToolRegistry(AppContext context, Consumer<Module> navigate, Consumer<UUID> openReceipt,
+                             Runnable openReceiptEntry) {
+        this(context, navigate, openReceipt, openReceiptEntry,
+                context == null ? null : context.bugReports);
+    }
+
+    DuckyToolRegistry(AppContext context, Consumer<Module> navigate, Consumer<UUID> openReceipt,
+                      Runnable openReceiptEntry, BugReportService bugReports) {
         this.context = context;
         this.navigate = navigate;
         this.openReceipt = openReceipt;
+        this.openReceiptEntry = openReceiptEntry;
+        this.bugReports = bugReports;
         this.definitions = createDefinitions();
     }
 
@@ -47,15 +70,42 @@ public final class DuckyToolRegistry {
         return definitions;
     }
 
+    public List<GroqChatClient.ToolDefinition> definitions(DuckyPermission permission) {
+        if (permission == null || !permission.available()) return List.of();
+        return definitions.stream()
+                .filter(definition -> permission.permitsTools() || SAFE_ACTIONS.contains(definition.name()))
+                .toList();
+    }
+
+    static GroqChatClient.ToolDefinition clearMemoryDefinition() {
+        return tool("clearDuckyMemory",
+                "Permanently clear this signed-in user's private Ducky memory for the current company. "
+                        + "Use only when the user explicitly asks to forget or clear saved memory.",
+                fields());
+    }
+
+    static boolean isSafeAction(String name) {
+        return SAFE_ACTIONS.contains(name) || "clearDuckyMemory".equals(name);
+    }
+
     public ToolResult execute(String name, JsonNode arguments, DuckyPermission permission) {
-        if (permission == null || !permission.permitsTools()) {
-            throw new IllegalStateException("BRED tools are available only in Assist mode.");
+        return execute(name, arguments, permission, null);
+    }
+
+    public ToolResult execute(String name, JsonNode arguments, DuckyPermission permission,
+                              GroqDuckyService.DisclosureConfirmation confirmation) {
+        if (permission == null || !permission.available()
+                || (!permission.permitsTools() && !isSafeAction(name))) {
+            throw new IllegalStateException("This BRED action is not available in the current permission mode.");
         }
         if (arguments == null || !arguments.isObject()) {
             throw new IllegalArgumentException("Tool arguments must be a JSON object.");
         }
         requireAuthorizedUser();
         return switch (name) {
+            case "openReceiptEntry" -> openReceiptEntry(arguments);
+            case "createReceiptFromChat" -> createReceiptFromChat(arguments, confirmation);
+            case "submitBugReport" -> submitBugReport(arguments, confirmation);
             case "searchReceipts" -> searchReceipts(arguments);
             case "getReceiptDetails" -> getReceiptDetails(arguments);
             case "getRecentReceipts" -> getRecentReceipts(arguments);
@@ -75,7 +125,7 @@ public final class DuckyToolRegistry {
         only(args, "query", "limit");
         String query = text(args, "query", 1, 100);
         int limit = limit(args);
-        List<Receipt> found = context.receipts.search(new ReceiptQuery(query, null, null, null, null))
+        List<Receipt> found = authorizedReceipts(new ReceiptQuery(query, null, null, null, null))
                 .stream().limit(limit).toList();
         return receiptResult("Receipt search", found);
     }
@@ -92,7 +142,7 @@ public final class DuckyToolRegistry {
     private ToolResult getRecentReceipts(JsonNode args) {
         only(args, "limit");
         int limit = limit(args);
-        List<Receipt> found = context.receipts.search(ReceiptQuery.all()).stream()
+        List<Receipt> found = authorizedReceipts(ReceiptQuery.all()).stream()
                 .sorted(Comparator.comparing(Receipt::date).reversed())
                 .limit(limit).toList();
         return receiptResult("Recent receipts", found);
@@ -105,7 +155,7 @@ public final class DuckyToolRegistry {
         if (from != null && to != null && to.isBefore(from)) {
             throw new IllegalArgumentException("dateTo must not be before dateFrom.");
         }
-        List<Receipt> found = context.receipts.search(new ReceiptQuery(null, from, to, null, null));
+        List<Receipt> found = authorizedReceipts(new ReceiptQuery(null, from, to, null, null));
         BigDecimal total = found.stream().map(Receipt::grandTotal).reduce(BigDecimal.ZERO, BigDecimal::add);
         String result = "Found " + found.size() + " authorized receipts; total is " + total.toPlainString()
                 + (from == null && to == null ? "." : " for " + dateRange(from, to) + ".");
@@ -149,6 +199,69 @@ public final class DuckyToolRegistry {
         return new ToolResult("Opened the " + module.title() + " section.", "", false);
     }
 
+    private ToolResult openReceiptEntry(JsonNode args) {
+        only(args);
+        requireReceiptAccess();
+        if (openReceiptEntry == null) {
+            throw new IllegalStateException("The Add Receipt form is unavailable in this context.");
+        }
+        invokeOnEventThread(openReceiptEntry);
+        return new ToolResult("Opened BRED's existing Add Receipt form. The user can review and save it there.",
+                "", false);
+    }
+
+    private ToolResult createReceiptFromChat(JsonNode args, GroqDuckyService.DisclosureConfirmation confirmation) {
+        only(args, "receiptNo", "date", "type", "supplierName", "projectName", "items",
+                "discount", "vat", "additionalCharges");
+        User user = requireReceiptAccess();
+        if (user.companyId() == null) {
+            throw new IllegalArgumentException("A company must be selected before creating a receipt.");
+        }
+
+        String receiptNo = text(args, "receiptNo", 1, 100);
+        LocalDate date = requiredDate(args, "date");
+        ReceiptType type = receiptType(args, "type");
+        Supplier supplier = findUniqueSupplier(text(args, "supplierName", 1, 200));
+        Project project = optionalProject(args);
+        List<ReceiptItem> items = receiptItems(args);
+        BigDecimal discount = amount(args, "discount");
+        BigDecimal vat = amount(args, "vat");
+        BigDecimal additionalCharges = amount(args, "additionalCharges");
+        Receipt draft = new Receipt(UUID.randomUUID(), receiptNo, date, type, supplier.id(),
+                project == null ? null : project.id(), items, discount, vat, additionalCharges, List.of(),
+                user.id(), Instant.now(), Instant.now(), user.companyId());
+        context.receipts.precheck(draft);
+
+        String preview = receiptPreview(draft, supplier, project);
+        if (confirmation == null || !confirmation.confirm("Create this receipt in BRED?", preview)) {
+            return new ToolResult("The receipt was not created because confirmation was declined.", "", false);
+        }
+        Receipt saved = context.receipts.save(draft);
+        if (openReceipt != null) invokeOnEventThread(() -> openReceipt.accept(saved.id()));
+        return new ToolResult("Receipt " + safe(saved.receiptNo()) + " was saved in BRED.", "", false);
+    }
+
+    private ToolResult submitBugReport(JsonNode args, GroqDuckyService.DisclosureConfirmation confirmation) {
+        only(args, "title", "description");
+        requireAuthorizedUser();
+        if (bugReports == null) {
+            throw new IllegalStateException("Bug reporting is unavailable in this context.");
+        }
+        String title = text(args, "title", 1, 200);
+        String description = text(args, "description", 1, 10_000);
+        if (containsCredentialValue(title + "\n" + description)) {
+            throw new IllegalArgumentException("Remove credentials, passwords, and access tokens from the report.");
+        }
+        String details = "This text-only bug report will be sent to Creator Clark Hilario through BRED's "
+                + "existing bug-report service. Do not include passwords, API keys, access tokens, or other secrets.\n\n"
+                + "Title: " + title + "\n\nDescription:\n" + description;
+        if (confirmation == null || !confirmation.confirm("Send this bug report to the Creator?", details)) {
+            return new ToolResult("The bug report was not sent because confirmation was declined.", "", false);
+        }
+        bugReports.submit(title, description, null, null, null);
+        return new ToolResult("Your bug report was submitted to Creator Clark Hilario.", "", false);
+    }
+
     private ToolResult openReceipt(JsonNode args) {
         only(args, "receiptId");
         UUID id = uuid(args, "receiptId");
@@ -180,8 +293,14 @@ public final class DuckyToolRegistry {
     }
 
     private List<Receipt> authorizedReceipts() {
-        requireAuthorizedUser();
-        return context.receipts.search(ReceiptQuery.all());
+        return authorizedReceipts(ReceiptQuery.all());
+    }
+
+    private List<Receipt> authorizedReceipts(ReceiptQuery query) {
+        User user = requireAuthorizedUser();
+        List<Receipt> receipts = context.receipts.search(query);
+        if (user.role() == com.bred.rms.models.Role.CREATOR) return receipts;
+        return receipts.stream().filter(receipt -> Objects.equals(receipt.companyId(), user.companyId())).toList();
     }
 
     private User requireAuthorizedUser() {
@@ -194,6 +313,121 @@ public final class DuckyToolRegistry {
             throw new SecurityException("Your signed-in account does not have approved BRED access.");
         }
         return user;
+    }
+
+    private User requireReceiptAccess() {
+        User user = requireAuthorizedUser();
+        if (!AccessPolicy.modulesFor(user.role()).contains(Module.RECEIPTS)) {
+            throw new IllegalArgumentException("Your account cannot create or open receipts.");
+        }
+        return user;
+    }
+
+    private Supplier findUniqueSupplier(String name) {
+        List<Supplier> matches = context.suppliers.findAll().stream()
+                .filter(supplier -> supplier.businessName() != null
+                        && supplier.businessName().trim().equalsIgnoreCase(name.trim()))
+                .toList();
+        if (matches.isEmpty()) throw new IllegalArgumentException("Choose an existing supplier in your company.");
+        if (matches.size() != 1) {
+            throw new IllegalArgumentException("More than one supplier matches that name. Use the Add Receipt form.");
+        }
+        return matches.get(0);
+    }
+
+    private Project optionalProject(JsonNode args) {
+        JsonNode value = args.get("projectName");
+        if (value == null || value.isNull() || !value.isTextual() || value.asText().isBlank()) return null;
+        String name = value.asText().trim();
+        if (name.length() > 200) throw new IllegalArgumentException("projectName must be at most 200 characters.");
+        List<Project> matches = context.projects.findAll().stream()
+                .filter(project -> project.name() != null && project.name().trim().equalsIgnoreCase(name))
+                .toList();
+        if (matches.isEmpty()) throw new IllegalArgumentException("Choose an existing project in your company.");
+        if (matches.size() != 1) {
+            throw new IllegalArgumentException("More than one project matches that name. Use the Add Receipt form.");
+        }
+        return matches.get(0);
+    }
+
+    private static LocalDate requiredDate(JsonNode args, String name) {
+        JsonNode value = args.get(name);
+        if (value == null || !value.isTextual()) throw new IllegalArgumentException(name + " must be an ISO date.");
+        try {
+            return LocalDate.parse(value.asText());
+        } catch (RuntimeException error) {
+            throw new IllegalArgumentException(name + " must be an ISO date.");
+        }
+    }
+
+    private static ReceiptType receiptType(JsonNode args, String name) {
+        String value = text(args, name, 1, 40);
+        try {
+            return ReceiptType.valueOf(value.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException error) {
+            throw new IllegalArgumentException("type must be one of the supported BRED receipt types.");
+        }
+    }
+
+    private static List<ReceiptItem> receiptItems(JsonNode args) {
+        JsonNode values = args.get("items");
+        if (values == null || !values.isArray() || values.isEmpty() || values.size() > 30) {
+            throw new IllegalArgumentException("items must contain between 1 and 30 receipt lines.");
+        }
+        List<ReceiptItem> items = new ArrayList<>();
+        for (JsonNode value : values) {
+            if (!value.isObject()) throw new IllegalArgumentException("Each receipt item must be an object.");
+            only(value, "description", "quantity", "unitPrice");
+            String description = text(value, "description", 1, 200);
+            BigDecimal quantity = requiredAmount(value, "quantity");
+            BigDecimal unitPrice = requiredAmount(value, "unitPrice");
+            if (quantity.signum() <= 0 || unitPrice.signum() < 0) {
+                throw new IllegalArgumentException("Receipt item quantity must be positive and price cannot be negative.");
+            }
+            items.add(new ReceiptItem(description, quantity, unitPrice));
+        }
+        return List.copyOf(items);
+    }
+
+    private static BigDecimal amount(JsonNode args, String name) {
+        JsonNode value = args.get(name);
+        return value == null || value.isNull() ? BigDecimal.ZERO : requiredAmount(args, name);
+    }
+
+    private static BigDecimal requiredAmount(JsonNode args, String name) {
+        JsonNode value = args.get(name);
+        if (value == null || !(value.isNumber() || value.isTextual())) {
+            throw new IllegalArgumentException(name + " must be a number.");
+        }
+        String input = value.asText();
+        if (input.length() > 20) throw new IllegalArgumentException(name + " is too large.");
+        try {
+            return new BigDecimal(input);
+        } catch (NumberFormatException error) {
+            throw new IllegalArgumentException(name + " must be a valid number.");
+        }
+    }
+
+    private static String receiptPreview(Receipt receipt, Supplier supplier, Project project) {
+        String items = receipt.items().stream()
+                .map(item -> "- " + item.description() + ": " + item.quantity().toPlainString()
+                        + " × " + item.unitPrice().toPlainString() + " = " + item.subtotal().toPlainString())
+                .collect(Collectors.joining("\n"));
+        return "Review all fields before approving. BRED will save this receipt only after you confirm.\n\n"
+                + "Receipt number: " + receipt.receiptNo() + "\nDate: " + receipt.date()
+                + "\nType: " + receipt.type().label() + "\nSupplier: " + safe(supplier.businessName())
+                + "\nProject: " + (project == null ? "None" : safe(project.name()))
+                + "\nItems:\n" + items + "\nDiscount: " + receipt.discount().toPlainString()
+                + "\nVAT: " + receipt.vat().toPlainString()
+                + "\nAdditional charges: " + receipt.additionalCharges().toPlainString()
+                + "\nTotal: " + receipt.grandTotal().toPlainString();
+    }
+
+    private static boolean containsCredentialValue(String value) {
+        return java.util.regex.Pattern.compile(
+                "(?i)(?:api[_ -]?key|password|passcode|secret|access[_ -]?token|refresh[_ -]?token|bearer)"
+                        + "\\s*[:=]\\s*\\S+|\\bgsk_[A-Za-z0-9_-]{16,}\\b|-----BEGIN (?:RSA |EC )?PRIVATE KEY-----")
+                .matcher(value).find();
     }
 
     private static ToolResult receiptResult(String label, List<Receipt> receipts) {
@@ -227,6 +461,14 @@ public final class DuckyToolRegistry {
 
     private static List<GroqChatClient.ToolDefinition> createDefinitions() {
         List<GroqChatClient.ToolDefinition> tools = new ArrayList<>();
+        tools.add(tool("openReceiptEntry", "Open BRED's validated Add Receipt form for the user to complete and save.",
+                fields()));
+        tools.add(createReceiptDefinition());
+        tools.add(tool("submitBugReport",
+                "Prepare a text-only bug report for Creator Clark Hilario. Always show the exact report and ask "
+                        + "the user to confirm before submitting it. Never include credentials or secrets.",
+                fields("title", "string", true, "Short report title, up to 200 characters",
+                        "description", "string", true, "Problem details, up to 10000 characters")));
         tools.add(tool("searchReceipts", "Search authorized receipts by text; returns at most 10 brief summaries.",
                 fields("query", "string", true, "Search phrase", "limit", "integer", false, "Maximum results")));
         tools.add(tool("getReceiptDetails", "Read one receipt available to the signed-in user.",
@@ -249,6 +491,38 @@ public final class DuckyToolRegistry {
                 fields()));
         tools.add(tool("getApplicationVersion", "Return the BRED application version.", fields()));
         return List.copyOf(tools);
+    }
+
+    private static GroqChatClient.ToolDefinition createReceiptDefinition() {
+        ObjectNode schema = JSON.createObjectNode().put("type", "object");
+        ObjectNode properties = schema.putObject("properties");
+        properties.putObject("receiptNo").put("type", "string").put("description", "Receipt number");
+        properties.putObject("date").put("type", "string").put("description", "Receipt date in YYYY-MM-DD format");
+        ObjectNode type = properties.putObject("type").put("type", "string");
+        type.putArray("enum").add("OFFICIAL_RECEIPT").add("SALES_INVOICE").add("CASH_INVOICE")
+                .add("DELIVERY_RECEIPT").add("OTHER");
+        properties.putObject("supplierName").put("type", "string")
+                .put("description", "Exact existing supplier business name in the current company");
+        properties.putObject("projectName").put("type", "string")
+                .put("description", "Exact existing project name, or omit if there is no project");
+        ObjectNode items = properties.putObject("items").put("type", "array");
+        items.put("minItems", 1).put("maxItems", 30);
+        ObjectNode item = items.putObject("items").put("type", "object");
+        ObjectNode itemProperties = item.putObject("properties");
+        itemProperties.putObject("description").put("type", "string");
+        itemProperties.putObject("quantity").put("type", "number");
+        itemProperties.putObject("unitPrice").put("type", "number");
+        item.putArray("required").add("description").add("quantity").add("unitPrice");
+        item.put("additionalProperties", false);
+        properties.putObject("discount").put("type", "number");
+        properties.putObject("vat").put("type", "number");
+        properties.putObject("additionalCharges").put("type", "number");
+        schema.putArray("required").add("receiptNo").add("date").add("type").add("supplierName").add("items");
+        schema.put("additionalProperties", false);
+        return tool("createReceiptFromChat",
+                "Create a receipt using BRED's validated ReceiptService only after collecting all required fields, "
+                        + "showing a complete preview, and obtaining explicit user confirmation. Never guess values.",
+                schema);
     }
 
     private static GroqChatClient.ToolDefinition tool(String name, String description, ObjectNode parameters) {

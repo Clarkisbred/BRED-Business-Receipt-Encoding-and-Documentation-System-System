@@ -7,6 +7,7 @@ import com.bred.rms.ai.GroqCredentials;
 import com.bred.rms.supabase.RestClient;
 import com.bred.rms.supabase.SupabaseException;
 import com.bred.rms.ui.theme.RmsColors;
+import com.bred.rms.ui.theme.ThemeManager;
 import com.bred.rms.utils.BackgroundTask;
 import com.fasterxml.jackson.databind.JsonNode;
 
@@ -16,6 +17,7 @@ import javax.swing.BoxLayout;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
 import javax.swing.JCheckBox;
+import javax.swing.JComponent;
 import javax.swing.JDialog;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -24,22 +26,35 @@ import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
+import javax.swing.border.AbstractBorder;
 
 import java.awt.BorderLayout;
+import java.awt.BasicStroke;
+import java.awt.Color;
+import java.awt.Component;
+import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.GraphicsConfiguration;
 import java.awt.GraphicsDevice;
 import java.awt.GraphicsEnvironment;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
 import java.awt.Insets;
 import java.awt.Rectangle;
+import java.awt.RenderingHints;
+import java.awt.Shape;
 import java.awt.Toolkit;
 import java.awt.Window;
+import java.awt.geom.RoundRectangle2D;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
+import java.util.function.Consumer;
 
 /** Creator-only application dialog for local or shared Ducky AI settings. */
 final class DuckySettingsPopup extends JDialog {
@@ -49,19 +64,20 @@ final class DuckySettingsPopup extends JDialog {
     private final RestClient sharedBackend;
     private final Runnable onSave;
 
-    private final JTextField model = new JTextField(DuckyPreferences.model());
-    private final JPasswordField apiKey = new JPasswordField(26);
+    private final JTextField model = new RoundedTextField(DuckyPreferences.model());
+    private final JPasswordField apiKey = new RoundedPasswordField(26);
     private final JComboBox<DuckyPermission> permission =
-            new JComboBox<>(DuckyPermission.values());
+            new RoundedComboBox<>(DuckyPermission.values());
     private final JCheckBox cloudConsent = new JCheckBox("I consent to enabling Groq cloud AI");
     private final JCheckBox confirmation = new JCheckBox("I understand prompts are processed outside BRED");
-    private final JButton test = new JButton("Test connection");
-    private final JButton removeKey = new JButton("Remove saved key");
-    private final JButton save = new JButton("Save settings");
-    private final JButton cancel = new JButton("Cancel");
+    private final JButton test = new RoundedButton("Test connection", false);
+    private final JButton removeKey = new RoundedButton("Remove saved key", false);
+    private final JButton save = new RoundedButton("Save settings", true);
+    private final JButton cancel = new RoundedButton("Cancel", false);
     private final JLabel status = new JLabel(" ");
     private final JLabel credentialStatus = new JLabel(" ");
     private final boolean creatorOnly;
+    private final Consumer<Boolean> themeListener = ignored -> applyTheme();
 
     DuckySettingsPopup(GroqCredentials credentials, Runnable onSave) {
         this(null, credentials, null, onSave, false);
@@ -82,21 +98,32 @@ final class DuckySettingsPopup extends JDialog {
         this.sharedBackend = sharedBackend;
         this.onSave = onSave;
         this.creatorOnly = creatorOnly;
+        if (sharedBackend != null && !creatorOnly) {
+            throw new SecurityException("Only the Creator can open shared Ducky AI settings.");
+        }
 
         setName("duckySettingsDialog");
-        setResizable(false);
+        setResizable(true);
         setDefaultCloseOperation(DISPOSE_ON_CLOSE);
         configureComponents();
         setContentPane(buildContent());
         pack();
         fitAndCenter(owner);
         configureActions();
+        ThemeManager.addThemeListener(themeListener);
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override public void windowClosed(java.awt.event.WindowEvent event) {
+                ThemeManager.removeThemeListener(themeListener);
+            }
+        });
+        applyTheme();
         if (sharedBackend != null) loadSharedStatus();
         else loadLocalStatus();
     }
 
     private JPanel buildContent() {
         JPanel content = new JPanel();
+        content.setName("duckySettingsForm");
         content.setOpaque(false);
         content.setLayout(new BoxLayout(content, BoxLayout.Y_AXIS));
         content.setBorder(BorderFactory.createEmptyBorder(18, 20, 18, 20));
@@ -148,22 +175,6 @@ final class DuckySettingsPopup extends JDialog {
         content.add(confirmation);
 
         content.add(gap(17));
-        content.add(new javax.swing.JSeparator());
-        content.add(gap(10));
-
-        JPanel actions = new JPanel(new BorderLayout());
-        actions.setOpaque(false);
-        actions.setAlignmentX(LEFT_ALIGNMENT);
-        JPanel actionButtons = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 7, 0));
-        actionButtons.setOpaque(false);
-        actionButtons.add(cancel);
-        actionButtons.add(save);
-        actions.add(actionButtons, BorderLayout.EAST);
-        content.add(actions);
-
-        JPanel surface = new JPanel(new BorderLayout());
-        surface.setOpaque(false);
-        surface.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
 
         JScrollPane scroll = new JScrollPane(content);
         scroll.setName("duckySettingsScroll");
@@ -173,8 +184,27 @@ final class DuckySettingsPopup extends JDialog {
         scroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         scroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         scroll.getVerticalScrollBar().setUnitIncrement(16);
-        scroll.setPreferredSize(new Dimension(480, 590));
+        scroll.setPreferredSize(new Dimension(480, 490));
+
+        JPanel footer = new JPanel(new BorderLayout(0, 8));
+        footer.setName("duckySettingsFooter");
+        footer.setOpaque(false);
+        footer.setBorder(BorderFactory.createEmptyBorder(8, 12, 12, 12));
+        javax.swing.JSeparator separator = new javax.swing.JSeparator();
+        JPanel actionButtons = new JPanel(new java.awt.FlowLayout(java.awt.FlowLayout.RIGHT, 8, 0));
+        actionButtons.setName("duckySettingsActions");
+        actionButtons.setOpaque(false);
+        actionButtons.add(cancel);
+        actionButtons.add(save);
+        footer.add(separator, BorderLayout.NORTH);
+        footer.add(actionButtons, BorderLayout.SOUTH);
+
+        RoundedDialogSurface surface = new RoundedDialogSurface();
+        surface.setName("duckySettingsSurface");
+        surface.setLayout(new BorderLayout(0, 0));
+        surface.setBorder(BorderFactory.createEmptyBorder(10, 10, 4, 10));
         surface.add(scroll, BorderLayout.CENTER);
+        surface.add(footer, BorderLayout.SOUTH);
         return surface;
     }
 
@@ -263,16 +293,16 @@ final class DuckySettingsPopup extends JDialog {
                 ? "Groq API key: configured on the server"
                 : "Groq API key: not configured");
         String serviceStatus = node.path("status").asText("service_unavailable");
-        status.setText("connected".equals(serviceStatus) ? "Service status: Connected"
-                : "not_configured".equals(serviceStatus) ? "Service status: Not configured"
-                        : "Service status: " + (serviceStatus.equals("connection_failed")
-                                ? "Connection failed" : "Service unavailable"));
+        status.setText("configured".equals(serviceStatus)
+                ? "Server settings are present. Use Test Connection to verify Groq."
+                : "not_configured".equals(serviceStatus) ? "Server-side Groq key is not configured."
+                        : "Service status: " + serviceStatus.replace('_', ' '));
         test.setEnabled(true);
         save.setEnabled(true);
     }
 
     private void setSharedLoadError(Throwable error) {
-        credentialStatus.setText("Could not verify server-side credential status.");
+        credentialStatus.setText("Could not retrieve server-side configuration.");
         status.setText(safeBackendError(error));
         test.setEnabled(true);
         save.setEnabled(true);
@@ -353,14 +383,18 @@ final class DuckySettingsPopup extends JDialog {
                     node -> SwingUtilities.invokeLater(() -> {
                         test.setEnabled(true);
                         String statusValue = node.path("status").asText("connection_failed");
-                        setStatus("connected".equals(statusValue)
-                                ? "Connected to Groq using " + model.getText().trim() + "."
-                                : "connection_failed".equals(statusValue)
-                                        ? "Groq connection failed."
-                                        : "Ducky AI service is unavailable.");
+                        setStatus(switch (statusValue) {
+                            case "connected" -> "Connected to Groq using " + model.getText().trim() + ".";
+                            case "not_configured" -> "Server-side Groq API key is not configured.";
+                            case "authentication_failed" -> "Groq authentication failed. Check the server-side Groq secret.";
+                            case "model_unavailable" -> "The selected Groq model is unavailable.";
+                            case "rate_limited" -> "Groq rate limit reached. Wait briefly, then try again.";
+                            case "service_unavailable" -> "Groq is temporarily unavailable.";
+                            default -> "Groq connection failed unexpectedly.";
+                        });
                     }),
                     error -> SwingUtilities.invokeLater(() -> {
-                        test.setEnabled(false);
+                        test.setEnabled(true);
                         setStatus(safeBackendError(error));
                         test.setEnabled(true);
                     })
@@ -415,11 +449,14 @@ final class DuckySettingsPopup extends JDialog {
     private void fitAndCenter(Window owner) {
         Rectangle bounds = screenBounds(owner);
         Dimension screenFit = new Dimension(
-                Math.min(480, Math.max(320, bounds.width - 80)),
-                Math.min(590, Math.max(320, bounds.height - 80)));
+                Math.min(520, Math.max(320, bounds.width - 80)),
+                Math.min(680, Math.max(320, bounds.height - 80)));
         Dimension current = getPreferredSize();
-        setSize(Math.min(current.width, screenFit.width),
-                Math.min(current.height, screenFit.height));
+        int minimumWidth = Math.min(480, bounds.width);
+        int minimumHeight = Math.min(400, bounds.height);
+        setMinimumSize(new Dimension(minimumWidth, minimumHeight));
+        setSize(Math.max(minimumWidth, Math.min(current.width, screenFit.width)),
+                Math.max(minimumHeight, Math.min(current.height, screenFit.height)));
         setLocation(
                 bounds.x + (bounds.width - getWidth()) / 2,
                 bounds.y + (bounds.height - getHeight()) / 2);
@@ -473,9 +510,9 @@ final class DuckySettingsPopup extends JDialog {
         JPanel panel = new JPanel();
         panel.setOpaque(false);
         panel.setAlignmentX(LEFT_ALIGNMENT);
-        panel.setMaximumSize(new Dimension(CONTENT_WIDTH, height));
-        panel.setPreferredSize(new Dimension(CONTENT_WIDTH, height));
-        panel.setMinimumSize(new Dimension(CONTENT_WIDTH, height));
+        panel.setMaximumSize(new Dimension(Integer.MAX_VALUE, height));
+        panel.setPreferredSize(new Dimension(0, height));
+        panel.setMinimumSize(new Dimension(0, height));
         return panel;
     }
 
@@ -484,8 +521,9 @@ final class DuckySettingsPopup extends JDialog {
         field.setBackground(RmsColors.surface());
         field.setCaretColor(RmsColors.primary());
         field.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(RmsColors.border(), 1, true),
+                new RoundedControlBorder(12),
                 BorderFactory.createEmptyBorder(7, 10, 7, 10)));
+        field.setOpaque(false);
         field.setAlignmentX(LEFT_ALIGNMENT);
         field.setMaximumSize(new Dimension(CONTENT_WIDTH, 38));
     }
@@ -493,6 +531,8 @@ final class DuckySettingsPopup extends JDialog {
     private static void styleCombo(JComboBox<?> combo) {
         combo.setForeground(RmsColors.text());
         combo.setBackground(RmsColors.surface());
+        combo.setOpaque(false);
+        combo.setBorder(new RoundedControlBorder(12));
         combo.setAlignmentX(LEFT_ALIGNMENT);
         combo.setMaximumSize(new Dimension(CONTENT_WIDTH, 38));
     }
@@ -506,26 +546,216 @@ final class DuckySettingsPopup extends JDialog {
     }
 
     private static void styleButton(JButton button, boolean primary) {
-        button.setFocusPainted(false);
-        button.setOpaque(true);
+        button.setOpaque(false);
+        button.setContentAreaFilled(false);
         button.setBackground(primary ? RmsColors.primary() : RmsColors.surface());
         button.setForeground(primary ? RmsColors.primaryForeground() : RmsColors.text());
         button.setFont(button.getFont().deriveFont(Font.BOLD, 11f));
-        button.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(primary ? RmsColors.primary() : RmsColors.border(), 1, true),
-                BorderFactory.createEmptyBorder(7, 11, 7, 11)));
+        button.setBorder(BorderFactory.createEmptyBorder(7, 12, 7, 12));
     }
 
     private static String safeBackendError(Throwable error) {
         if (error instanceof SupabaseException exception) {
             if (exception.status() == 401) return "Your session has expired. Please sign in again.";
-            if (exception.status() == 403) return "Only the Creator can manage Ducky AI settings.";
-            if (exception.status() == 404) return "The shared Ducky AI service is not deployed.";
-            if (exception.status() == 429) return "Ducky is busy. Please wait briefly and try again.";
-            if (exception.status() == 0) return "Could not reach the Ducky AI service.";
-            if (exception.status() >= 500) return "Ducky AI is temporarily unavailable.";
+            if (exception.status() == 403) return "Permission denied. Your account cannot manage or test shared Ducky AI settings.";
+            if (exception.status() == 404) return "The Ducky AI backend endpoint is missing. Deploy the ducky-ai function.";
+            if (exception.status() == 429) return "The Ducky AI backend rate limit was reached. Wait briefly, then try again.";
+            if (exception.status() == 0) return "Ducky AI backend unreachable. Check the network and Supabase URL.";
+            String message = exception.getMessage() == null ? "" : exception.getMessage().toLowerCase(Locale.ROOT);
+            if (message.contains("groq authentication failed")) {
+                return "Groq authentication failed. Verify the server-side Groq secret.";
+            }
+            if (message.contains("model")) return "The configured Groq model is unavailable. Check the server-side model configuration.";
+            if (message.contains("rate limit")) return "Groq rate limit reached. Wait briefly, then try again.";
+            if (exception.status() == 504 || message.contains("timed out")) return "The Groq connection timed out. Try again.";
+            if (message.contains("could not reach")) return "Groq is unreachable from the backend. Check the network and try again.";
+            if (message.contains("required supabase function configuration is missing")) {
+                return "Supabase function configuration is incomplete. Check the deployed function environment.";
+            }
+            if (message.contains("shared ai configuration")) {
+                return "The shared AI configuration could not be loaded. Apply migration 015_ducky_shared_ai.sql.";
+            }
+            if (exception.status() == 502) return "Groq rejected the request. Check the model and request format.";
+            if (exception.status() == 503) return "Groq or the Ducky AI backend is unavailable. Try again shortly.";
+            if (exception.status() >= 500) return "Unexpected Ducky AI backend error (HTTP "
+                    + exception.status() + "). Check the deployed function configuration.";
         }
-        return "Could not contact the Ducky AI service.";
+        return "Unexpected error while contacting Ducky AI.";
+    }
+
+    private void applyTheme() {
+        Runnable update = () -> {
+            applyTextTheme(getContentPane());
+            status.setForeground(RmsColors.SECONDARY_TEXT);
+            credentialStatus.setForeground(RmsColors.SECONDARY_TEXT);
+            if (getContentPane() instanceof JComponent component) {
+                component.revalidate();
+                component.repaint();
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) update.run();
+        else SwingUtilities.invokeLater(update);
+    }
+
+    private void applyTextTheme(Component component) {
+        if (component instanceof JLabel label && label != status && label != credentialStatus) {
+            label.setForeground(RmsColors.text());
+        } else if (component instanceof javax.swing.text.JTextComponent text) {
+            text.setForeground(text instanceof JTextArea area && !area.isEditable()
+                    ? RmsColors.SECONDARY_TEXT : RmsColors.text());
+            text.setCaretColor(RmsColors.primary());
+        } else if (component instanceof JButton button) {
+            boolean primary = button == save;
+            button.setForeground(primary ? RmsColors.primaryForeground() : RmsColors.text());
+            button.setBackground(primary ? RmsColors.primary() : RmsColors.surface());
+        } else if (component instanceof JComboBox<?> combo) {
+            combo.setForeground(RmsColors.text());
+            combo.setBackground(RmsColors.surface());
+        } else if (component instanceof JCheckBox checkBox) {
+            checkBox.setForeground(RmsColors.text());
+        }
+        if (component instanceof Container container) {
+            for (Component child : container.getComponents()) applyTextTheme(child);
+        }
+    }
+
+    private static final class RoundedDialogSurface extends JPanel {
+        private RoundedDialogSurface() {
+            setOpaque(false);
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Shape shape = new RoundRectangle2D.Float(0.5f, 0.5f,
+                    getWidth() - 1f, getHeight() - 1f, 18, 18);
+            g.setColor(RmsColors.surface());
+            g.fill(shape);
+            g.setColor(RmsColors.border());
+            g.draw(shape);
+            g.dispose();
+        }
+
+        @Override protected void paintChildren(Graphics graphics) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.clip(new RoundRectangle2D.Float(1, 1, getWidth() - 2, getHeight() - 2, 17, 17));
+            super.paintChildren(g);
+            g.dispose();
+        }
+    }
+
+    private static final class RoundedTextField extends JTextField {
+        private RoundedTextField(String value) {
+            super(value);
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            paintRoundedInput(graphics, this);
+        }
+    }
+
+    private static final class RoundedPasswordField extends JPasswordField {
+        private RoundedPasswordField(int columns) {
+            super(columns);
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            paintRoundedInput(graphics, this);
+        }
+    }
+
+    private static void paintRoundedInput(Graphics graphics, javax.swing.text.JTextComponent component) {
+        Graphics2D g = (Graphics2D) graphics.create();
+        g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        Shape shape = new RoundRectangle2D.Float(0.5f, 0.5f,
+                component.getWidth() - 1f, component.getHeight() - 1f, 12, 12);
+        g.setColor(RmsColors.surface());
+        g.fill(shape);
+        g.clip(shape);
+        component.getUI().paint(g, component);
+        g.dispose();
+    }
+
+    private static final class RoundedComboBox<E> extends JComboBox<E> {
+        private RoundedComboBox(E[] values) {
+            super(values);
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Shape shape = new RoundRectangle2D.Float(0.5f, 0.5f,
+                    getWidth() - 1f, getHeight() - 1f, 12, 12);
+            g.setColor(RmsColors.surface());
+            g.fill(shape);
+            g.clip(shape);
+            super.paintComponent(g);
+            g.dispose();
+        }
+    }
+
+    private static final class RoundedButton extends JButton {
+        private final boolean primary;
+
+        private RoundedButton(String text, boolean primary) {
+            super(text);
+            this.primary = primary;
+        }
+
+        @Override protected void paintComponent(Graphics graphics) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            Shape shape = new RoundRectangle2D.Float(0.5f, 0.5f,
+                    getWidth() - 1f, getHeight() - 1f, 12, 12);
+            Color fill = primary ? RmsColors.primary() : RmsColors.surface();
+            if (getModel().isPressed()) {
+                Color pressed = UIManager.getColor("Button.pressedBackground");
+                if (pressed != null) fill = pressed;
+            } else if (getModel().isRollover()) {
+                Color hover = UIManager.getColor("Button.hoverBackground");
+                if (hover != null) fill = hover;
+            }
+            g.setColor(isEnabled() ? fill : RmsColors.border());
+            g.fill(shape);
+            g.clip(shape);
+            super.paintComponent(g);
+            g.dispose();
+        }
+
+        @Override protected void paintBorder(Graphics graphics) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setStroke(new BasicStroke(hasFocus() ? 2f : 1f));
+            g.setColor(hasFocus() ? RmsColors.primaryAccent()
+                    : primary ? RmsColors.primary() : RmsColors.border());
+            g.draw(new RoundRectangle2D.Float(1, 1,
+                    getWidth() - 2f, getHeight() - 2f, 12, 12));
+            g.dispose();
+        }
+    }
+
+    private static final class RoundedControlBorder extends AbstractBorder {
+        private final int radius;
+
+        private RoundedControlBorder(int radius) {
+            this.radius = radius;
+        }
+
+        @Override public Insets getBorderInsets(Component component) {
+            return new Insets(1, 1, 1, 1);
+        }
+
+        @Override public void paintBorder(Component component, Graphics graphics, int x, int y,
+                                          int width, int height) {
+            Graphics2D g = (Graphics2D) graphics.create();
+            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g.setStroke(new BasicStroke(component.hasFocus() ? 2f : 1f));
+            Color focus = UIManager.getColor("Component.focusColor");
+            g.setColor(component.hasFocus() && focus != null ? focus : RmsColors.border());
+            g.draw(new RoundRectangle2D.Float(x + 0.5f, y + 0.5f,
+                    width - 1f, height - 1f, radius, radius));
+            g.dispose();
+        }
     }
 
     private static String escapeHtml(String text) {

@@ -4,8 +4,11 @@ package com.bred.rms.ui;
 import com.bred.rms.ai.DuckyPreferences;
 import com.bred.rms.ai.GroqCredentials;
 import com.bred.rms.ai.GroqDuckyService;
+import com.bred.rms.models.Role;
+import com.bred.rms.models.User;
 import com.bred.rms.ui.components.AiLogoIcon;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.UserAvatar;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.ui.theme.ThemeManager;
 import com.bred.rms.utils.BackgroundTask;
@@ -23,6 +26,7 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.SwingUtilities;
 import javax.swing.JTextArea;
+import javax.swing.Timer;
 import javax.swing.KeyStroke;
 import javax.swing.SwingConstants;
 import javax.swing.ListCellRenderer;
@@ -37,8 +41,11 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
 import java.awt.Font;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.event.InputEvent;
@@ -76,9 +83,18 @@ public final class DuckyPanel extends JPanel {
             List<String> fileNames
     ) { }
 
+    private record MessageView(
+            JPanel row,
+            JPanel bubble,
+            JPanel contents,
+            JTextArea body,
+            int viewportWidth
+    ) { }
+
     private static final String GREETING =
             "Hi, I’m Ducky. Ask me a question or attach a document for local OCR. "
             + "Groq is a cloud AI service; BRED records and OCR text are shared only after a separate confirmation.";
+    private static final int MESSAGE_TEXT_WIDTH_SLACK = 24;
 
     private static final class ChatSession {
 
@@ -104,9 +120,24 @@ public final class DuckyPanel extends JPanel {
         }
     }
 
+    private static final class TypewriterAnimation {
+        private final ChatSession session;
+        private final ChatEntry entry;
+        private int revealedCharacters;
+        private boolean finished;
+        private Timer timer;
+        private MessageView view;
+
+        private TypewriterAnimation(ChatSession session, ChatEntry entry) {
+            this.session = session;
+            this.entry = entry;
+        }
+    }
+
     private final GroqDuckyService assistant;
     private final GroqCredentials credentials;
     private final boolean creatorAccess;
+    private final User currentUser;
 
     private final List<ChatSession> sessions = new ArrayList<>();
 
@@ -119,7 +150,7 @@ public final class DuckyPanel extends JPanel {
     private final Consumer<Boolean> themeListener =
             dark -> applyTheme();
 
-    private final JPanel messageList = new MessageList();
+    private final MessageList messageList = new MessageList();
 
     private final JPanel messageFrame =
             new RoundedSurface(RmsColors::surface, RmsColors::border, 16);
@@ -147,17 +178,22 @@ public final class DuckyPanel extends JPanel {
             new JLabel("Groq cloud AI is opt-in. Configure Ducky in Settings.");
     private final JLabel recentChatsHeading = new JLabel("RECENT CHATS");
     private final JLabel conversationTitle = new JLabel("Ducky chat");
-    private final JLabel conversationType = new JLabel("DUCKY AI");
 
     private ChatSession activeSession;
     private ChatSession renderedSession;
+    private ChatSession processingSession;
 
     private int renderedEntryCount;
     private int renderedViewportWidth = -1;
+    private int thinkingPhase;
 
     private boolean sending;
     private boolean selectingSession;
     private DuckySettingsPopup settingsDialog;
+    private JPanel thinkingRow;
+    private JLabel thinkingDots;
+    private Timer thinkingTimer;
+    private TypewriterAnimation typewriter;
 
     public DuckyPanel(
             GroqDuckyService assistant,
@@ -171,17 +207,26 @@ public final class DuckyPanel extends JPanel {
             GroqCredentials credentials,
             boolean creatorAccess
     ) {
+        this(assistant, credentials, creatorAccess, null);
+    }
+
+    public DuckyPanel(
+            GroqDuckyService assistant,
+            GroqCredentials credentials,
+            boolean creatorAccess,
+            User currentUser
+    ) {
         super(new BorderLayout(0, 12));
 
         this.assistant = assistant;
         this.credentials = credentials;
         this.creatorAccess = creatorAccess;
+        this.currentUser = currentUser;
 
         setOpaque(false);
         setBorder(BorderFactory.createEmptyBorder(4, 4, 4, 4));
 
         messageList.setOpaque(false);
-        messageList.setLayout(new BoxLayout(messageList, BoxLayout.Y_AXIS));
         messageList.setBorder(
                 BorderFactory.createEmptyBorder(10, 12, 12, 12)
         );
@@ -190,8 +235,7 @@ public final class DuckyPanel extends JPanel {
         messageScroll.setName("duckyMessageScroll");
         messageScroll.setOpaque(false);
 
-        messageScroll.getViewport().setOpaque(true);
-        messageScroll.getViewport().setBackground(RmsColors.surface());
+        messageScroll.getViewport().setOpaque(false);
 
         messageScroll.setHorizontalScrollBarPolicy(
                 JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
@@ -249,8 +293,12 @@ public final class DuckyPanel extends JPanel {
                     && !selectingSession
                     && sessionList.getSelectedValue() != null) {
 
-                activeSession = sessionList.getSelectedValue();
-                conversationTitle.setText(activeSession.title);
+                    ChatSession selected = sessionList.getSelectedValue();
+                    if (activeSession != selected) {
+                        stopTypewriter(true);
+                    }
+                    activeSession = selected;
+                    updateConversationTitle(activeSession.title);
 
                 updateSelectedFiles();
                 renderMessages(true);
@@ -298,11 +346,16 @@ public final class DuckyPanel extends JPanel {
     public void addNotify() {
         super.addNotify();
         ThemeManager.addThemeListener(themeListener);
+        renderMessages(false, true);
     }
 
     @Override
     public void removeNotify() {
         ThemeManager.removeThemeListener(themeListener);
+        stopThinkingTimer();
+        stopTypewriter(true);
+        thinkingRow = null;
+        thinkingDots = null;
         super.removeNotify();
     }
 
@@ -421,6 +474,7 @@ public final class DuckyPanel extends JPanel {
         chatLabels.setOpaque(false);
         chatLabels.setLayout(new BoxLayout(chatLabels, BoxLayout.Y_AXIS));
         conversationTitle.setFont(conversationTitle.getFont().deriveFont(Font.BOLD, 16f));
+        updateConversationTitle("Ducky chat");
         JLabel chatSubtitle = new JLabel("Private chat with Ducky");
         chatSubtitle.setName("duckyConversationSubtitle");
         chatSubtitle.setForeground(RmsColors.SECONDARY_TEXT);
@@ -428,12 +482,7 @@ public final class DuckyPanel extends JPanel {
         chatLabels.add(conversationTitle);
         chatLabels.add(Box.createVerticalStrut(4));
         chatLabels.add(chatSubtitle);
-        conversationType.setFont(conversationType.getFont().deriveFont(Font.BOLD, 9f));
-        conversationType.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(RmsColors.border(), 1, true),
-                BorderFactory.createEmptyBorder(5, 8, 5, 8)));
         chatHeader.add(chatLabels, BorderLayout.WEST);
-        chatHeader.add(conversationType, BorderLayout.EAST);
 
         conversation.add(chatHeader, BorderLayout.NORTH);
         conversation.add(messageFrame, BorderLayout.CENTER);
@@ -684,6 +733,8 @@ public final class DuckyPanel extends JPanel {
                     "Please read the attached receipt document and summarize its contents.";
         }
 
+        stopTypewriter(true);
+
         List<Path> attachments =
                 List.copyOf(requestedSession.pendingFiles);
 
@@ -712,7 +763,7 @@ public final class DuckyPanel extends JPanel {
 
         if ("New chat".equals(requestedSession.title)) {
             requestedSession.title = titleFrom(submittedQuestion);
-            conversationTitle.setText(requestedSession.title);
+            updateConversationTitle(requestedSession.title);
             sessionList.repaint();
         }
 
@@ -722,6 +773,7 @@ public final class DuckyPanel extends JPanel {
         updateSelectedFiles();
 
         sending = true;
+        processingSession = requestedSession;
         setBusy(true);
 
         status.setText(
@@ -741,6 +793,10 @@ public final class DuckyPanel extends JPanel {
                         this::updateProgress
                 ),
                 response -> {
+                    boolean followLatest = activeSession == requestedSession
+                            && isNearBottom();
+                    stopThinkingIndicator();
+                    processingSession = null;
                     requestedSession.privateHistory |=
                             response.privateDataDisclosed();
 
@@ -759,14 +815,13 @@ public final class DuckyPanel extends JPanel {
                             "Ducky: " + response.answer()
                     );
 
-                    requestedSession.entries.add(
-                            new ChatEntry(
-                                    Sender.ASSISTANT,
-                                    response.answer(),
-                                    Instant.now(),
-                                    List.of()
-                            )
+                    ChatEntry answer = new ChatEntry(
+                            Sender.ASSISTANT,
+                            response.answer(),
+                            Instant.now(),
+                            List.of()
                     );
+                    requestedSession.entries.add(answer);
 
                     sending = false;
                     setBusy(false);
@@ -776,10 +831,17 @@ public final class DuckyPanel extends JPanel {
                     );
 
                     if (activeSession == requestedSession) {
-                        renderMessages(true);
+                        if (!answer.text().isBlank() && isShowing()) {
+                            typewriter = new TypewriterAnimation(requestedSession, answer);
+                        }
+                        renderMessages(followLatest);
                     }
                 },
                 error -> {
+                    boolean followLatest = activeSession == requestedSession
+                            && isNearBottom();
+                    stopThinkingIndicator();
+                    processingSession = null;
                     sending = false;
                     setBusy(false);
 
@@ -800,19 +862,19 @@ public final class DuckyPanel extends JPanel {
                             )
                     );
 
-                    status.setText(message);
+                    if (activeSession == requestedSession) {
+                        status.setText(message);
+                    }
 
                     if (activeSession == requestedSession) {
-                        renderMessages(true);
+                        renderMessages(followLatest);
                     }
                 }
         );
     }
 
     private void startNewChat() {
-        if (sending) {
-            return;
-        }
+        stopTypewriter(true);
 
         ChatSession session = new ChatSession();
 
@@ -820,7 +882,7 @@ public final class DuckyPanel extends JPanel {
         sessionModel.add(0, session);
 
         activeSession = session;
-        conversationTitle.setText("New chat");
+        updateConversationTitle("New chat");
 
         selectingSession = true;
         sessionList.setSelectedIndex(0);
@@ -840,10 +902,10 @@ public final class DuckyPanel extends JPanel {
         updateSendButtonState();
 
         attachButton.setEnabled(!busy);
-        clearButton.setEnabled(!busy);
+        clearButton.setEnabled(true);
         settingsButton.setEnabled(!busy && creatorAccess);
         composer.setEnabled(!busy);
-        sessionList.setEnabled(!busy);
+        sessionList.setEnabled(true);
     }
 
     private void updateSelectedFiles() {
@@ -891,7 +953,15 @@ public final class DuckyPanel extends JPanel {
                 || renderedViewportWidth != viewportWidth;
 
         if (rebuild) {
+            stopThinkingTimer();
+            if (typewriter != null && typewriter.timer != null) {
+                typewriter.timer.stop();
+                typewriter.timer = null;
+                typewriter.view = null;
+            }
             messageList.removeAll();
+            thinkingRow = null;
+            thinkingDots = null;
 
             renderedEntryCount = 0;
             renderedSession = activeSession;
@@ -928,26 +998,43 @@ public final class DuckyPanel extends JPanel {
                     .toLocalDate();
 
             if (!date.equals(previousDate)) {
-                messageList.add(
+                messageList.addRow(
                         dateSeparator(
                                 ChatDateFormatting.separator(date)
                         )
                 );
 
-                messageList.add(Box.createVerticalStrut(10));
+                messageList.addRow(Box.createVerticalStrut(10));
 
                 previousDate = date;
             }
 
-            JPanel message = createMessage(entry, viewportWidth);
+            String displayedText = entry.text();
+            boolean animate = typewriter != null
+                    && typewriter.session == activeSession
+                    && typewriter.entry == entry;
+            if (animate) {
+                displayedText = typewriter.entry.text().substring(
+                        0, typewriter.revealedCharacters);
+            }
+            MessageView message = createMessageView(
+                    entry,
+                    viewportWidth,
+                    displayedText,
+                    currentUser
+            );
 
             if (message != null) {
-                messageList.add(message);
-                messageList.add(Box.createVerticalStrut(10));
+                messageList.addRow(message.row());
+                messageList.addRow(Box.createVerticalStrut(10));
+                if (animate) {
+                    typewriter.view = message;
+                }
             }
         }
 
         renderedEntryCount = activeSession.entries.size();
+        syncThinkingIndicator(viewportWidth);
 
         messageList.revalidate();
         messageList.repaint();
@@ -956,12 +1043,18 @@ public final class DuckyPanel extends JPanel {
         messageScroll.revalidate();
         messageScroll.repaint();
 
+        if (typewriter != null && typewriter.view != null) {
+            startTypewriterTimer(typewriter);
+        }
+
         if (scrollToLatest) {
-            SwingUtilities.invokeLater(() ->
+            ChatSession session = activeSession;
+            SwingUtilities.invokeLater(() -> {
+                if (activeSession == session) {
                     messageScroll.getVerticalScrollBar().setValue(
-                            messageScroll.getVerticalScrollBar().getMaximum()
-                    )
-            );
+                            messageScroll.getVerticalScrollBar().getMaximum());
+                }
+            });
         }
     }
 
@@ -975,18 +1068,244 @@ public final class DuckyPanel extends JPanel {
     ) {
         int horizontalInsets = 24;
 
-        int avatarWidth =
-                sender == Sender.ASSISTANT ? 42 : 0;
+        int avatarWidth = 42;
 
         int available = Math.max(
                 1,
                 viewportWidth - horizontalInsets - avatarWidth
         );
 
-        return Math.max(
-                1,
-                Math.min(690, (int) (available * 0.78))
+        return Math.max(1, Math.min(690, (int) (available * 0.74)));
+    }
+
+    static int messageBubbleWidth(
+            String text,
+            int viewportWidth,
+            Sender sender
+    ) {
+        ChatEntry entry = new ChatEntry(
+                sender,
+                text,
+                Instant.EPOCH,
+                List.of()
         );
+        return preferredMessageBubbleWidth(entry, viewportWidth, text);
+    }
+
+    private static int preferredMessageBubbleWidth(
+            ChatEntry entry,
+            int viewportWidth,
+            String displayedText
+    ) {
+        int maximum = messageBubbleWidth(viewportWidth, entry.sender());
+        Font textFont = new JTextArea().getFont().deriveFont(13f);
+        FontMetrics textMetrics = new JTextArea().getFontMetrics(textFont);
+        int contentWidth = widestLine(displayedText, textMetrics);
+        if (entry.fileNames() != null && !entry.fileNames().isEmpty()) {
+            contentWidth = Math.max(
+                    contentWidth,
+                    widestLine(
+                            "Local attachments: " + String.join(", ", entry.fileNames()),
+                            textMetrics
+                    )
+            );
+        }
+
+        Font timeFont = new JLabel().getFont().deriveFont(10f);
+        FontMetrics timeMetrics = new JLabel().getFontMetrics(timeFont);
+        String timestamp = java.time.format.DateTimeFormatter
+                .ofPattern("h:mm a")
+                .format(entry.sentAt().atZone(ZoneId.systemDefault()));
+        int preferred = Math.max(
+                contentWidth + MESSAGE_TEXT_WIDTH_SLACK,
+                timeMetrics.stringWidth(timestamp)
+        ) + 26;
+        return Math.max(1, Math.min(maximum, preferred));
+    }
+
+    private static int widestLine(String text, FontMetrics metrics) {
+        if (text == null || text.isEmpty()) {
+            return 0;
+        }
+        int widest = 0;
+        for (String line : text.split("\\R", -1)) {
+            widest = Math.max(widest, metrics.stringWidth(line));
+        }
+        return widest;
+    }
+
+    private boolean isNearBottom() {
+        var bar = messageScroll.getVerticalScrollBar();
+        return bar.getValue() + bar.getVisibleAmount() >= bar.getMaximum() - 48;
+    }
+
+    private void startTypewriterTimer(TypewriterAnimation animation) {
+        if (animation.timer != null
+                || animation.revealedCharacters >= animation.entry.text().length()) {
+            return;
+        }
+        animation.timer = new Timer(25, event -> advanceTypewriter(animation));
+        animation.timer.setCoalesce(true);
+        animation.timer.start();
+    }
+
+    private void advanceTypewriter(TypewriterAnimation animation) {
+        if (typewriter != animation
+                || activeSession != animation.session
+                || animation.view == null) {
+            stopTypewriter(false);
+            return;
+        }
+        var scrollBar = messageScroll.getVerticalScrollBar();
+        boolean followLatest = isNearBottom();
+        int previousScrollValue = scrollBar.getValue();
+        int responseLength = animation.entry.text().length();
+        int chunkSize = Math.max(1, (responseLength + 199) / 200);
+        animation.revealedCharacters = Math.min(
+                responseLength,
+                animation.revealedCharacters + chunkSize
+        );
+
+        String visibleText = animation.entry.text().substring(
+                0, animation.revealedCharacters);
+        animation.view.body().setText(visibleText);
+        updateMessageView(animation.view, animation.entry, visibleText);
+        messageList.revalidate();
+        messageList.repaint();
+        messageScroll.getViewport().revalidate();
+        messageScroll.repaint();
+
+        if (followLatest) {
+            SwingUtilities.invokeLater(() -> {
+                if (activeSession == animation.session
+                        && (typewriter == animation || animation.finished)
+                        && scrollBar.getValue() == previousScrollValue) {
+                    scrollBar.setValue(scrollBar.getMaximum());
+                }
+            });
+        }
+
+        if (animation.revealedCharacters >= responseLength) {
+            animation.timer.stop();
+            animation.timer = null;
+            animation.finished = true;
+            typewriter = null;
+        }
+    }
+
+    private void stopTypewriter(boolean revealRemaining) {
+        if (typewriter == null) {
+            return;
+        }
+        TypewriterAnimation animation = typewriter;
+        if (animation.timer != null) {
+            animation.timer.stop();
+            animation.timer = null;
+        }
+        if (revealRemaining && animation.view != null) {
+            animation.revealedCharacters = animation.entry.text().length();
+            animation.view.body().setText(animation.entry.text());
+            updateMessageView(animation.view, animation.entry, animation.entry.text());
+            messageList.revalidate();
+            messageList.repaint();
+        }
+        animation.view = null;
+        typewriter = null;
+    }
+
+    private void syncThinkingIndicator(int viewportWidth) {
+        if (!sending || activeSession != processingSession) {
+            stopThinkingIndicator();
+            return;
+        }
+        if (thinkingRow == null || thinkingRow.getParent() != messageList) {
+            thinkingRow = createThinkingRow(viewportWidth);
+            messageList.addRow(thinkingRow);
+        }
+        if (thinkingTimer == null) {
+            thinkingTimer = new Timer(280, event -> {
+                if (!sending || activeSession != processingSession || thinkingDots == null) {
+                    stopThinkingIndicator();
+                    return;
+                }
+                thinkingPhase = (thinkingPhase + 1) % 3;
+                thinkingDots.setText(thinkingFrame(thinkingPhase));
+            });
+            thinkingTimer.setCoalesce(true);
+            thinkingTimer.start();
+        }
+    }
+
+    private JPanel createThinkingRow(int viewportWidth) {
+        JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        row.setName("duckyThinkingRow");
+        row.setOpaque(false);
+
+        JLabel avatar = new JLabel(new AiLogoIcon(34));
+        avatar.setName("duckyThinkingAvatar");
+        row.add(avatar);
+        row.add(Box.createHorizontalStrut(8));
+
+        JPanel bubble = new RoundedSurface(
+                DuckyPanel::assistantBubbleColor,
+                DuckyPanel::assistantBubbleColor,
+                16
+        );
+        bubble.setName("duckyThinkingBubble");
+        bubble.setLayout(new FlowLayout(FlowLayout.LEFT, 0, 0));
+        bubble.setBorder(BorderFactory.createEmptyBorder(7, 12, 7, 12));
+        thinkingDots = new JLabel(thinkingFrame(thinkingPhase));
+        thinkingDots.setName("duckyThinkingDots");
+        thinkingDots.setForeground(RmsColors.SECONDARY_TEXT);
+        thinkingDots.setFont(thinkingDots.getFont().deriveFont(Font.BOLD, 11f));
+        bubble.add(thinkingDots);
+        row.add(bubble);
+
+        int rowWidth = Math.max(1, viewportWidth - 24);
+        Dimension size = new Dimension(rowWidth, Math.max(34, bubble.getPreferredSize().height));
+        row.setPreferredSize(size);
+        row.setMinimumSize(new Dimension(0, size.height));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, size.height));
+        row.setAlignmentX(Component.LEFT_ALIGNMENT);
+        return row;
+    }
+
+    private static String thinkingFrame(int phase) {
+        StringBuilder dots = new StringBuilder("<html>");
+        for (int index = 0; index < 3; index++) {
+            String color = index == phase ? "#626873" : "#B6BBC3";
+            if (index > 0) dots.append("&nbsp;&nbsp;");
+            dots.append("<span style='color:").append(color).append("'>●</span>");
+        }
+        return dots.append("</html>").toString();
+    }
+
+    private static Color assistantBubbleColor() {
+        return ThemeManager.isDark() ? RmsColors.surface() : new Color(242, 242, 239);
+    }
+
+    private static Color userBubbleColor() {
+        return ThemeManager.isDark() ? new Color(229, 182, 63) : new Color(247, 200, 73);
+    }
+
+    private static Color userBubbleTextColor() {
+        return new Color(32, 33, 36);
+    }
+
+    private void stopThinkingTimer() {
+        if (thinkingTimer != null) {
+            thinkingTimer.stop();
+            thinkingTimer = null;
+        }
+    }
+
+    private void stopThinkingIndicator() {
+        stopThinkingTimer();
+        if (thinkingRow != null && thinkingRow.getParent() == messageList) {
+            messageList.remove(thinkingRow);
+        }
+        thinkingRow = null;
+        thinkingDots = null;
     }
 
     private void updateComposerSize() {
@@ -1135,9 +1454,8 @@ public final class DuckyPanel extends JPanel {
 
         setForeground(RmsColors.text());
 
-        messageScroll.setBackground(RmsColors.surface());
-        messageScroll.getViewport().setOpaque(true);
-        messageScroll.getViewport().setBackground(RmsColors.surface());
+        messageScroll.setOpaque(false);
+        messageScroll.getViewport().setOpaque(false);
 
         composer.setForeground(RmsColors.text());
         composer.setCaretColor(RmsColors.primary());
@@ -1146,9 +1464,6 @@ public final class DuckyPanel extends JPanel {
         status.setForeground(RmsColors.SECONDARY_TEXT);
         recentChatsHeading.setForeground(RmsColors.text());
         conversationTitle.setForeground(RmsColors.text());
-        conversationType.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(RmsColors.border(), 1, true),
-                BorderFactory.createEmptyBorder(5, 8, 5, 8)));
 
         updateThemeComponents(this);
 
@@ -1200,16 +1515,18 @@ public final class DuckyPanel extends JPanel {
         }
     }
 
-    private static String titleFrom(String question) {
+    static String titleFrom(String question) {
         String title = question
                 .replaceAll("\\s+", " ")
                 .trim();
 
-        if (title.length() > 30) {
-            title = title.substring(0, 27) + "...";
-        }
-
         return title.isEmpty() ? "New chat" : title;
+    }
+
+    private void updateConversationTitle(String title) {
+        conversationTitle.setText("<html><div style='width:420px'>"
+                + escapeHtml(title) + "</div></html>");
+        conversationTitle.setToolTipText(title);
     }
 
     private static String escapeHtml(String text) {
@@ -1249,8 +1566,9 @@ public final class DuckyPanel extends JPanel {
                 boolean cellHasFocus
         ) {
             title.setText(
-                    "<html>" + escapeHtml(value.title) + "</html>"
+                    "<html><div style='width:220px'>" + escapeHtml(value.title) + "</div></html>"
             );
+            title.setToolTipText(value.title);
 
             title.setForeground(RmsColors.text());
 
@@ -1293,9 +1611,23 @@ public final class DuckyPanel extends JPanel {
 
     // Corrected message creation method.
     // Each message body and timestamp is created exactly once.
-    static JPanel createMessage(
+    static JPanel createMessage(ChatEntry entry, int viewportWidth) {
+        return createMessage(entry, viewportWidth, null);
+    }
+
+    static JPanel createMessage(ChatEntry entry, int viewportWidth, User currentUser) {
+        if (entry == null) {
+            throw new IllegalArgumentException("A message and sender are required.");
+        }
+        MessageView view = createMessageView(entry, viewportWidth, entry.text(), currentUser);
+        return view == null ? null : view.row();
+    }
+
+    private static MessageView createMessageView(
             ChatEntry entry,
-            int viewportWidth
+            int viewportWidth,
+            String displayedText,
+            User currentUser
     ) {
         if (entry == null || entry.sender() == null) {
             throw new IllegalArgumentException(
@@ -1316,10 +1648,8 @@ public final class DuckyPanel extends JPanel {
             return null;
         }
 
-        int bubbleWidth =
-                messageBubbleWidth(viewportWidth, entry.sender());
-
-        int textWidth = Math.max(40, bubbleWidth - 26);
+        int bubbleWidth = preferredMessageBubbleWidth(entry, viewportWidth, displayedText);
+        int textWidth = Math.max(1, bubbleWidth - 26);
 
         JPanel contents = new JPanel();
 
@@ -1329,6 +1659,7 @@ public final class DuckyPanel extends JPanel {
         );
 
         // Attachment names
+        List<JTextArea> textAreas = new ArrayList<>();
         if (hasFiles) {
             JTextArea attachments = messageText(
                     "Local attachments: "
@@ -1337,24 +1668,20 @@ public final class DuckyPanel extends JPanel {
             );
 
             attachments.setForeground(RmsColors.text());
-            attachments.setFont(
-                    attachments.getFont().deriveFont(10f)
-            );
+            attachments.setFont(attachments.getFont().deriveFont(10f));
 
             contents.add(attachments);
             contents.add(Box.createVerticalStrut(4));
+            textAreas.add(attachments);
         }
 
         // Message body
+        JTextArea body = null;
         if (hasText) {
-            JTextArea body = messageText(
-                    entry.text(),
-                    textWidth
-            );
-
-            // Use readable theme text instead of primaryForeground.
-            body.setForeground(RmsColors.text());
+            body = messageText(displayedText, textWidth);
+            body.setForeground(assistant ? RmsColors.text() : userBubbleTextColor());
             contents.add(body);
+            textAreas.add(body);
         }
 
         // Timestamp
@@ -1387,10 +1714,12 @@ public final class DuckyPanel extends JPanel {
         // Message bubble
         JPanel bubble = new RoundedSurface(
                 assistant
-                        ? RmsColors::surface
-                        : RmsColors::primaryLight,
-                RmsColors::border,
-                14
+                        ? DuckyPanel::assistantBubbleColor
+                        : DuckyPanel::userBubbleColor,
+                assistant
+                        ? DuckyPanel::assistantBubbleColor
+                        : DuckyPanel::userBubbleColor,
+                18
         );
 
         bubble.setName("duckyMessageBubble");
@@ -1402,63 +1731,83 @@ public final class DuckyPanel extends JPanel {
 
         bubble.add(contents, BorderLayout.CENTER);
 
-        int bubbleHeight =
-                contents.getPreferredSize().height + 16;
-
-        bubble.setPreferredSize(
-                new Dimension(bubbleWidth, bubbleHeight)
-        );
-
-        bubble.setMinimumSize(
-                new Dimension(bubbleWidth, bubbleHeight)
-        );
-
-        bubble.setMaximumSize(
-                new Dimension(bubbleWidth, Integer.MAX_VALUE)
-        );
-
-        // Message row and alignment
-        JPanel row = new JPanel();
-
+        JPanel row = new JPanel(new BorderLayout());
         row.setName("duckyMessageRow");
         row.setOpaque(false);
 
-        row.setLayout(
-                new BoxLayout(row, BoxLayout.X_AXIS)
+        JPanel senderContent = new JPanel(
+                new FlowLayout(FlowLayout.LEFT, 0, 0)
         );
+        senderContent.setOpaque(false);
 
         if (assistant) {
-            JLabel avatar = new JLabel(
-                    new AiLogoIcon(34)
-            );
-
+            JLabel avatar = new JLabel(new AiLogoIcon(34));
             avatar.setName("duckyMessageAvatar");
-
-            row.add(avatar);
-            row.add(Box.createHorizontalStrut(8));
-            row.add(bubble);
-            row.add(Box.createHorizontalGlue());
-
+            senderContent.add(avatar);
+            senderContent.add(Box.createHorizontalStrut(8));
+        } else if (currentUser != null) {
+            UserAvatar avatar = new UserAvatar(34, 32, false);
+            avatar.setName("duckyMessageUserAvatar");
+            String email = currentUser.email();
+            if ((email == null || email.isBlank()) && currentUser.role() == Role.CREATOR) {
+                email = "clarkhilario.bread@gmail.com";
+            }
+            avatar.setProfile(currentUser.fullName(), email);
+            senderContent.add(bubble);
+            senderContent.add(Box.createHorizontalStrut(8));
+            senderContent.add(avatar);
+            row.add(senderContent, BorderLayout.EAST);
         } else {
-            row.add(Box.createHorizontalGlue());
-            row.add(bubble);
+            senderContent.add(bubble);
+            row.add(senderContent, BorderLayout.EAST);
+        }
+        if (assistant) {
+            senderContent.add(bubble);
+            row.add(senderContent, BorderLayout.WEST);
         }
 
-        row.setPreferredSize(
-                new Dimension(viewportWidth, bubbleHeight)
+        MessageView view = new MessageView(
+                row,
+                bubble,
+                contents,
+                body,
+                viewportWidth
         );
+        updateMessageView(view, entry, displayedText);
+        return view;
+    }
 
-        row.setMinimumSize(
-                new Dimension(viewportWidth, bubbleHeight)
+    private static void updateMessageView(
+            MessageView view,
+            ChatEntry entry,
+            String displayedText
+    ) {
+        int bubbleWidth = preferredMessageBubbleWidth(
+                entry,
+                view.viewportWidth(),
+                displayedText
         );
+        int textWidth = Math.max(1, bubbleWidth - 26);
+        for (Component component : view.contents().getComponents()) {
+            if (component instanceof JTextArea area) {
+                if (area == view.body()) {
+                    area.setText(displayedText);
+                }
+                sizeMessageText(area, textWidth);
+            }
+        }
 
-        row.setMaximumSize(
-                new Dimension(Integer.MAX_VALUE, bubbleHeight)
-        );
+        int bubbleHeight = view.contents().getPreferredSize().height + 16;
+        Dimension bubbleSize = new Dimension(bubbleWidth, bubbleHeight);
+        view.bubble().setPreferredSize(bubbleSize);
+        view.bubble().setMinimumSize(bubbleSize);
+        view.bubble().setMaximumSize(new Dimension(bubbleWidth, Integer.MAX_VALUE));
 
-        row.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        return row;
+        int rowWidth = Math.max(1, view.viewportWidth() - 24);
+        Dimension rowSize = new Dimension(rowWidth, bubbleHeight);
+        view.row().setPreferredSize(rowSize);
+        view.row().setMinimumSize(new Dimension(0, bubbleHeight));
+        view.row().setMaximumSize(new Dimension(Integer.MAX_VALUE, bubbleHeight));
     }
 
     private static JTextArea messageText(
@@ -1480,31 +1829,46 @@ public final class DuckyPanel extends JPanel {
 
         area.setColumns(0);
 
-        int rows = wrappedLineCount(
-                text,
-                area.getFont(),
-                Math.max(1, width)
-        );
-
-        area.setRows(rows);
-
-        Dimension size = new Dimension(
-                width,
-                rows * area.getFontMetrics(area.getFont()).getHeight() + 2
-        );
-
-        area.setPreferredSize(size);
-        area.setMinimumSize(
-                new Dimension(0, size.height)
-        );
-
-        area.setMaximumSize(
-                new Dimension(width, Integer.MAX_VALUE)
-        );
-
         area.setName("duckyMessageText");
-
+        sizeMessageText(area, width);
         return area;
+    }
+
+    private static void sizeMessageText(JTextArea area, int width) {
+        int safeWidth = Math.max(1, width);
+        int rows = wrappedLineCount(
+                area.getText(),
+                area.getFont(),
+                safeWidth
+        );
+        area.setRows(rows);
+        int lineHeight = area.getFontMetrics(area.getFont()).getHeight();
+        int height = rows * lineHeight + 6;
+        int textLength = area.getDocument().getLength();
+        int measurementHeight = (int) Math.min(
+                Integer.MAX_VALUE,
+                ((long) textLength + 1) * lineHeight + 6
+        );
+        area.setSize(safeWidth, Math.max(height, measurementHeight));
+        try {
+            java.awt.geom.Rectangle2D lastCharacter =
+                    area.modelToView2D(area.getDocument().getLength());
+            if (lastCharacter != null) {
+                height = Math.max(
+                        height,
+                        (int) Math.ceil(lastCharacter.getMaxY()) + 6
+                );
+            }
+        } catch (javax.swing.text.BadLocationException error) {
+            throw new IllegalStateException(
+                    "Could not measure Ducky message text.",
+                    error
+            );
+        }
+        area.setPreferredSize(new Dimension(safeWidth, height));
+        area.setMinimumSize(new Dimension(safeWidth, height));
+        area.setMaximumSize(new Dimension(safeWidth, Integer.MAX_VALUE));
+        area.setAlignmentX(Component.LEFT_ALIGNMENT);
     }
 
     static int wrappedLineCount(
@@ -1566,13 +1930,21 @@ public final class DuckyPanel extends JPanel {
             setName("duckyMessageList");
             setOpaque(false);
 
-            setLayout(
-                    new BoxLayout(this, BoxLayout.Y_AXIS)
-            );
+            setLayout(new GridBagLayout());
 
             setBorder(
                     BorderFactory.createEmptyBorder(10, 12, 12, 12)
             );
+        }
+
+        private void addRow(Component component) {
+            GridBagConstraints constraints = new GridBagConstraints();
+            constraints.gridx = 0;
+            constraints.gridy = getComponentCount();
+            constraints.weightx = 1;
+            constraints.fill = GridBagConstraints.HORIZONTAL;
+            constraints.anchor = GridBagConstraints.WEST;
+            add(component, constraints);
         }
 
         @Override

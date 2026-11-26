@@ -63,9 +63,28 @@ class ShellSmokeTest {
         assertNotNull(findComponentNamed(panel, "duckySessionsSurface"));
         assertNotNull(findComponentNamed(panel, "duckySessionList"));
         assertNotNull(findComponentNamed(panel, "duckyNewChat"));
+        assertFalse(hasLabel(panel, "DUCKY AI"));
         assertNull(findComponentNamed(panel, "duckySettings"));
         assertFalse(panel.activeRecordAccessEnabled());
         assertFalse(hasComponentType(panel, JCheckBox.class));
+    }
+
+    @Test
+    void duckyTitlesKeepTheCompleteQuestion() {
+        String title = "A complete conversation title that is longer than thirty characters.";
+        assertEquals(title, DuckyPanel.titleFrom(title));
+        assertEquals("New chat", DuckyPanel.titleFrom(" \n\t "));
+    }
+
+    @Test
+    void customMessageBodiesSizeToContentWithoutChangingTheirMaximumWidth() {
+        JLabel label = new JLabel();
+        var font = label.getFont().deriveFont(13f);
+        var metrics = label.getFontMetrics(font);
+        int shortWidth = MessagesPanel.messageBodyWidth("Hi", metrics, 300);
+        int longWidth = MessagesPanel.messageBodyWidth("A longer message. ".repeat(80), metrics, 300);
+        assertTrue(shortWidth < 100);
+        assertEquals(300, longWidth);
     }
 
     @Test
@@ -75,11 +94,23 @@ class ShellSmokeTest {
         assertEquals(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER, messages.getHorizontalScrollBarPolicy());
         assertEquals(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED, messages.getVerticalScrollBarPolicy());
         assertEquals(javax.swing.JViewport.SIMPLE_SCROLL_MODE, messages.getViewport().getScrollMode());
-        assertTrue(messages.getViewport().isOpaque());
+        assertFalse(messages.getViewport().isOpaque());
         assertTrue(((javax.swing.Scrollable) messages.getViewport().getView()).getScrollableTracksViewportWidth());
 
         assertTrue(DuckyPanel.messageBubbleWidth(360) <= 360);
         assertTrue(DuckyPanel.messageBubbleWidth(1000) <= 690);
+        int shortBubble = DuckyPanel.messageBubbleWidth("Hi", 500, DuckyPanel.Sender.ASSISTANT);
+        int mediumBubble = DuckyPanel.messageBubbleWidth("How are you?", 500, DuckyPanel.Sender.ASSISTANT);
+        int longBubble = DuckyPanel.messageBubbleWidth(
+                "I could not complete that request because the AI service is temporarily unavailable.",
+                500,
+                DuckyPanel.Sender.ASSISTANT
+        );
+        int maxIncomingWidth = DuckyPanel.messageBubbleWidth(500, DuckyPanel.Sender.ASSISTANT);
+        assertTrue(shortBubble < mediumBubble);
+        assertTrue(mediumBubble < longBubble);
+        assertTrue(longBubble <= maxIncomingWidth);
+        assertTrue(maxIncomingWidth <= (500 - 24 - 42) * 0.75);
         assertTrue(DuckyPanel.wrappedLineCount("https://example.test/" + "a".repeat(300),
                 panel.getFont(), 120) > 1);
         assertTrue(DuckyPanel.wrappedLineCount("A very long message with multiple words ".repeat(20),
@@ -109,7 +140,8 @@ class ShellSmokeTest {
         JPanel assistantRow = DuckyPanel.createMessage(new DuckyPanel.ChatEntry(DuckyPanel.Sender.ASSISTANT,
                 "Ducky greeting", java.time.Instant.EPOCH, java.util.List.of()), 320);
         JPanel userRow = DuckyPanel.createMessage(new DuckyPanel.ChatEntry(DuckyPanel.Sender.USER,
-                "User message", java.time.Instant.EPOCH, java.util.List.of()), 320);
+                "User message", java.time.Instant.EPOCH, java.util.List.of()), 320,
+                TestContexts.withUser(Role.ENCODER).currentUser.get());
         assistantRow.setSize(320, assistantRow.getPreferredSize().height);
         userRow.setSize(320, userRow.getPreferredSize().height);
         layoutRecursively(assistantRow);
@@ -118,19 +150,225 @@ class ShellSmokeTest {
         Component avatar = findComponentNamed(assistantRow, "duckyMessageAvatar");
         Component assistantBubble = findComponentNamed(assistantRow, "duckyMessageBubble");
         Component userBubble = findComponentNamed(userRow, "duckyMessageBubble");
+        Component userAvatar = findComponentNamed(userRow, "duckyMessageUserAvatar");
         Component assistantTime = findComponentNamed(assistantRow, "duckyMessageTimestamp");
         Component userTime = findComponentNamed(userRow, "duckyMessageTimestamp");
         assertNotNull(avatar);
+        assertNotNull(userAvatar);
         assertNotNull(assistantTime);
         assertNotNull(userTime);
         java.awt.Point avatarPoint = javax.swing.SwingUtilities.convertPoint(
                 avatar.getParent(), avatar.getLocation(), assistantRow);
         java.awt.Point assistantBubblePoint = javax.swing.SwingUtilities.convertPoint(
                 assistantBubble.getParent(), assistantBubble.getLocation(), assistantRow);
-        assertTrue(assistantBubblePoint.x > avatarPoint.x);
-        assertEquals(null, findComponentNamed(userRow, "duckyMessageAvatar"));
-        assertTrue(userBubble.getX() > assistantBubblePoint.x);
-        assertTrue(userBubble.getX() + userBubble.getWidth() <= userRow.getWidth());
+        java.awt.Point userBubblePoint = javax.swing.SwingUtilities.convertPoint(
+                userBubble.getParent(), userBubble.getLocation(), userRow);
+        java.awt.Point userAvatarPoint = javax.swing.SwingUtilities.convertPoint(
+                userAvatar.getParent(), userAvatar.getLocation(), userRow);
+        assertEquals(0, avatarPoint.x);
+        assertEquals(avatar.getWidth() + 8, assistantBubblePoint.x);
+        assertTrue(userBubblePoint.x > assistantBubblePoint.x);
+        assertEquals(userBubblePoint.x + userBubble.getWidth() + 8, userAvatarPoint.x);
+        assertTrue(userAvatarPoint.x + userAvatar.getWidth() <= userRow.getWidth());
+    }
+
+    @Test
+    void shortOutgoingWordsHaveEnoughWidthToAvoidBreakingAcrossLines() {
+        JPanel row = DuckyPanel.createMessage(new DuckyPanel.ChatEntry(DuckyPanel.Sender.USER,
+                "testing", java.time.Instant.EPOCH, java.util.List.of()), 320,
+                TestContexts.withUser(Role.ENCODER).currentUser.get());
+        row.setSize(320, row.getPreferredSize().height);
+        layoutRecursively(row);
+
+        JTextArea body = (JTextArea) findComponentNamed(row, "duckyMessageText");
+        assertEquals(1, DuckyPanel.wrappedLineCount("testing", body.getFont(), body.getWidth()));
+        assertTrue(body.getWidth() >= body.getFontMetrics(body.getFont()).stringWidth("testing") + 20);
+    }
+
+    @Test
+    void assistantAndUserMessagesUseOppositePanelEdgesWithoutClippingText()
+            throws Exception {
+        String assistantText =
+                "Hi, I'm Ducky. Ask me a question or attach a document for local OCR.";
+        String longText =
+                "A long message should wrap naturally without losing any text. ".repeat(30).trim();
+        DuckyPanel panel = DuckyPanel.unavailable("test configuration");
+        JPanel list = messageList(panel);
+        list.removeAll();
+        var addRow = list.getClass().getDeclaredMethod("addRow", Component.class);
+        addRow.setAccessible(true);
+        addRow.invoke(list, DuckyPanel.createMessage(
+                new DuckyPanel.ChatEntry(
+                        DuckyPanel.Sender.ASSISTANT,
+                        assistantText,
+                        java.time.Instant.EPOCH,
+                        java.util.List.of()
+                ),
+                520
+        ));
+        addRow.invoke(list, DuckyPanel.createMessage(
+                new DuckyPanel.ChatEntry(
+                        DuckyPanel.Sender.USER,
+                        "testing",
+                        java.time.Instant.EPOCH,
+                        java.util.List.of()
+                ),
+                520
+        ));
+        addRow.invoke(list, DuckyPanel.createMessage(
+                new DuckyPanel.ChatEntry(
+                        DuckyPanel.Sender.USER,
+                        longText,
+                        java.time.Instant.EPOCH,
+                        java.util.List.of()
+                ),
+                520
+        ));
+        list.setSize(520, 3000);
+        layoutRecursively(list);
+
+        Component avatar = findComponentNamed(list, "duckyMessageAvatar");
+        java.util.List<JTextArea> textAreas = new java.util.ArrayList<>();
+        collectMessageTextAreas(list, textAreas);
+        JTextArea assistantBody = textAreas.stream()
+                .filter(area -> assistantText.equals(area.getText()))
+                .findFirst()
+                .orElseThrow();
+        Container assistantRow = (Container) ancestorNamed(assistantBody, "duckyMessageRow");
+        JPanel assistantBubble = (JPanel) findComponentNamed(assistantRow, "duckyMessageBubble");
+        JTextArea userBody = textAreas.stream()
+                .filter(area -> "testing".equals(area.getText()))
+                .findFirst()
+                .orElseThrow();
+        Container userRow = (Container) ancestorNamed(userBody, "duckyMessageRow");
+        JPanel userBubble = (JPanel) findComponentNamed(userRow, "duckyMessageBubble");
+        JTextArea longBody = textAreas.stream()
+                .filter(area -> longText.equals(area.getText()))
+                .findFirst()
+                .orElseThrow();
+        java.awt.Point avatarPoint = javax.swing.SwingUtilities.convertPoint(
+                avatar.getParent(), avatar.getLocation(), list);
+        java.awt.Point assistantBubblePoint = javax.swing.SwingUtilities.convertPoint(
+                assistantBubble.getParent(), assistantBubble.getLocation(), list);
+        java.awt.Point userBubblePoint = javax.swing.SwingUtilities.convertPoint(
+                userBubble.getParent(), userBubble.getLocation(), list);
+
+        assertEquals(12, avatarPoint.x);
+        assertEquals(avatar.getWidth() + 8, assistantBubblePoint.x - avatarPoint.x);
+        assertTrue(assistantBody.getPreferredSize().height
+                > assistantBody.getFontMetrics(assistantBody.getFont()).getHeight());
+        assertTrue(assistantBody.getHeight() >= assistantBody.getPreferredSize().height);
+        assertTrue(assistantBody.getY() + assistantBody.getHeight()
+                <= assistantBody.getParent().getHeight());
+
+        assertEquals("testing", userBody.getText());
+        assertTrue(
+                userBody.getWidth() >= userBody.getPreferredSize().width,
+                () -> "User message width " + userBody.getWidth()
+                        + " is smaller than its preferred width "
+                        + userBody.getPreferredSize().width
+                        + " inside bubble width " + userBubble.getWidth()
+                        + " and content width " + userBody.getParent().getWidth()
+        );
+        assertEquals(1, DuckyPanel.wrappedLineCount(
+                "testing", userBody.getFont(), userBody.getWidth()));
+        assertTrue(userBubblePoint.x > list.getWidth() / 2);
+        assertTrue(userBubblePoint.x + userBubble.getWidth() <= list.getWidth() - 12);
+        assertEquals(longText, longBody.getText());
+        assertTrue(longBody.getPreferredSize().height > longBody.getFontMetrics(longBody.getFont()).getHeight());
+        java.awt.geom.Rectangle2D lastCharacter = longBody.modelToView2D(longBody.getDocument().getLength());
+        assertTrue(
+                lastCharacter.getMaxY() <= longBody.getHeight(),
+                () -> "Last character extends to " + lastCharacter.getMaxY()
+                        + "px in a " + longBody.getHeight() + "px text area"
+        );
+    }
+
+    @Test
+    void duckyThinkingIndicatorAnimatesAndStopsWhenProcessingCompletes() throws Exception {
+        DuckyPanel panel = DuckyPanel.unavailable("test configuration");
+        javax.swing.Timer[] timer = new javax.swing.Timer[1];
+        String[] initialDots = new String[1];
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                try {
+                    panel.addNotify();
+                    Object session = fieldValue(panel, "activeSession");
+                    setField(panel, "sending", true);
+                    setField(panel, "processingSession", session);
+                    invokeRender(panel);
+                    timer[0] = (javax.swing.Timer) fieldValue(panel, "thinkingTimer");
+                    JLabel dots = (JLabel) findComponentNamed(messageList(panel), "duckyThinkingDots");
+                    initialDots[0] = dots.getText();
+                    assertTrue(timer[0].isRunning());
+                } catch (ReflectiveOperationException error) {
+                    throw new AssertionError(error);
+                }
+            });
+
+            Thread.sleep(350);
+            SwingUtilities.invokeAndWait(() -> { });
+            JLabel animatedDots = (JLabel) findComponentNamed(messageList(panel), "duckyThinkingDots");
+            assertTrue(!initialDots[0].equals(animatedDots.getText()));
+
+            SwingUtilities.invokeAndWait(() -> {
+                try {
+                    setField(panel, "sending", false);
+                    invokeRender(panel);
+                } catch (ReflectiveOperationException error) {
+                    throw new AssertionError(error);
+                }
+            });
+            assertNull(findComponentNamed(messageList(panel), "duckyThinkingDots"));
+            assertFalse(timer[0].isRunning());
+        } finally {
+            SwingUtilities.invokeAndWait(panel::removeNotify);
+        }
+    }
+
+    @Test
+    void duckyResponseTypesActualTextAndSurvivesThemeRebuilds() throws Exception {
+        DuckyPanel panel = DuckyPanel.unavailable("test configuration");
+        ThemeManager.Appearance previousAppearance = ThemeManager.appearance();
+        boolean previousDark = ThemeManager.isDark();
+        String answer = "Ducky response text gradually appears. ".repeat(20);
+        try {
+            SwingUtilities.invokeAndWait(() -> {
+                try {
+                    panel.addNotify();
+                    DuckyPanel.ChatEntry entry = new DuckyPanel.ChatEntry(
+                            DuckyPanel.Sender.ASSISTANT,
+                            answer,
+                            java.time.Instant.now(),
+                            java.util.List.of()
+                    );
+                    addAnimatingMessage(panel, entry);
+                } catch (ReflectiveOperationException error) {
+                    throw new AssertionError(error);
+                }
+            });
+
+            Thread.sleep(120);
+            SwingUtilities.invokeAndWait(() -> { });
+            String beforeTheme = lastMessageTextArea(messageList(panel)).getText();
+            assertTrue(!beforeTheme.isEmpty());
+            assertTrue(beforeTheme.length() < answer.length());
+
+            ThemeManager.apply(!previousDark);
+            Thread.sleep(100);
+            SwingUtilities.invokeAndWait(() -> { });
+            String afterTheme = lastMessageTextArea(messageList(panel)).getText();
+            assertTrue(afterTheme.length() > beforeTheme.length());
+
+            SwingUtilities.invokeAndWait(panel::removeNotify);
+            assertEquals(answer, lastMessageTextArea(messageList(panel)).getText());
+        } finally {
+            if (panel.isDisplayable()) {
+                SwingUtilities.invokeAndWait(panel::removeNotify);
+            }
+            ThemeManager.setAppearance(previousAppearance);
+            ThemeManager.apply(previousDark);
+        }
     }
 
     @Test
@@ -356,6 +594,14 @@ class ShellSmokeTest {
         throw new AssertionError("Label not found: " + text);
     }
 
+    private static boolean hasLabel(Container parent, String text) {
+        for (Component component : parent.getComponents()) {
+            if (component instanceof JLabel label && text.equals(label.getText())) return true;
+            if (component instanceof Container child && hasLabel(child, text)) return true;
+        }
+        return false;
+    }
+
     private static Component findComponentNamed(Container parent, String name) {
         for (Component component : parent.getComponents()) {
             if (name.equals(component.getName())) return component;
@@ -406,6 +652,73 @@ class ShellSmokeTest {
         var render = DuckyPanel.class.getDeclaredMethod("renderMessages", boolean.class);
         render.setAccessible(true);
         render.invoke(panel, false);
+    }
+
+    private static void addAnimatingMessage(DuckyPanel panel, DuckyPanel.ChatEntry entry)
+            throws ReflectiveOperationException, ClassNotFoundException {
+        Object session = fieldValue(panel, "activeSession");
+        var entriesField = session.getClass().getDeclaredField("entries");
+        entriesField.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        java.util.List<DuckyPanel.ChatEntry> entries =
+                (java.util.List<DuckyPanel.ChatEntry>) entriesField.get(session);
+        entries.add(entry);
+
+        Class<?> animationClass = Class.forName(
+                DuckyPanel.class.getName() + "$TypewriterAnimation"
+        );
+        var constructor = animationClass.getDeclaredConstructor(
+                session.getClass(),
+                DuckyPanel.ChatEntry.class
+        );
+        constructor.setAccessible(true);
+        setField(panel, "typewriter", constructor.newInstance(session, entry));
+        invokeRender(panel);
+    }
+
+    private static Object fieldValue(Object owner, String name) throws ReflectiveOperationException {
+        var field = owner.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        return field.get(owner);
+    }
+
+    private static void setField(Object owner, String name, Object value)
+            throws ReflectiveOperationException {
+        var field = owner.getClass().getDeclaredField(name);
+        field.setAccessible(true);
+        field.set(owner, value);
+    }
+
+    private static void invokeRender(DuckyPanel panel) throws ReflectiveOperationException {
+        var render = DuckyPanel.class.getDeclaredMethod("renderMessages", boolean.class);
+        render.setAccessible(true);
+        render.invoke(panel, false);
+    }
+
+    private static JTextArea lastMessageTextArea(Container parent) {
+        java.util.List<JTextArea> areas = new java.util.ArrayList<>();
+        collectMessageTextAreas(parent, areas);
+        if (areas.isEmpty()) throw new AssertionError("Ducky message text not found.");
+        return areas.get(areas.size() - 1);
+    }
+
+    private static void collectMessageTextAreas(Container parent, java.util.List<JTextArea> areas) {
+        for (Component component : parent.getComponents()) {
+            if (component instanceof JTextArea area
+                    && "duckyMessageText".equals(area.getName())) {
+                areas.add(area);
+            }
+            if (component instanceof Container child) collectMessageTextAreas(child, areas);
+        }
+    }
+
+    private static Component ancestorNamed(Component component, String name) {
+        Component current = component;
+        while (current != null) {
+            if (name.equals(current.getName())) return current;
+            current = current.getParent();
+        }
+        throw new AssertionError("Component ancestor not found: " + name);
     }
 
     private static void selectConversation(DuckyPanel panel, int index) throws ReflectiveOperationException {

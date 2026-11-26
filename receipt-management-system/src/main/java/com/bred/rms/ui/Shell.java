@@ -174,11 +174,13 @@ public final class Shell extends JPanel {
             case DUCKY -> {
                 GroqCredentials credentials = new GroqCredentials();
                 GroqDuckyService service = ctx.supabaseRest == null
-                        ? new GroqDuckyService(ctx, credentials, this::show, this::openReceipt)
-                        : new GroqDuckyService(ctx, credentials, ctx.supabaseRest, this::show, this::openReceipt);
+                        ? new GroqDuckyService(ctx, credentials, this::show, this::openReceipt, this::addReceipt)
+                        : new GroqDuckyService(ctx, credentials, ctx.supabaseRest,
+                                this::show, this::openReceipt, this::addReceipt);
                 var signedIn = ctx.currentUser.get();
                 yield new DuckyPanel(service, credentials,
-                        signedIn != null && signedIn.role() == Role.CREATOR);
+                        signedIn != null && signedIn.role() == Role.CREATOR,
+                        signedIn);
             }
             case REPORTS -> new ReportsPanel(ctx);
             case USERS -> new UserManagementPanel(ctx);

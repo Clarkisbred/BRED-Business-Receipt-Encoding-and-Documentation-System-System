@@ -10,6 +10,7 @@ import com.bred.rms.services.ProjectService;
 import com.bred.rms.services.ReceiptService;
 import com.bred.rms.services.SupplierService;
 import com.bred.rms.support.Fakes;
+import com.bred.rms.supabase.SupabaseException;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +41,22 @@ class GroqDuckyServiceTest {
     @TempDir
     Path temporaryDirectory;
     private HttpServer server;
+
+    @Test
+    void explainsSharedBackendServerFailuresWithoutHidingWhereToDiagnoseThem() {
+        AIProviderException unexpected = GroqDuckyService.sharedBackendFailure(
+                new SupabaseException(500, "Ducky AI is temporarily unavailable."));
+        assertTrue(unexpected.getMessage().contains("unexpected server error"));
+        assertTrue(unexpected.getMessage().contains("Edge Function logs"));
+
+        AIProviderException profileFailure = GroqDuckyService.sharedBackendFailure(
+                new SupabaseException(500, "Could not verify account permissions."));
+        assertTrue(profileFailure.getMessage().contains("profiles record"));
+
+        AIProviderException modelFailure = GroqDuckyService.sharedBackendFailure(
+                new SupabaseException(502, "The configured Groq model is unavailable."));
+        assertTrue(modelFailure.getMessage().contains("configured Groq model is unavailable"));
+    }
 
     @AfterEach
     void stopServer() {
