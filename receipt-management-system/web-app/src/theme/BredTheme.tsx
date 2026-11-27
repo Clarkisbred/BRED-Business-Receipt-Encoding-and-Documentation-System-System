@@ -2,35 +2,38 @@ import { createContext, useContext, useEffect, useMemo, useState, type ReactNode
 import { desktopRequest, loadDesktopTheme, type BredTheme } from '../api/desktop';
 
 const STORAGE_KEY = 'bred.react-theme';
+const removedAppearances = new Set(['MODERN_GLASS', 'MIDNIGHT_BLUE', 'CLEAN_LIGHT', 'GRAPHITE']);
 
 const fallbackTheme: BredTheme = {
-  appearance: 'MODERN_GLASS',
-  dark: true,
-  accent: '#5B9CFF',
-  accentDark: '#2563EB',
-  accentSoft: '#1E2870',
-  background: '#060435',
-  sidebar: '#1A1C2B',
-  header: '#1D2033',
-  surface: '#272C42',
-  surfaceMuted: '#1D2033',
-  text: '#F3F4F6',
-  muted: '#A6ABB8',
-  border: '#3A405D',
+  appearance: 'DEFAULT',
+  dark: false,
+  accent: '#1F5FBF',
+  accentDark: '#164687',
+  accentSoft: '#E8F0FC',
+  background: '#F5F6F8',
+  sidebar: '#FFFFFF',
+  header: '#FFFFFF',
+  surface: '#FFFFFF',
+  surfaceMuted: '#F5F6F8',
+  text: '#202124',
+  muted: '#747B87',
+  border: '#E1E3E8',
   success: '#218838',
   warning: '#E6A700',
   danger: '#D62828',
-  chart1: '#5B9CFF',
-  chart2: '#4DE3C2',
-  chart3: '#8B7CF6',
-  chart4: '#F5B52B',
-  chart5: '#66C7F7',
+  chart1: '#1F5FBF',
+  chart2: '#218838',
+  chart3: '#2474C7',
+  chart4: '#E6A700',
+  chart5: '#D62828',
 };
 
 function readStoredTheme(): BredTheme | null {
   try {
     const value = localStorage.getItem(STORAGE_KEY);
-    return value ? JSON.parse(value) as BredTheme : null;
+    if (!value) return null;
+    const theme = JSON.parse(value) as BredTheme;
+    return removedAppearances.has(theme.appearance) ? null : theme;
   } catch {
     return null;
   }

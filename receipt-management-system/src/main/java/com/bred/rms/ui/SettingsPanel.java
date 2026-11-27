@@ -183,8 +183,6 @@ public final class SettingsPanel extends JPanel {
                     ThemeManager.Appearance selected =
                             (ThemeManager.Appearance) appearances.getSelectedItem();
                     ThemeManager.setAppearance(selected);
-                    if (selected == ThemeManager.Appearance.CLEAN_LIGHT
-                            && ThemeManager.isDark()) ThemeManager.apply(false);
                 });
         add(appearances);
         JButton accent = new JButton("Choose accent color");

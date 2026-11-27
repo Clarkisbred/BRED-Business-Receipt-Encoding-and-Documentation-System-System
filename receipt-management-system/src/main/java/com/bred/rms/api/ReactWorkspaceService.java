@@ -77,6 +77,13 @@ final class ReactWorkspaceService {
     }
 
     LocalApiServer.ModulePageData apply(Module module, String action, String id, JsonNode values) {
+        if ("send-password-reset".equals(action)) {
+            if (module != Module.USERS) {
+                throw new IllegalArgumentException("Password reset emails can only be sent from Users.");
+            }
+            context.users.sendPasswordReset(uuid(id, "Choose an account."));
+            return load(module);
+        }
         if ("delete".equals(action)) {
             UUID recordId = uuid(id, "Choose a record to delete.");
             switch (module) {

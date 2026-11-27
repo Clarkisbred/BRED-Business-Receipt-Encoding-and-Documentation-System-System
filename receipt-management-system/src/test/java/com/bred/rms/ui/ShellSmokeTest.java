@@ -804,7 +804,7 @@ class ShellSmokeTest {
                 .orElseThrow();
 
         assertEquals(ThemeManager.Appearance.values().length, appearances.getItemCount());
-        assertEquals(ThemeManager.Appearance.MODERN_GLASS, appearances.getItemAt(1));
+        assertEquals(ThemeManager.Appearance.BREDUCK_SIGNATURE, appearances.getItemAt(1));
         assertEquals(appearances.getPreferredSize(), appearances.getMaximumSize());
         assertEquals("Installed version: " + AppVersion.current(),
                 fieldLabel(settings, "releaseVersion").getText());

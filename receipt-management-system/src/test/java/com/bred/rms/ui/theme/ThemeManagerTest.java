@@ -3,40 +3,68 @@ package com.bred.rms.ui.theme;
 import org.junit.jupiter.api.Test;
 
 import java.awt.Color;
+import java.util.Arrays;
+import java.util.List;
+import java.util.prefs.Preferences;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ThemeManagerTest {
     @Test
-    void modernGlassFoundationThemesAndCustomAccentPersist() {
+    void defaultThemeAndCustomAccentPersist() {
         ThemeManager.Appearance previousAppearance = ThemeManager.appearance();
         boolean previousDark = ThemeManager.isDark();
         java.awt.Color previousAccent = ThemeManager.customAccent();
         try {
-            ThemeManager.setAppearance(ThemeManager.Appearance.MODERN_GLASS);
-            ThemeManager.apply(true);
-            assertEquals(com.bred.rms.ui.theme.RmsColors.GLASS_BACKGROUND,
-                    RmsColors.background());
-            assertEquals(com.bred.rms.ui.theme.RmsColors.GLASS_CARD,
-                    RmsColors.surface());
-            assertEquals(Color.decode("#5B9CFF"), RmsColors.primaryAccent());
-            assertEquals(Color.decode("#1A1C2B"), RmsColors.sidebar());
-            assertEquals(Color.decode("#1D2033"), RmsColors.headerSurface());
-            assertEquals(Color.decode("#1E2870"), RmsColors.primaryLight());
+            ThemeManager.setAppearance(ThemeManager.Appearance.DEFAULT);
+            ThemeManager.apply(false);
+            assertEquals(RmsColors.LIGHT_BACKGROUND, RmsColors.background());
+            assertEquals(RmsColors.LIGHT_SURFACE, RmsColors.surface());
+            assertEquals(RmsColors.PRIMARY, RmsColors.primaryAccent());
             ThemeManager.setCustomAccent(java.awt.Color.decode("#22C55E"));
             assertEquals(java.awt.Color.decode("#22C55E"), RmsColors.primaryAccent());
             ThemeManager.installSaved();
             assertEquals(java.awt.Color.decode("#22C55E"), RmsColors.primaryAccent());
-            ThemeManager.setAppearance(ThemeManager.Appearance.CLEAN_LIGHT);
-            ThemeManager.apply(false);
-            assertEquals(java.awt.Color.decode("#F8FAFC"), RmsColors.background());
+            assertEquals(ThemeManager.Appearance.DEFAULT, ThemeManager.appearance());
         } finally {
             if (previousAccent == null) ThemeManager.clearCustomAccent();
             else ThemeManager.setCustomAccent(previousAccent);
             ThemeManager.setAppearance(previousAppearance);
             ThemeManager.apply(previousDark);
+        }
+    }
+
+    @Test
+    void removedPresetsAreUnavailableAndSavedSelectionsFallBackToDefault() throws Exception {
+        Preferences preferences = Preferences.userNodeForPackage(ThemeManager.class);
+        String savedAppearance = preferences.get("theme.appearance", null);
+        String savedDark = preferences.get("theme.dark", null);
+        ThemeManager.Appearance previousAppearance = ThemeManager.appearance();
+        boolean previousDark = ThemeManager.isDark();
+        try {
+            assertEquals(ThemeManager.Appearance.DEFAULT, ThemeManager.Appearance.values()[0]);
+            assertFalse(Arrays.stream(ThemeManager.Appearance.values())
+                    .map(Enum::name)
+                    .anyMatch(List.of("MODERN_GLASS", "MIDNIGHT_BLUE", "CLEAN_LIGHT", "GRAPHITE")::contains));
+            preferences.put("theme.appearance", "MODERN_GLASS");
+            preferences.remove("theme.dark");
+
+            ThemeManager.installSaved();
+
+            assertEquals(ThemeManager.Appearance.DEFAULT, ThemeManager.appearance());
+            assertFalse(ThemeManager.isDark());
+            assertEquals("DEFAULT", preferences.get("theme.appearance", null));
+        } finally {
+            ThemeManager.setAppearance(previousAppearance);
+            ThemeManager.apply(previousDark);
+            if (savedAppearance == null) preferences.remove("theme.appearance");
+            else preferences.put("theme.appearance", savedAppearance);
+            if (savedDark == null) preferences.remove("theme.dark");
+            else preferences.put("theme.dark", savedDark);
+            preferences.flush();
         }
     }
     @Test
@@ -165,15 +193,15 @@ class ThemeManagerTest {
         ThemeManager.Appearance previousAppearance = ThemeManager.appearance();
         boolean previousDark = ThemeManager.isDark();
         try {
-            ThemeManager.setAppearance(ThemeManager.Appearance.MODERN_GLASS);
+            ThemeManager.setAppearance(ThemeManager.Appearance.DEFAULT);
             ThemeManager.apply(true);
             ThemeManager.ReactTheme theme = ThemeManager.reactTheme();
-            assertEquals("MODERN_GLASS", theme.appearance());
+            assertEquals("DEFAULT", theme.appearance());
             assertTrue(theme.dark());
-            assertEquals("#060435", theme.background());
-            assertEquals("#1A1C2B", theme.sidebar());
-            assertEquals("#5B9CFF", theme.chart1());
-            assertEquals("#4DE3C2", theme.chart2());
+            assertEquals("#15171C", theme.background());
+            assertEquals("#20232B", theme.sidebar());
+            assertEquals("#1F5FBF", theme.chart1());
+            assertEquals("#218838", theme.chart2());
             assertTrue(theme.surface().startsWith("#"));
         } finally {
             ThemeManager.setAppearance(previousAppearance);

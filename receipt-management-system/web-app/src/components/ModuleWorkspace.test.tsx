@@ -163,10 +163,10 @@ const settingsPage: ModulePageData = {
       type: 'select',
       required: true,
       options: [
-        { label: 'Modern Glass', value: 'MODERN_GLASS' },
-        { label: 'Clean Light', value: 'CLEAN_LIGHT' },
+        { label: 'Default', value: 'DEFAULT' },
+        { label: "BreDuck's Signature", value: 'BREDUCK_SIGNATURE' },
       ],
-      value: 'MODERN_GLASS',
+      value: 'BREDUCK_SIGNATURE',
     },
     { key: 'dark', label: 'Dark appearance', type: 'checkbox', value: false },
     { key: 'newPassword', label: 'New password (optional)', type: 'password' },
@@ -182,7 +182,10 @@ const settingsPage: ModulePageData = {
 };
 
 describe('ModuleWorkspace', () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
 
   beforeEach(() => {
     loadModulePage.mockReset().mockResolvedValue(projectPage);
@@ -222,6 +225,62 @@ describe('ModuleWorkspace', () => {
       undefined,
     ));
     expect(await screen.findByText('South site')).toBeInTheDocument();
+  });
+
+  it('lets the Creator send a password reset email from Users', async () => {
+    const usersPage: ModulePageData = {
+      key: 'USERS',
+      title: 'Users',
+      description: 'Manage BRED accounts.',
+      metrics: [],
+      columns: [{ key: 'fullName', label: 'Name' }, { key: 'email', label: 'Email' }],
+      fields: [],
+      rows: [{ id: 'user-1', values: { fullName: 'Account owner', email: 'owner@example.test' } }],
+      canCreate: true,
+      canEdit: true,
+      canDelete: true,
+      primaryActionLabel: 'New user',
+      submitLabel: 'Save user',
+      createAction: 'save',
+    };
+    loadModulePage.mockResolvedValueOnce(usersPage);
+    saveModuleRecord.mockResolvedValueOnce(usersPage);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<ModuleWorkspace module="USERS" />);
+
+    await screen.findByText('Account owner');
+    fireEvent.click(screen.getByRole('button', { name: 'Send reset' }));
+
+    await waitFor(() => expect(saveModuleRecord).toHaveBeenCalledWith(
+      'USERS',
+      'send-password-reset',
+      {},
+      'user-1',
+    ));
+    expect(await screen.findByText('Password reset email sent to owner@example.test.')).toBeInTheDocument();
+  });
+
+  it('hides the password reset action from non-Creator Users workspaces', async () => {
+    const usersPage: ModulePageData = {
+      key: 'USERS',
+      title: 'Users',
+      description: 'Manage BRED accounts.',
+      metrics: [],
+      columns: [{ key: 'fullName', label: 'Name' }, { key: 'email', label: 'Email' }],
+      fields: [],
+      rows: [{ id: 'user-1', values: { fullName: 'Account owner', email: 'owner@example.test' } }],
+      canCreate: false,
+      canEdit: true,
+      canDelete: true,
+      primaryActionLabel: 'New user',
+      submitLabel: 'Save user',
+      createAction: 'save',
+    };
+    loadModulePage.mockResolvedValueOnce(usersPage);
+    render(<ModuleWorkspace module="USERS" />);
+
+    await screen.findByText('Account owner');
+    expect(screen.queryByRole('button', { name: 'Send reset' })).not.toBeInTheDocument();
   });
 
   it('offers retry when the module data request fails', async () => {
@@ -351,8 +410,12 @@ describe('ModuleWorkspace', () => {
       'href',
       'mailto:clarkhilario.bread@gmail.com',
     );
+    expect(screen.queryByRole('option', { name: 'Modern Glass' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Midnight Blue' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Clean Light' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('option', { name: 'Graphite' })).not.toBeInTheDocument();
     fireEvent.change(screen.getByRole('combobox', { name: 'Theme preset' }), {
-      target: { value: 'CLEAN_LIGHT' },
+      target: { value: 'DEFAULT' },
     });
     fireEvent.click(screen.getByRole('checkbox', { name: 'Dark mode' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save appearance' }));
@@ -361,7 +424,7 @@ describe('ModuleWorkspace', () => {
       'SETTINGS',
       'save',
       {
-        appearance: 'CLEAN_LIGHT',
+        appearance: 'DEFAULT',
         dark: true,
         newPassword: '',
         confirmPassword: '',

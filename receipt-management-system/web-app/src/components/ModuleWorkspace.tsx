@@ -114,6 +114,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
   const [bugDescription, setBugDescription] = useState('');
   const [releaseVersion, setReleaseVersion] = useState('');
   const [settingsNotice, setSettingsNotice] = useState<SettingsNotice | null>(null);
+  const [userActionNotice, setUserActionNotice] = useState<SettingsNotice | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -165,6 +166,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
     setConstructionArea('All areas');
     setReportGroup('All reports');
     setAccountStatus('All accounts');
+    setUserActionNotice(null);
   }, [module]);
 
   const rows = useMemo(() => {
@@ -336,6 +338,24 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
       if (id === selectedReceiptId) setSelectedReceiptId(null);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'BRED could not delete this record.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function sendPasswordReset(id: string, email: string) {
+    if (!window.confirm(`Send a password reset email to ${email}? The recipient must open it to choose a new password.`)) return;
+    setSaving(true);
+    setError(null);
+    setUserActionNotice(null);
+    try {
+      setData(await saveModuleRecord('USERS', 'send-password-reset', {}, id));
+      setUserActionNotice({ kind: 'success', message: `Password reset email sent to ${email}.` });
+    } catch (reason) {
+      setUserActionNotice({
+        kind: 'error',
+        message: reason instanceof Error ? reason.message : 'BRED could not send the password reset email.',
+      });
     } finally {
       setSaving(false);
     }
@@ -538,6 +558,11 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
       )}
 
       {error && <div className="form-message" role="alert">{error}</div>}
+      {module === 'USERS' && userActionNotice && (
+        <p className={`settings-notice is-${userActionNotice.kind}`} role={userActionNotice.kind === 'error' ? 'alert' : 'status'}>
+          {userActionNotice.message}
+        </p>
+      )}
 
       {module === 'RECEIPTS' && (
         <section className="panel module-filter-panel" aria-label="Filter receipts">
@@ -1094,6 +1119,16 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
                       {(data.canEdit || data.canDelete) && (
                         <td className="module-row-actions">
                           {data.canEdit && <button className="text-button" type="button" onClick={() => beginEdit(row.id)}>Edit</button>}
+                          {module === 'USERS' && data.canCreate && (
+                            <button
+                              className="text-button"
+                              type="button"
+                              onClick={() => void sendPasswordReset(row.id, displayValue(row.values.email))}
+                              disabled={saving}
+                            >
+                              Send reset
+                            </button>
+                          )}
                           {data.canDelete && <button className="text-button text-button-danger" type="button" onClick={() => void deleteRecord(row.id)} disabled={saving}>Delete</button>}
                         </td>
                       )}

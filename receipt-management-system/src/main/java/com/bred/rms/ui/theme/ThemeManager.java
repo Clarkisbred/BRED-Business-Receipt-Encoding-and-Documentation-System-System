@@ -46,10 +46,6 @@ public final class ThemeManager {
     /** Available application color palettes. */
     public enum Appearance {
         DEFAULT("Default"),
-        MODERN_GLASS("Modern Glass"),
-        MIDNIGHT_BLUE("Midnight Blue"),
-        CLEAN_LIGHT("Clean Light"),
-        GRAPHITE("Graphite"),
         BREDUCK_SIGNATURE("BreDuck's Signature"),
         DUTERTES_SIGNATURE("Duterte for 2028"),
         SHRIMPS_AUCLAIR("Shrimp's Auclair"),
@@ -100,10 +96,6 @@ public final class ThemeManager {
     /** Produces semantic React theme tokens from the currently persisted Java preset. */
     public static ReactTheme reactTheme() {
         String[] charts = switch (appearance) {
-            case MODERN_GLASS -> new String[]{"#5B9CFF", "#4DE3C2", "#8B7CF6", "#F5B52B", "#66C7F7"};
-            case MIDNIGHT_BLUE -> new String[]{"#5B9CFF", "#38BDF8", "#22C55E", "#F59E0B", "#A78BFA"};
-            case CLEAN_LIGHT -> new String[]{"#2563EB", "#16A34A", "#0891B2", "#F59E0B", "#7C3AED"};
-            case GRAPHITE -> new String[]{"#E6A700", "#4ADE80", "#60A5FA", "#F97316", "#A3A3A3"};
             case BREDUCK_SIGNATURE -> new String[]{"#F7A72E", "#22C55E", "#3B82F6", "#E11D48", "#A78BFA"};
             case DUTERTES_SIGNATURE -> new String[]{"#2E7D32", "#22C55E", "#0EA5E9", "#F59E0B", "#DC2626"};
             case SHRIMPS_AUCLAIR -> new String[]{"#F48FB1", "#EC4899", "#38BDF8", "#22C55E", "#A78BFA"};
@@ -138,12 +130,9 @@ public final class ThemeManager {
 
     /** Applies the saved theme and appearance preferences. */
     public static void installSaved() { 
-        appearance = Appearance.fromPreference(PREFS.get(KEY_APPEARANCE, Appearance.MODERN_GLASS.name()));
+        appearance = Appearance.fromPreference(PREFS.get(KEY_APPEARANCE, Appearance.DEFAULT.name()));
         accentOverride = parseHex(PREFS.get(KEY_ACCENT, ""), null);
-        boolean defaultDark = appearance == Appearance.MODERN_GLASS
-                || appearance == Appearance.MIDNIGHT_BLUE
-                || appearance == Appearance.GRAPHITE;
-        apply(PREFS.getBoolean(KEY_DARK, defaultDark));
+        apply(PREFS.getBoolean(KEY_DARK, false));
     }
 
     /** Sets and persists a custom accent color, or {@code null} to use the theme accent. */

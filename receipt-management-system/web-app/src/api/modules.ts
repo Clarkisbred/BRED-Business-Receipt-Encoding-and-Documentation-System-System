@@ -83,7 +83,7 @@ export async function searchMapLocations(query: string): Promise<MapSearchResult
 
 export async function saveModuleRecord(
   module: ModuleKey,
-  action: 'save' | 'delete' | 'send' | 'ask' | 'report' | 'publish-release',
+  action: 'save' | 'delete' | 'send' | 'ask' | 'report' | 'publish-release' | 'send-password-reset',
   values: Record<string, unknown>,
   id?: string,
 ): Promise<ModulePageData> {

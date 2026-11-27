@@ -250,7 +250,8 @@ public final class LocalApiServer implements AutoCloseable {
             exchange.getResponseHeaders().set("Content-Type", contentType(resourcePath));
             exchange.getResponseHeaders().set("Content-Security-Policy",
                     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
-                            + "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; "
+                            + "img-src 'self' data: https://tile.openstreetmap.org; "
+                            + "font-src 'self' data:; connect-src 'self'; "
                             + "object-src 'none'; frame-src https://www.openstreetmap.org; "
                             + "frame-ancestors 'none'; base-uri 'none'");
             exchange.getResponseHeaders().set("X-Frame-Options", "DENY");

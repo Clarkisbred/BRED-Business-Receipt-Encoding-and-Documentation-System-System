@@ -30,6 +30,7 @@ class ReactWorkspaceServiceTest {
 
     private static final class MemoryUsers implements UserRepository {
         private final List<User> users;
+        private UUID passwordResetId;
 
         private MemoryUsers(List<User> users) {
             this.users = users;
@@ -45,6 +46,7 @@ class ReactWorkspaceServiceTest {
         @Override public void update(UUID id, String fullName, Role role, boolean active) {
             throw new UnsupportedOperationException();
         }
+        @Override public void sendPasswordReset(UUID id) { passwordResetId = id; }
     }
 
     private static final class MemoryMessages implements MessageRepository {
@@ -156,6 +158,27 @@ class ReactWorkspaceServiceTest {
     }
 
     @Test
+    void sendsPasswordResetOnlyForCreatorManagedUserAccounts() throws Exception {
+        User creator = new User(UUID.randomUUID(), "Creator", "creator@example.test", Role.CREATOR, true);
+        User target = new User(UUID.randomUUID(), "Account owner", "owner@example.test", Role.ENCODER, true);
+        MemoryUsers users = new MemoryUsers(List.of(creator, target));
+        AppContext context = AppContext.forTesting(creator, null, null, null, null,
+                users, null, new MemoryMessages());
+        ReactWorkspaceService service = new ReactWorkspaceService(context);
+
+        service.apply(Module.USERS, "send-password-reset", target.id().toString(), JSON.readTree("{}"));
+
+        assertEquals(target.id(), users.passwordResetId);
+        assertThrows(IllegalArgumentException.class,
+                () -> service.apply(Module.PROJECTS, "send-password-reset", target.id().toString(), JSON.readTree("{}")));
+
+        User admin = new User(UUID.randomUUID(), "Admin", "admin@example.test", Role.ADMIN, true);
+        ReactWorkspaceService adminService = service(admin, List.of(admin, target), new MemoryMessages());
+        assertThrows(SecurityException.class,
+                () -> adminService.apply(Module.USERS, "send-password-reset", target.id().toString(), JSON.readTree("{}")));
+    }
+
+    @Test
     void exposesCreatorSettingsAndSubmitsBugReportsThroughTheValidatedService() throws Exception {
         User creator = new User(UUID.randomUUID(), "Creator", "creator@example.test", Role.CREATOR, true);
         MemoryBugReports reports = new MemoryBugReports();
@@ -194,10 +217,10 @@ class ReactWorkspaceServiceTest {
 
         try {
             LocalApiServer.ModulePageData updated = service.apply(Module.SETTINGS, "save", null,
-                    JSON.readTree("{\"appearance\":\"CLEAN_LIGHT\",\"dark\":false,"
+                    JSON.readTree("{\"appearance\":\"DEFAULT\",\"dark\":false,"
                             + "\"newPassword\":\"\",\"confirmPassword\":\"\"}"));
 
-            assertEquals("CLEAN_LIGHT", com.bred.rms.ui.theme.ThemeManager.reactTheme().appearance());
+            assertEquals("DEFAULT", com.bred.rms.ui.theme.ThemeManager.reactTheme().appearance());
             assertFalse(com.bred.rms.ui.theme.ThemeManager.reactTheme().dark());
             assertTrue(updated.fields().stream().anyMatch(field -> "dark".equals(field.key())
                     && Boolean.FALSE.equals(field.value())));
