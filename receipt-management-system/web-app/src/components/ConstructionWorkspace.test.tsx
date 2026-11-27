@@ -1,0 +1,100 @@
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ConstructionWorkspace } from './ConstructionWorkspace';
+import type { ModulePageData } from '../api/modules';
+
+const { loadConstructionPage, saveModuleRecord } = vi.hoisted(() => ({
+  loadConstructionPage: vi.fn(),
+  saveModuleRecord: vi.fn(),
+}));
+
+vi.mock('../api/modules', () => ({ loadConstructionPage, saveModuleRecord }));
+
+const categories = [
+  {
+    title: 'Projects and Planning',
+    tabs: [{ title: 'Contracts', table: 'project_contracts' }],
+  },
+  {
+    title: 'Billing and Finance',
+    tabs: [{ title: 'Payables', table: 'project_payables' }],
+  },
+];
+
+const contractsPage: ModulePageData = {
+  key: 'CONSTRUCTION',
+  title: 'Contracts',
+  description: 'Project contracts.',
+  metrics: [],
+  columns: [{ key: 'contract_name', label: 'Contract name' }],
+  fields: [{ key: 'contract_name', label: 'Contract name', type: 'text', required: true }],
+  rows: [],
+  canCreate: true,
+  canEdit: true,
+  canDelete: true,
+  primaryActionLabel: 'Add record',
+  submitLabel: 'Save record',
+  createAction: 'save',
+  constructionCategories: categories,
+};
+
+const payablesPage: ModulePageData = {
+  ...contractsPage,
+  title: 'Payables',
+  description: 'Project payables.',
+  columns: [{ key: 'reference', label: 'Reference' }, { key: 'amount', label: 'Amount' }],
+  fields: [],
+  rows: [{ id: 'payable-1', values: { reference: 'Concrete invoice', amount: null } }],
+};
+
+describe('ConstructionWorkspace', () => {
+  afterEach(() => cleanup());
+
+  beforeEach(() => {
+    loadConstructionPage.mockReset().mockImplementation((table: string) => Promise.resolve(
+      table === 'project_payables' ? payablesPage : contractsPage,
+    ));
+    saveModuleRecord.mockReset().mockResolvedValue({
+      ...contractsPage,
+      rows: [{ id: 'contract-1', values: { contract_name: 'North site contract' } }],
+    });
+  });
+
+  it('switches between Java construction categories and loads the selected table', async () => {
+    render(<ConstructionWorkspace />);
+
+    expect(await screen.findByText('No contracts records yet')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Billing and Finance/ }));
+
+    expect(await screen.findByText('Concrete invoice')).toBeInTheDocument();
+    expect(loadConstructionPage).toHaveBeenLastCalledWith('project_payables');
+    const row = screen.getByRole('row', { name: 'Concrete invoice' });
+    expect(within(row).getAllByRole('cell')[1]).toBeEmptyDOMElement();
+  });
+
+  it('creates a construction record using the selected table and entered fields', async () => {
+    render(<ConstructionWorkspace />);
+    await screen.findByText('No contracts records yet');
+    fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
+    fireEvent.change(screen.getByRole('textbox', { name: /Contract name/ }), {
+      target: { value: 'North site contract' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save record' }));
+
+    await waitFor(() => expect(saveModuleRecord).toHaveBeenCalledWith(
+      'CONSTRUCTION',
+      'save',
+      { contract_name: 'North site contract', table: 'project_contracts' },
+      undefined,
+    ));
+    expect(await screen.findByText('North site contract')).toBeInTheDocument();
+  });
+
+  it('renders an explicit recoverable load error', async () => {
+    loadConstructionPage.mockRejectedValueOnce(new Error('Construction service unavailable.'));
+    render(<ConstructionWorkspace />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Construction service unavailable.');
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+});

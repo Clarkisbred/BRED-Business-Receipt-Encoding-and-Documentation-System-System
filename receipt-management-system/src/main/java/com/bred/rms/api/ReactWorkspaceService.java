@@ -18,9 +18,12 @@ import com.bred.rms.models.User;
 import com.bred.rms.repositories.RepositoryException;
 import com.bred.rms.security.Module;
 import com.bred.rms.services.ReceiptQuery;
+import com.bred.rms.ui.construction.ConstructionPanel;
 import com.bred.rms.ui.theme.ThemeManager;
 import com.bred.rms.ui.map.NominatimGeocoder;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.JsonProcessingException;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -33,9 +36,7 @@ import java.util.Set;
 import java.util.UUID;
 
 final class ReactWorkspaceService {
-    private static final List<String> CONSTRUCTION_TABLES = List.of(
-            "project_milestones", "project_payables", "purchase_orders", "material_stock",
-            "project_risks", "project_expense_ledger", "project_labor_costs", "equipment_cost_postings");
+    private static final ObjectMapper JSON = new ObjectMapper();
     private static final int MAX_DUCKY_HISTORY_TURNS = 20;
     private static final int MAX_DUCKY_HISTORY_CHARS = 12_000;
     private static final int MAX_DUCKY_PROMPT_CHARS = 4_000;
@@ -52,6 +53,10 @@ final class ReactWorkspaceService {
     }
 
     LocalApiServer.ModulePageData load(Module module) {
+        return load(module, null);
+    }
+
+    LocalApiServer.ModulePageData load(Module module, String table) {
         return switch (module) {
             case PROJECTS -> projects();
             case SUPPLIERS -> suppliers();
@@ -59,7 +64,7 @@ final class ReactWorkspaceService {
             case MESSAGES -> messages();
             case DUCKY -> ducky();
             case LIVE_MAP -> liveMap();
-            case CONSTRUCTION -> construction();
+            case CONSTRUCTION -> construction(table);
             case REPORTS -> reports();
             case USERS -> users();
             case ACTIVITY_LOG -> activityLog();
@@ -77,6 +82,7 @@ final class ReactWorkspaceService {
                 case PROJECTS -> context.projects.delete(recordId);
                 case SUPPLIERS -> context.suppliers.delete(recordId);
                 case RECEIPTS -> context.receipts.delete(recordId);
+                case CONSTRUCTION -> deleteConstruction(id, values);
                 case COMPANIES -> context.companies.delete(recordId);
                 case USERS -> context.users.delete(recordId);
                 default -> throw new IllegalArgumentException("This workspace does not support deleting records.");
@@ -100,6 +106,7 @@ final class ReactWorkspaceService {
             case MESSAGES -> sendMessage(input);
             case DUCKY -> askDucky(input);
             case LIVE_MAP -> saveMapMarker(id, input);
+            case CONSTRUCTION -> saveConstruction(id, input);
             case USERS -> saveUser(id, input);
             case COMPANIES -> saveCompany(id, input);
             case SETTINGS -> switch (action) {
@@ -309,30 +316,130 @@ final class ReactWorkspaceService {
                 rows, context.supabaseRest != null, false, false, "Add location", "Save location", "save");
     }
 
-    private LocalApiServer.ModulePageData construction() {
-        List<LocalApiServer.ModuleRecord> rows = new ArrayList<>();
-        for (String table : CONSTRUCTION_TABLES) {
-            for (JsonNode source : context.constructionData.rows(table)) {
-                rows.add(record(text(source, "id"),
-                        "recordType", tableLabel(table),
-                        "reference", first(source, "milestone_name", "invoice_number", "po_number",
-                                "description", "title", "period_start", "equipment_id"),
-                        "status", first(source, "status", "approved", "level"),
-                        "date", first(source, "due_date", "order_date", "expense_date", "period_start"),
-                        "amount", first(source, "gross_amount", "total_amount", "amount", "total_pay",
-                                "total_cost", "quantity")));
-            }
-        }
+    private LocalApiServer.ModulePageData construction(String table) {
+        List<ConstructionPanel.WorkspaceTab> availableTabs = ConstructionPanel.workspaceTabs();
+        ConstructionPanel.WorkspaceTab tab = table == null || table.isBlank()
+                ? availableTabs.get(0) : ConstructionPanel.workspaceTab(table);
+        if (tab == null) throw new IllegalArgumentException("Choose a valid construction section.");
+
+        List<LocalApiServer.ModuleRecord> rows = context.constructionData.rows(tab.table()).stream()
+                .map(source -> {
+                    Map<String, Object> values = new LinkedHashMap<>();
+                    tab.fields().forEach(field -> values.put(field.key(), jsonValue(source.get(field.key()))));
+                    return new LocalApiServer.ModuleRecord(text(source, "id"), values);
+                })
+                .toList();
         var summary = context.constructionData.summary();
         var cost = context.constructionData.boqCostSummary();
-        return page(Module.CONSTRUCTION, "Construction", "Monitor project delivery, procurement, payables, inventory and workforce records.",
+        List<LocalApiServer.ConstructionCategory> categories = ConstructionPanel.workspaceCategories().stream()
+                .map(category -> new LocalApiServer.ConstructionCategory(category.title(),
+                        category.tabs().stream().map(item ->
+                                new LocalApiServer.ConstructionTabInfo(item.title(), item.table())).toList()))
+                .toList();
+        List<LocalApiServer.ModuleField> fields = tab.fields().stream()
+                .map(field -> {
+                    List<LocalApiServer.ModuleOption> options = constructionFieldOptions(field.key());
+                    return new LocalApiServer.ModuleField(field.key(), field.label(),
+                            options.isEmpty() ? constructionFieldType(field.type()) : "select",
+                            field.required(), options, null);
+                })
+                .toList();
+        List<LocalApiServer.ModuleColumn> columns = tab.fields().stream()
+                .map(field -> column(field.key(), field.label(), "NUMBER".equals(field.type())))
+                .toList();
+        boolean canWrite = context.supabaseRest != null && currentRole().canManageCompany();
+        return new LocalApiServer.ModulePageData(Module.CONSTRUCTION.name(), tab.title(),
+                "Manage " + tab.title().toLowerCase(java.util.Locale.ROOT) + " records.",
                 List.of(metric("Gross billings", money(summary.grossBillings())),
                         metric("Collected", money(summary.collected())),
                         metric("Receivables", money(summary.receivable())),
-                        metric("BOQ variance", money(cost.variance()))),
-                List.of(column("recordType", "Area"), column("reference", "Record"),
-                        column("status", "Status"), column("date", "Date"), column("amount", "Amount")),
-                List.of(), rows, false, false, false, "", "", "save");
+                        metric("BOQ variance", money(cost.variance())),
+                        metric(tab.title() + " records", rows.size())),
+                columns, fields, rows, canWrite, canWrite, canWrite,
+                "Add " + tab.title().toLowerCase(java.util.Locale.ROOT),
+                "Save record", "save", categories);
+    }
+
+    private LocalApiServer.ModulePageData saveConstruction(String id, JsonNode input) {
+        String table = text(input, "table");
+        ConstructionPanel.WorkspaceTab tab = ConstructionPanel.workspaceTab(table);
+        if (tab == null) throw new IllegalArgumentException("Choose a valid construction section.");
+        requireConstructionWrite();
+        UUID recordId = optionalUuid(id);
+        Map<String, Object> values = new LinkedHashMap<>();
+        for (ConstructionPanel.WorkspaceField field : tab.fields()) {
+            JsonNode value = input.get(field.key());
+            String raw = value == null || value.isNull() ? "" : value.asText("");
+            if ("null".equalsIgnoreCase(raw.trim())) raw = "";
+            if (raw.isBlank()) {
+                if (field.required()) {
+                    throw new IllegalArgumentException(field.label() + " is required.");
+                }
+                continue;
+            }
+            values.put(field.key(), constructionFieldValue(field, value, raw));
+        }
+        context.constructionData.saveRow(tab.table(), recordId, values);
+        return construction(tab.table());
+    }
+
+    private LocalApiServer.ModulePageData deleteConstruction(String id, JsonNode input) {
+        String table = text(input, "table");
+        ConstructionPanel.WorkspaceTab tab = ConstructionPanel.workspaceTab(table);
+        if (tab == null) throw new IllegalArgumentException("Choose a valid construction section.");
+        requireConstructionWrite();
+        context.constructionData.deleteRow(tab.table(), uuid(id, "Choose a record to delete."));
+        return construction(tab.table());
+    }
+
+    private void requireConstructionWrite() {
+        if (context.supabaseRest == null) {
+            throw new IllegalStateException("Construction changes require a Cloud Database connection.");
+        }
+        if (!currentRole().canManageCompany()) {
+            throw new SecurityException("Your BRED role cannot change construction records.");
+        }
+    }
+
+    private List<LocalApiServer.ModuleOption> constructionFieldOptions(String key) {
+        if ("project_id".equals(key)) {
+            return context.projects.findAll().stream()
+                    .map(project -> option(project.name(), project.id().toString())).toList();
+        }
+        if ("supplier_id".equals(key) || "owner_supplier_id".equals(key)) {
+            return context.suppliers.findAll().stream()
+                    .map(supplier -> option(supplier.businessName(), supplier.id().toString())).toList();
+        }
+        return List.of();
+    }
+
+    private static String constructionFieldType(String type) {
+        return switch (type) {
+            case "NUMBER" -> "number";
+            case "DATE" -> "date";
+            case "BOOLEAN" -> "checkbox";
+            case "JSON" -> "textarea";
+            default -> "text";
+        };
+    }
+
+    private static Object constructionFieldValue(ConstructionPanel.WorkspaceField field, JsonNode value, String raw) {
+        try {
+            return switch (field.type()) {
+                case "NUMBER" -> new BigDecimal(raw);
+                case "BOOLEAN" -> {
+                    if (value != null && value.isBoolean()) yield value.booleanValue();
+                    if ("true".equalsIgnoreCase(raw) || "false".equalsIgnoreCase(raw)) {
+                        yield Boolean.parseBoolean(raw);
+                    }
+                    throw new IllegalArgumentException(field.label() + " must be true or false.");
+                }
+                case "JSON" -> JSON.readTree(raw);
+                default -> raw;
+            };
+        } catch (NumberFormatException | JsonProcessingException invalid) {
+            throw new IllegalArgumentException("Enter a valid " + field.label().toLowerCase(java.util.Locale.ROOT) + ".", invalid);
+        }
     }
 
     private LocalApiServer.ModulePageData reports() {
@@ -400,7 +507,7 @@ final class ReactWorkspaceService {
     private LocalApiServer.ModulePageData companies() {
         if (!context.companies.isSupported()) {
             return page(Module.COMPANIES, "Companies",
-                    "Company management is available when BRED is connected to its Supabase workspace.",
+                    "Company management is available when BRED is connected to Cloud Database.",
                     List.of(), List.of(column("name", "Company")), List.of(), List.of(),
                     false, false, false, "", "", "save");
         }
@@ -501,7 +608,7 @@ final class ReactWorkspaceService {
 
     private LocalApiServer.ModulePageData submitBugReport(JsonNode values) {
         if (context.bugReports == null) {
-            throw new IllegalStateException("Bug reports are unavailable without a Supabase connection.");
+            throw new IllegalStateException("Bug reports are unavailable without a Cloud Database connection.");
         }
         context.bugReports.submit(text(values, "title"), text(values, "description"), null, null, null);
         return settings();
@@ -509,7 +616,7 @@ final class ReactWorkspaceService {
 
     private LocalApiServer.ModulePageData publishRelease(JsonNode values) {
         if (context.appReleases == null) {
-            throw new IllegalStateException("Publishing a release requires a Supabase connection.");
+            throw new IllegalStateException("Publishing a release requires a Cloud Database connection.");
         }
         context.appReleases.publish(text(values, "version"));
         return settings();
@@ -797,6 +904,17 @@ final class ReactWorkspaceService {
     private static String text(JsonNode values, String field) {
         JsonNode value = values == null ? null : values.get(field);
         return value == null || value.isNull() ? "" : value.asText("");
+    }
+
+    private static Object jsonValue(JsonNode value) {
+        if (value == null || value.isNull()) return "";
+        if (value.isBoolean()) return value.booleanValue();
+        if (value.isNumber()) return value.numberValue();
+        if (value.isTextual()) {
+            String text = value.asText();
+            return "null".equalsIgnoreCase(text.trim()) ? "" : text;
+        }
+        return value.toString();
     }
 
     private static String first(JsonNode row, String... fields) {

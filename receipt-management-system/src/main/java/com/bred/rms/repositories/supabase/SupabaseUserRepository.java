@@ -38,7 +38,7 @@ public final class SupabaseUserRepository implements UserRepository {
             List<User> out = new ArrayList<>();
             JsonNode contacts = rest.rpc("message_contacts", Map.of());
             if (!contacts.isArray()) {
-                throw new RepositoryException("Supabase returned an invalid teammate list.", false);
+                throw new RepositoryException("Cloud Database returned an invalid teammate list.", false);
             }
             for (JsonNode n : contacts) {
                 out.add(new User(Json.uuid(n, "id"), Json.text(n, "full_name"), "",
@@ -143,8 +143,7 @@ public final class SupabaseUserRepository implements UserRepository {
     private static RuntimeException adminFunctionError(String function, SupabaseException e) {
         String m = e.getMessage() == null ? "" : e.getMessage().toLowerCase(java.util.Locale.ROOT);
         if (e.status() == 404 && m.contains("function")) {
-            return new RepositoryException("The " + function + " Supabase Function is not deployed. From the BRED project "
-                    + "folder, run `npx supabase functions deploy " + function + "`.", false);
+            return new RepositoryException("The account service is unavailable. Contact your administrator.", false);
         }
         if (e.status() == 404) {
             return new ValidationException(e.getMessage());
@@ -159,18 +158,14 @@ public final class SupabaseUserRepository implements UserRepository {
     private static RuntimeException registrationFunctionError(SupabaseException e) {
         if (e.status() == 404) {
             return new RepositoryException(
-                    "The register-account Supabase Function is missing or outdated. From the BRED project folder, run "
-                            + "`npx supabase login`, `npx supabase link --project-ref YOUR-PROJECT-REF`, then "
-                            + "`npx supabase functions deploy register-account`.",
+                    "The account service is unavailable or outdated. Contact your administrator.",
                     false);
         }
         if (e.status() == 400 && e.getMessage() != null
                 && e.getMessage().toLowerCase(java.util.Locale.ROOT).contains("choose an available company")) {
             return new RepositoryException(
-                    "Supabase received this as an Encoder registration. If Admin is selected, close this app and "
-                            + "rebuild and run the latest BRED JAR (`mvn -q package`, then "
-                            + "`java -jar target/bred-0.1.0-SNAPSHOT.jar`). If the latest JAR still shows this error, "
-                            + "deploy the current function with `npx supabase functions deploy register-account`.",
+                    "The account service could not process this registration. Restart BRED and try again. "
+                            + "If the issue continues, contact your administrator.",
                     false);
         }
         return SupabaseErrors.translate(e);

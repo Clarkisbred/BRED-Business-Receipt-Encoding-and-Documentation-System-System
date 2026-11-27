@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { ProfileAvatar } from './IdentityAvatar';
+import { booleanValue, displayValue, inputValue } from '../utils/moduleValues';
 import {
   loadModulePage,
   saveModuleRecord,
@@ -28,16 +29,8 @@ import {
 } from '../api/modules';
 import type { ModuleKey } from '../types';
 
-function displayValue(value: unknown): string {
-  if (value == null || value === '') return '—';
-  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
-  if (typeof value === 'string' || typeof value === 'number') return String(value);
-  if (Array.isArray(value)) return value.map(displayValue).join(', ');
-  return JSON.stringify(value);
-}
-
 function uniqueValues(rows: ModulePageData['rows'], key: string): string[] {
-  return [...new Set(rows.map((row) => displayValue(row.values[key])).filter((value) => value !== '—'))]
+  return [...new Set(rows.map((row) => displayValue(row.values[key])).filter(Boolean))]
     .sort((left, right) => left.localeCompare(right));
 }
 
@@ -53,6 +46,12 @@ function rowAmount(row: ModulePageData['rows'][number]): number {
   return Number.isFinite(amount) ? amount : 0;
 }
 
+function coordinateValue(value: unknown): number {
+  if (typeof value !== 'number' && (typeof value !== 'string' || value.trim() === '')) return Number.NaN;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
 function statusTone(value: unknown): 'success' | 'warning' | 'danger' | 'neutral' {
   const normalized = displayValue(value).toLocaleLowerCase();
   if (['active', 'approved', 'completed', 'verified', 'finalized', 'yes'].includes(normalized)) return 'success';
@@ -62,7 +61,7 @@ function statusTone(value: unknown): 'success' | 'warning' | 'danger' | 'neutral
 }
 
 function defaultValue(field: ModuleField): string | number | boolean {
-  if (field.value !== undefined) return field.value;
+  if (field.value !== undefined && displayValue(field.value) !== '') return field.value;
   if (field.type === 'checkbox') return false;
   return '';
 }
@@ -213,13 +212,13 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
   const mapMarker = module === 'LIVE_MAP'
     ? data?.rows.find((row) => row.id === selectedMapMarkerId) ?? data?.rows[0] ?? null
     : null;
-  const mapLatitude = Number(mapMarker?.values.latitude);
-  const mapLongitude = Number(mapMarker?.values.longitude);
+  const mapLatitude = coordinateValue(mapMarker?.values.latitude);
+  const mapLongitude = coordinateValue(mapMarker?.values.longitude);
   const hasMapCoordinates = Number.isFinite(mapLatitude) && Number.isFinite(mapLongitude)
     && mapLatitude >= -90 && mapLatitude <= 90 && mapLongitude >= -180 && mapLongitude <= 180;
   const mapFrameUrl = hasMapCoordinates
     ? `https://www.openstreetmap.org/export/embed.html?bbox=${mapLongitude - 0.01}%2C${mapLatitude - 0.01}%2C${mapLongitude + 0.01}%2C${mapLatitude + 0.01}&layer=mapnik&marker=${mapLatitude}%2C${mapLongitude}`
-    : null;
+    : 'https://www.openstreetmap.org/export/embed.html?bbox=116.9%2C4.2%2C126.6%2C21.2&layer=mapnik';
   const reportBars = module === 'REPORTS'
     ? [...rows].sort((left, right) => rowAmount(right) - rowAmount(left)).slice(0, 5)
     : [];
@@ -242,8 +241,8 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
     setFormValues(Object.fromEntries(data.fields.map((field) => [
       field.key,
       field.type === 'checkbox'
-        ? Boolean(row.values[field.key])
-        : displayValue(row.values[field.key]) === '—' ? '' : displayValue(row.values[field.key]),
+        ? booleanValue(row.values[field.key])
+        : displayValue(row.values[field.key]),
     ])));
     setError(null);
   }
@@ -408,6 +407,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
 
   function renderField(field: ModuleField) {
     const value = formValues[field.key] ?? defaultValue(field);
+    const textValue = inputValue(value);
     const common = {
       id: `module-field-${field.key}`,
       name: field.key,
@@ -419,7 +419,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
       return (
         <textarea
           {...common}
-          value={String(value)}
+          value={textValue}
           onChange={(event) => setFormValues((previous) => ({ ...previous, [field.key]: event.target.value }))}
           rows={4}
         />
@@ -429,7 +429,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
       return (
         <select
           {...common}
-          value={String(value)}
+          value={textValue}
           onChange={(event) => setFormValues((previous) => ({ ...previous, [field.key]: event.target.value }))}
         >
           <option value="">Select…</option>
@@ -444,7 +444,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
         <input
           {...common}
           type="checkbox"
-          checked={Boolean(value)}
+          checked={booleanValue(value)}
           onChange={(event) => setFormValues((previous) => ({ ...previous, [field.key]: event.target.checked }))}
         />
       );
@@ -453,7 +453,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
       <input
         {...common}
         type={field.type}
-        value={String(value)}
+        value={textValue}
         onChange={(event) => setFormValues((previous) => ({ ...previous, [field.key]: event.target.value }))}
       />
     );
@@ -780,7 +780,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
               <button className="button button-primary" type="submit" disabled={saving || !bugReportsAvailable}>
                 <Bug aria-hidden="true" size={16} /> {saving ? 'Sending…' : 'Submit bug report'}
               </button>
-              {!bugReportsAvailable && <p className="settings-empty">Bug reports require a Supabase connection.</p>}
+              {!bugReportsAvailable && <p className="settings-empty">Bug reports require a Cloud Database connection.</p>}
             </form>
           </section>
 
@@ -812,7 +812,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
                 <button className="button button-secondary" type="submit" disabled={saving || !releasePublishingAvailable}>
                   {saving ? 'Publishing…' : 'Publish version'}
                 </button>
-                {!releasePublishingAvailable && <p className="settings-empty">Release publishing requires a Supabase connection.</p>}
+                {!releasePublishingAvailable && <p className="settings-empty">Release publishing requires a Cloud Database connection.</p>}
               </form>
             </section>
           )}
@@ -827,7 +827,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
                 </div>
               </div>
               {!bugReportsAvailable ? (
-                <p className="settings-empty">The report inbox is unavailable without a Supabase connection.</p>
+                <p className="settings-empty">The report inbox is unavailable without a Cloud Database connection.</p>
               ) : data.rows.length === 0 ? (
                 <p className="settings-empty">No bug reports have been submitted yet.</p>
               ) : (
@@ -927,44 +927,51 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
             </div>
             <MapPin aria-hidden="true" size={18} />
           </div>
-          {mapFrameUrl && mapMarker ? (
+          {mapFrameUrl ? (
             <div className="module-map-content">
               <iframe
-                title={`OpenStreetMap location: ${displayValue(mapMarker.values.markerName)}`}
+                title={mapMarker && hasMapCoordinates
+                  ? `OpenStreetMap location: ${displayValue(mapMarker.values.markerName)}`
+                  : 'OpenStreetMap map centered on the Philippines'}
                 src={mapFrameUrl}
-                loading="lazy"
+                loading="eager"
                 referrerPolicy="strict-origin-when-cross-origin"
               />
-              <div className="module-map-marker-list" aria-label="Saved map markers">
-                {data.rows.map((row) => (
-                  <button
-                    className={`module-map-marker${mapMarker.id === row.id ? ' is-selected' : ''}`}
-                    type="button"
-                    key={row.id}
-                    aria-pressed={mapMarker.id === row.id}
-                    onClick={() => setSelectedMapMarkerId(row.id)}
-                  >
-                    <strong>{displayValue(row.values.markerName)}</strong>
-                    <span>{displayValue(row.values.project)} · {displayValue(row.values.status)}</span>
-                  </button>
-                ))}
-              </div>
-              <a
-                className="text-button module-map-open"
-                href={`https://www.openstreetmap.org/?mlat=${mapLatitude}&mlon=${mapLongitude}#map=15/${mapLatitude}/${mapLongitude}`}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                Open selected location in OpenStreetMap
-              </a>
+              {data.rows.length > 0 && (
+                <div className="module-map-marker-list" aria-label="Saved map markers">
+                  {data.rows.map((row) => (
+                    <button
+                      className={`module-map-marker${mapMarker?.id === row.id ? ' is-selected' : ''}`}
+                      type="button"
+                      key={row.id}
+                      aria-pressed={mapMarker?.id === row.id}
+                      onClick={() => setSelectedMapMarkerId(row.id)}
+                    >
+                      <strong>{displayValue(row.values.markerName)}</strong>
+                      <span>{displayValue(row.values.project)} · {displayValue(row.values.status)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {!hasMapCoordinates && (
+                <p className="module-map-empty-note">
+                  {data.rows.length
+                    ? 'The selected marker has no valid coordinates. The map is centered on the Philippines.'
+                    : 'Map view is ready. Search for a place above to add the first project marker.'}
+                </p>
+              )}
+              {mapMarker && hasMapCoordinates && (
+                <a
+                  className="text-button module-map-open"
+                  href={`https://www.openstreetmap.org/?mlat=${mapLatitude}&mlon=${mapLongitude}#map=15/${mapLatitude}/${mapLongitude}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Open selected location in OpenStreetMap
+                </a>
+              )}
             </div>
-          ) : (
-            <div className="module-empty-state module-map-empty">
-              <MapPin aria-hidden="true" size={22} />
-              <strong>{data.rows.length ? 'No marker has valid coordinates' : 'No project locations yet'}</strong>
-              <span>{data.rows.length ? 'Refresh the data or review marker coordinates.' : 'Search for a place above to add the first verified marker.'}</span>
-            </div>
-          )}
+          ) : null}
         </section>
       )}
 
@@ -1126,7 +1133,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
               ))}
               <div>
                 <dt>Attachments</dt>
-                <dd>{displayValue(selectedReceipt.values.attachmentNames) === '—'
+                <dd>{displayValue(selectedReceipt.values.attachmentNames) === ''
                   ? 'No attachments listed'
                   : displayValue(selectedReceipt.values.attachmentNames)}</dd>
               </div>

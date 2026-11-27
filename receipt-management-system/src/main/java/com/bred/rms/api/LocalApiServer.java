@@ -62,10 +62,21 @@ public final class LocalApiServer implements AutoCloseable {
     public record ModuleColumn(String key, String label, boolean numeric) { }
     public record ModuleMetric(String label, String value, String note) { }
     public record ModuleRecord(String id, Map<String, Object> values) { }
+    public record ConstructionTabInfo(String title, String table) { }
+    public record ConstructionCategory(String title, List<ConstructionTabInfo> tabs) { }
     public record ModulePageData(String key, String title, String description, List<ModuleMetric> metrics,
                                  List<ModuleColumn> columns, List<ModuleField> fields, List<ModuleRecord> rows,
                                  boolean canCreate, boolean canEdit, boolean canDelete,
-                                 String primaryActionLabel, String submitLabel, String createAction) { }
+                                 String primaryActionLabel, String submitLabel, String createAction,
+                                 List<ConstructionCategory> constructionCategories) {
+        public ModulePageData(String key, String title, String description, List<ModuleMetric> metrics,
+                              List<ModuleColumn> columns, List<ModuleField> fields, List<ModuleRecord> rows,
+                              boolean canCreate, boolean canEdit, boolean canDelete,
+                              String primaryActionLabel, String submitLabel, String createAction) {
+            this(key, title, description, metrics, columns, fields, rows, canCreate, canEdit, canDelete,
+                    primaryActionLabel, submitLabel, createAction, List.of());
+        }
+    }
     public record MapSearchResult(String displayName, String latitude, String longitude, String type) { }
     public record ThemeData(String appearance, boolean dark, String accent, String accentDark, String accentSoft,
                             String background, String sidebar, String header, String surface, String surfaceMuted,
@@ -351,6 +362,11 @@ public final class LocalApiServer implements AutoCloseable {
             sendError(exchange, 404, "not_found", "The dashboard uses its dedicated data endpoint.");
             return;
         }
+        String table = queryParameter(exchange.getRequestURI().getRawQuery(), "table");
+        if (table != null && module != Module.CONSTRUCTION) {
+            sendError(exchange, 400, "invalid_request", "A construction table can only be loaded in Construction.");
+            return;
+        }
         synchronized (sessionLock) {
             User user = backend.current();
             if (user == null) {
@@ -363,7 +379,7 @@ public final class LocalApiServer implements AutoCloseable {
             }
             try {
                 if ("GET".equals(method)) {
-                    sendJson(exchange, 200, backend.modulePage(module));
+                    sendJson(exchange, 200, backend.modulePage(module, table));
                 } else if ("POST".equals(method)) {
                     JsonNode request = readJson(exchange);
                     String action = request.path("action").asText("");
@@ -561,6 +577,10 @@ public final class LocalApiServer implements AutoCloseable {
 
         @Override public ModulePageData modulePage(Module module) {
             return workspaces.load(module);
+        }
+
+        @Override public ModulePageData modulePage(Module module, String table) {
+            return workspaces.load(module, table);
         }
 
         @Override public ModulePageData moduleAction(Module module, String action, String id, JsonNode values) {

@@ -110,7 +110,7 @@ public final class SupabaseMessageRepository implements MessageRepository {
         try {
             JsonNode result = rest.rpc("creator_broadcast", Map.of("p_recipient_ids", ids, "p_body", text));
             if (result == null || !result.isNumber()) {
-                throw new RepositoryException("Supabase did not confirm the broadcast.", false);
+                throw new RepositoryException("Cloud Database did not confirm the broadcast.", false);
             }
             return result.asInt();
         } catch (SupabaseException e) {

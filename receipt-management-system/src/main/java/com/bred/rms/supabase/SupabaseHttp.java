@@ -68,7 +68,7 @@ public final class SupabaseHttp {
                             Map<String, String> headers, String accept) throws SupabaseException {
         if (!config.isConfigured()) {
             throw new SupabaseException(NOT_CONFIGURED,
-                    "Supabase is not configured. Copy application.properties.example to application.properties and fill it in.");
+                    "Cloud Database is not configured. Contact your administrator.");
         }
         HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(config.supabaseUrl() + path))
                 .timeout(Duration.ofSeconds(30))

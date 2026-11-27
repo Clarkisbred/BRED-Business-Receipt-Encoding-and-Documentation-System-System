@@ -269,7 +269,31 @@ describe('ModuleWorkspace', () => {
         status: 'Verified',
       },
     ));
-    expect(await screen.findByText('Quezon City, Metro Manila, Philippines')).toBeInTheDocument();
+    expect(await screen.findAllByText('Quezon City, Metro Manila, Philippines')).toHaveLength(2);
+  });
+
+  it('shows the Philippines map when there are no saved locations', async () => {
+    loadModulePage.mockResolvedValue(mapPage);
+    render(<ModuleWorkspace module="LIVE_MAP" />);
+
+    const map = await screen.findByTitle('OpenStreetMap map centered on the Philippines');
+    expect(map).toBeInTheDocument();
+    expect(map).toHaveAttribute('src', expect.stringContaining('layer=mapnik'));
+    expect(screen.getByText('Map view is ready. Search for a place above to add the first project marker.'))
+      .toBeInTheDocument();
+  });
+
+  it('does not interpret missing map coordinates as zero', async () => {
+    loadModulePage.mockResolvedValue({
+      ...mapPage,
+      rows: [{ id: 'marker-1', values: { markerName: 'Unlocated project', latitude: '', longitude: null } }],
+    });
+    render(<ModuleWorkspace module="LIVE_MAP" />);
+
+    const map = await screen.findByTitle('OpenStreetMap map centered on the Philippines');
+    expect(map.getAttribute('src')).not.toContain('marker=0');
+    expect(screen.getByText('The selected marker has no valid coordinates. The map is centered on the Philippines.'))
+      .toBeInTheDocument();
   });
 
   it('filters receipts by date and supplier and opens real receipt details', async () => {

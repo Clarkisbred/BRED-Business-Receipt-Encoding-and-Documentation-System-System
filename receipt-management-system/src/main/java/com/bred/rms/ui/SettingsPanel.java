@@ -75,7 +75,7 @@ public final class SettingsPanel extends JPanel {
     private final JPasswordField confirm = new JPasswordField(20);
     private final JLabel message = new JLabel(" ");
     private final JButton change = new JButton("Change password");
-    private final JButton importLocal = new JButton("Import local data into Supabase");
+    private final JButton importLocal = new JButton("Import local data into Cloud Database");
     private final JButton importExcel = new JButton("Import receipts from Excel");
     private final JButton excelTemplate = new JButton("Create Excel template");
     private final JLabel importMessage = new JLabel(" ");
@@ -140,12 +140,12 @@ public final class SettingsPanel extends JPanel {
         add(heading("Account"));
         add(line(u == null ? "Not signed in" : u.fullName() + " · " + u.email() + " · " + u.role().label()));
         if (u != null && !u.companyName().isBlank()) add(line("Company: " + u.companyName()));
-        add(line("Data stored in: cloud database (Supabase)"));
+        add(line("Data stored in: Cloud Database"));
         if (ctx.localDataImporter != null && u != null && u.role().canManageCompany()) {
             add(Box.createVerticalStrut(12));
-            add(heading("Move existing local data to Supabase"));
+            add(heading("Move existing local data to Cloud Database"));
             add(line("Import a local BRED data folder, or import receipts and line items from an Excel workbook."));
-            add(line("Local passwords cannot be transferred; recreate user accounts in Supabase."));
+            add(line("Local passwords cannot be transferred; recreate user accounts in Cloud Database."));
             importLocal.setAlignmentX(LEFT_ALIGNMENT);
             importLocal.addActionListener(e -> chooseLocalDataDirectory(ctx));
             add(importLocal);
@@ -606,7 +606,7 @@ public final class SettingsPanel extends JPanel {
         reportMessage.setFont(reportMessage.getFont().deriveFont(12f));
         reportForm.add(reportMessage);
         if (ctx.bugReports == null) {
-            JLabel unavailable = line("Bug reports are available when connected to Supabase.");
+            JLabel unavailable = line("Bug reports are available when connected to Cloud Database.");
             unavailable.setForeground(RmsColors.SECONDARY_TEXT);
             unavailable.setAlignmentX(LEFT_ALIGNMENT);
             reportForm.add(Box.createVerticalStrut(6));
@@ -676,7 +676,7 @@ public final class SettingsPanel extends JPanel {
 
         if (ctx.appReleases == null) {
             releaseVersion.setText("Installed version: " + AppVersion.current());
-            releaseMessage.setText("Shared release versions require a Supabase connection.");
+            releaseMessage.setText("Shared release versions require a Cloud Database connection.");
         } else {
             releaseVersion.setText("Loading current version…");
             loadCurrentRelease(ctx);
@@ -874,7 +874,7 @@ public final class SettingsPanel extends JPanel {
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
 
         int answer = javax.swing.JOptionPane.showConfirmDialog(this,
-                "This imports data into the current Supabase project. Records with matching IDs are updated. "
+                "This imports data into Cloud Database. Records with matching IDs are updated. "
                         + "The local data is not deleted. Continue?",
                 "Import local data", javax.swing.JOptionPane.OK_CANCEL_OPTION, javax.swing.JOptionPane.WARNING_MESSAGE);
         if (answer != javax.swing.JOptionPane.OK_OPTION) return;
@@ -904,7 +904,7 @@ public final class SettingsPanel extends JPanel {
         if (chooser.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) return;
 
         int answer = javax.swing.JOptionPane.showConfirmDialog(this,
-                "This imports receipt details and line items into the current Supabase project. "
+                "This imports receipt details and line items into Cloud Database. "
                         + "Existing receipts with the same supplier TIN and receipt number are skipped. "
                         + "Receipt scans and attachments are not included. Continue?",
                 "Import receipts from Excel", javax.swing.JOptionPane.OK_CANCEL_OPTION,

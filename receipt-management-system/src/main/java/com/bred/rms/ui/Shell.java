@@ -564,11 +564,11 @@ public final class Shell extends JPanel {
         header.add(buildModuleSearch(), BorderLayout.CENTER);
         JPanel tools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         tools.setOpaque(false);
-        boolean sharedCloud = ctx.storageLabel.startsWith("Supabase project ");
+        boolean sharedCloud = ctx.supabaseRest != null;
         StatusBadge storage = StatusBadge.of(sharedCloud ? "Shared cloud" : "Local only",
                 sharedCloud ? RmsColors.SUCCESS : RmsColors.WARNING);
         storage.setToolTipText(sharedCloud
-                ? "Receipts are stored in the shared Supabase project."
+                ? "Receipts are stored in the shared cloud database."
                 : "Receipts are stored only on this computer.");
         tools.add(storage);
         themeToggle = new JButton(new LucideIcon(ThemeManager.isDark() ? "sun" : "moon", 17,

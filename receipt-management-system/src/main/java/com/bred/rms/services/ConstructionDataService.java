@@ -132,7 +132,7 @@ public final class ConstructionDataService {
     }
 
     public void saveRow(String table, UUID id, Map<String, Object> values) {
-        if (rest == null) throw new IllegalStateException("Construction CRUD requires the Supabase-backed app.");
+        if (rest == null) throw new IllegalStateException("Construction editing requires a Cloud Database connection.");
         Map<String, Object> row = new LinkedHashMap<>(values);
         row.entrySet().removeIf(entry -> entry.getValue() == null
                 || (entry.getValue() instanceof String s && s.isBlank()));
@@ -152,7 +152,7 @@ public final class ConstructionDataService {
     }
 
     public void deleteRow(String table, UUID id) {
-        if (rest == null) throw new IllegalStateException("Construction CRUD requires the Supabase-backed app.");
+        if (rest == null) throw new IllegalStateException("Construction editing requires a Cloud Database connection.");
         if (id == null) throw new IllegalArgumentException("Select a record to delete.");
         try {
             rest.delete(table, "id=eq." + id);

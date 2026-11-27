@@ -10,7 +10,7 @@ import javax.swing.JTextArea;
 import java.awt.Font;
 import java.awt.GridBagLayout;
 
-/** Shown instead of the sign-in screen when the Supabase URL / anon key are missing or invalid. */
+/** Shown instead of the sign-in screen when the cloud service is unavailable. */
 public final class SetupPanel extends JPanel {
     public SetupPanel() { this(null); }
 
@@ -20,17 +20,11 @@ public final class SetupPanel extends JPanel {
         JPanel card = new JPanel();
         card.setLayout(new BoxLayout(card, BoxLayout.Y_AXIS));
         card.setBorder(BorderFactory.createEmptyBorder(28, 32, 28, 32));
-        JLabel title = new JLabel("Connect to Supabase");
+        JLabel title = new JLabel("Cloud Database unavailable");
         title.setFont(title.getFont().deriveFont(Font.BOLD, 20f));
         title.setForeground(RmsColors.primary());
         JTextArea text = new JTextArea(
-                "This app keeps all receipts in your Supabase project, so it needs two settings:\n\n"
-                + "  1. RMS_SUPABASE_URL      (your project URL)\n"
-                + "  2. RMS_SUPABASE_ANON_KEY (the public anon / publishable key)\n\n"
-                + "Copy application.properties.example to application.properties next to the app,\n"
-                + "fill in both values, and start the app again.\n"
-                + "(You can also set them as environment variables.)\n\n"
-                + "Never use the service-role / secret key here. SETUP.md has the full steps."
+                "BRED could not connect to Cloud Database. Check your internet connection or contact your administrator."
                 + (problem == null || problem.isBlank() ? "" : "\n\nProblem found: " + problem));
         text.setEditable(false);
         text.setOpaque(false);

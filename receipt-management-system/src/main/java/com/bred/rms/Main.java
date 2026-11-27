@@ -19,7 +19,7 @@ public final class Main {
     /** Prevents instantiation of the application launcher. */
     private Main() { }
 
-    /** Starts the application using the configured Supabase project. */
+    /** Starts the application using its configured cloud database. */
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
             ThemeManager.installSaved();
@@ -30,11 +30,11 @@ public final class Main {
                 if (config.isConfigured()) {
                     ctx = AppContext.create(config);
                 } else {
-                    problem = "Supabase is not configured. Set RMS_SUPABASE_URL and RMS_SUPABASE_ANON_KEY "
-                            + "or add them to application.properties.";
+                    problem = "Cloud Database configuration is incomplete. Contact your administrator.";
                 }
             } catch (IllegalStateException e) {
-                problem = e.getMessage();
+                LOGGER.log(Level.WARNING, "Cloud Database configuration could not be loaded.", e);
+                problem = "Cloud Database configuration could not be loaded. Contact your administrator.";
             }
             LocalApiServer api = ctx == null ? null : startLocalApi(ctx);
             new MainWindow(ctx, problem, api).setVisible(true);

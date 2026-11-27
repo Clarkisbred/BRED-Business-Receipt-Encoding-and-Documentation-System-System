@@ -127,7 +127,7 @@ public final class AppContext {
         CurrentUser who = auth::current;
         return new AppContext(auth, who, new ReceiptService(receiptRepo, supplierRepo, projectRepo, attachments, who),
                 new SupplierService(supplierRepo, receiptRepo, who), new ProjectService(projectRepo, receiptRepo, who),
-                attachments, userRepo, new SupabaseActivityLogRepository(rest), "Supabase project " + config.supabaseUrl(), null,
+                attachments, userRepo, new SupabaseActivityLogRepository(rest), "Cloud Database", null,
                 localDataImporter, new SupabaseBugReportRepository(rest), new SupabaseMessageRepository(rest),
                 new SupabaseCompanyRepository(rest), new SupabaseAppReleaseRepository(http, rest), rest);
     }
@@ -213,15 +213,15 @@ public final class AppContext {
             @Override public boolean isSupported() { return false; }
 
             @Override public java.util.List<com.bred.rms.models.Company> findAll() {
-                throw new RepositoryException("Company management requires the Supabase-backed app.", false);
+                throw new RepositoryException("Company management requires a Cloud Database connection.", false);
             }
 
             @Override public void update(java.util.UUID id, String name) {
-                throw new RepositoryException("Company management requires the Supabase-backed app.", false);
+                throw new RepositoryException("Company management requires a Cloud Database connection.", false);
             }
 
             @Override public void delete(java.util.UUID id) {
-                throw new RepositoryException("Company management requires the Supabase-backed app.", false);
+                throw new RepositoryException("Company management requires a Cloud Database connection.", false);
             }
         };
     }

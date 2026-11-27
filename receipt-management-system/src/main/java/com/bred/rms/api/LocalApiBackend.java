@@ -15,6 +15,9 @@ interface LocalApiBackend {
     default LocalApiServer.ModulePageData modulePage(Module module) {
         throw new UnsupportedOperationException("React workspace data is unavailable.");
     }
+    default LocalApiServer.ModulePageData modulePage(Module module, String table) {
+        return modulePage(module);
+    }
     default LocalApiServer.ModulePageData moduleAction(Module module, String action, String id, JsonNode values) {
         throw new UnsupportedOperationException("React workspace actions are unavailable.");
     }

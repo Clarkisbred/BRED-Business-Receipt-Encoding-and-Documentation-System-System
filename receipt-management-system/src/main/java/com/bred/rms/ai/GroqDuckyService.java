@@ -510,7 +510,7 @@ public final class GroqDuckyService {
         if (status == 429) return new AIProviderException("Ducky is busy. Please wait briefly and try again.");
         if (status == 0) return new AIProviderException("Could not reach the Ducky AI service. Check your connection.");
         if (status == com.bred.rms.supabase.SupabaseHttp.NOT_CONFIGURED) {
-            return new AIProviderException("Supabase is not configured in this application.");
+            return new AIProviderException("Cloud Database is not configured in this application.");
         }
         if (message.contains("server-side groq api key is not configured")) {
             return new AIProviderException("The server-side Groq API key is not configured. Contact the Creator.");
@@ -531,7 +531,7 @@ public final class GroqDuckyService {
             return new AIProviderException("The Ducky AI backend cannot reach Groq. Please try again later.");
         }
         if (message.contains("could not verify account permissions")) {
-            return new AIProviderException("Ducky could not verify your account permissions. The Creator should check the Supabase profiles record and function access.");
+            return new AIProviderException("Ducky could not verify your account permissions. Contact the Creator to check your account access.");
         }
         if (message.contains("shared ai configuration")) {
             return new AIProviderException("The shared Ducky configuration is missing. Apply migration 015_ducky_shared_ai.sql.");
@@ -543,10 +543,10 @@ public final class GroqDuckyService {
             return new AIProviderException("Cross-device Ducky memory is unavailable. Apply migration 017_ducky_memory.sql and redeploy the ducky-ai function.");
         }
         if (message.contains("required supabase function configuration")) {
-            return new AIProviderException("Supabase is missing required Ducky Edge Function configuration. The Creator should verify its secrets.");
+            return new AIProviderException("Cloud Database is missing required Ducky configuration. Contact the Creator.");
         }
         if (status >= 500) {
-            return new AIProviderException("The Ducky AI backend returned an unexpected server error. The Creator should check the Supabase Edge Function logs.");
+            return new AIProviderException("The Ducky AI backend returned an unexpected server error. Contact the Creator.");
         }
         return new AIProviderException("Ducky could not complete the request.");
     }

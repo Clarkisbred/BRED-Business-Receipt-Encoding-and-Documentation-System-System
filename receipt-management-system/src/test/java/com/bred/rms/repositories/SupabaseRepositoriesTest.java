@@ -306,15 +306,16 @@ class SupabaseRepositoriesTest {
     }
 
     @Test
-    void outdatedRegistrationFunctionExplainsCompanyCreationFix() {
+    void outdatedRegistrationFunctionShowsProviderNeutralRecovery() {
         try (TestEnv env = new TestEnv()) {
             env.fake.on("POST", "/functions/v1/register-account", 400,
                     "{\"error\":\"Choose an available company.\"}");
             RepositoryException error = assertThrows(RepositoryException.class,
                     () -> new SupabaseUserRepository(env.rest).registerAccount("Ada", "ada@x.test", Role.ADMIN,
                             null, "Acme Ltd", "Password123".toCharArray()));
-            assertTrue(error.getMessage().contains("latest BRED JAR"));
-            assertTrue(error.getMessage().contains("functions deploy register-account"));
+            assertTrue(error.getMessage().contains("Restart BRED and try again"));
+            assertTrue(error.getMessage().contains("contact your administrator"));
+            assertFalse(error.getMessage().contains("Supabase"));
         }
     }
 
@@ -332,25 +333,27 @@ class SupabaseRepositoriesTest {
     }
 
     @Test
-    void missingRegistrationFunctionExplainsHowToDeployIt() {
+    void missingRegistrationFunctionShowsProviderNeutralRecovery() {
         try (TestEnv env = new TestEnv()) {
             env.fake.on("GET", "/functions/v1/register-account", 404,
                     "{\"message\":\"Function not found\"}");
             RepositoryException error = assertThrows(RepositoryException.class,
                     () -> new SupabaseUserRepository(env.rest).availableCompanies());
-            assertTrue(error.getMessage().contains("register-account"));
-            assertTrue(error.getMessage().contains("npx supabase functions deploy"));
+            assertTrue(error.getMessage().contains("account service is unavailable"));
+            assertTrue(error.getMessage().contains("Contact your administrator"));
+            assertFalse(error.getMessage().contains("Supabase"));
         }
     }
 
     @Test
-    void undeployedPasswordResetFunctionExplainsHowToDeployIt() {
+    void undeployedPasswordResetFunctionShowsProviderNeutralRecovery() {
         try (TestEnv env = new TestEnv()) {
             env.fake.on("POST", "/functions/v1/admin-send-password-reset", 404,
                     "{\"code\":\"NOT_FOUND\",\"message\":\"Requested function was not found\"}");
             RepositoryException error = assertThrows(RepositoryException.class,
                     () -> new SupabaseUserRepository(env.rest).sendPasswordReset(UUID.fromString(SID)));
-            assertTrue(error.getMessage().contains("npx supabase functions deploy admin-send-password-reset"));
+            assertTrue(error.getMessage().contains("account service is unavailable"));
+            assertFalse(error.getMessage().contains("Supabase"));
         }
     }
 

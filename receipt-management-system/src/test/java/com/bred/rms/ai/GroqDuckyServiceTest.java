@@ -47,11 +47,13 @@ class GroqDuckyServiceTest {
         AIProviderException unexpected = GroqDuckyService.sharedBackendFailure(
                 new SupabaseException(500, "Ducky AI is temporarily unavailable."));
         assertTrue(unexpected.getMessage().contains("unexpected server error"));
-        assertTrue(unexpected.getMessage().contains("Edge Function logs"));
+        assertTrue(unexpected.getMessage().contains("Contact the Creator"));
+        assertFalse(unexpected.getMessage().contains("Supabase"));
 
         AIProviderException profileFailure = GroqDuckyService.sharedBackendFailure(
                 new SupabaseException(500, "Could not verify account permissions."));
-        assertTrue(profileFailure.getMessage().contains("profiles record"));
+        assertTrue(profileFailure.getMessage().contains("account access"));
+        assertFalse(profileFailure.getMessage().contains("Supabase"));
 
         AIProviderException modelFailure = GroqDuckyService.sharedBackendFailure(
                 new SupabaseException(502, "The configured Groq model is unavailable."));

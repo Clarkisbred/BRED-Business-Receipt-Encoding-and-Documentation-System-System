@@ -32,6 +32,16 @@ export interface ModuleRecord {
   values: Record<string, unknown>;
 }
 
+export interface ConstructionTabInfo {
+  title: string;
+  table: string;
+}
+
+export interface ConstructionCategory {
+  title: string;
+  tabs: ConstructionTabInfo[];
+}
+
 export interface ModulePageData {
   key: ModuleKey;
   title: string;
@@ -46,6 +56,7 @@ export interface ModulePageData {
   primaryActionLabel: string;
   submitLabel: string;
   createAction: 'save' | 'send' | 'ask';
+  constructionCategories?: ConstructionCategory[];
 }
 
 export interface MapSearchResult {
@@ -57,6 +68,12 @@ export interface MapSearchResult {
 
 export async function loadModulePage(module: ModuleKey): Promise<ModulePageData> {
   return desktopRequest<ModulePageData>(`/api/v1/modules/${encodeURIComponent(module)}`);
+}
+
+export async function loadConstructionPage(table: string): Promise<ModulePageData> {
+  return desktopRequest<ModulePageData>(
+    `/api/v1/modules/CONSTRUCTION?table=${encodeURIComponent(table)}`,
+  );
 }
 
 export async function searchMapLocations(query: string): Promise<MapSearchResult[]> {

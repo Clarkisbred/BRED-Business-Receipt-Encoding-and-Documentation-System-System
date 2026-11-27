@@ -47,7 +47,7 @@ public final class AppConfig {
         String url = firstNonBlank(System.getenv("RMS_SUPABASE_URL"), props.getProperty("supabase.url"));
         String key = firstNonBlank(System.getenv("RMS_SUPABASE_ANON_KEY"), props.getProperty("supabase.anonKey"));
         if (isPrivilegedKey(key)) {
-            throw new IllegalStateException("A privileged Supabase key was supplied. Use only the public anon/publishable key in the desktop app.");
+            throw new IllegalStateException("A privileged cloud database key was supplied. Use only the public application key in the desktop app.");
         }
         return new AppConfig(url.replaceAll("/+$", ""), key);
     }
@@ -119,7 +119,7 @@ public final class AppConfig {
     /** Builds a config directly from values (used by tests and tools). Rejects privileged keys. */
     public static AppConfig of(String supabaseUrl, String anonKey) {
         if (isPrivilegedKey(anonKey)) {
-            throw new IllegalStateException("A privileged Supabase key was supplied. Use only the public anon/publishable key in the desktop app.");
+            throw new IllegalStateException("A privileged cloud database key was supplied. Use only the public application key in the desktop app.");
         }
         return new AppConfig(supabaseUrl.replaceAll("/+$", ""), anonKey);
     }

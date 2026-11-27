@@ -38,7 +38,7 @@ public final class AuthClient {
     /** Parses a Supabase authentication response into a session. */
     private static Session parse(JsonNode n) throws SupabaseException {
         if (!n.hasNonNull("access_token") || !n.path("user").hasNonNull("id")) {
-            throw new SupabaseException(500, "Unexpected response from Supabase Auth");
+            throw new SupabaseException(500, "Unexpected response from the authentication service.");
         }
         long ttl = n.path("expires_in").asLong(3600);
         return new Session(n.get("access_token").asText(), n.path("refresh_token").asText(),

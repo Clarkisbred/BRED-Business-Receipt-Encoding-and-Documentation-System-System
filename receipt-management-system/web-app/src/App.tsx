@@ -5,6 +5,7 @@ import { Sidebar, SIDEBAR_WIDTH_PX } from './components/Sidebar';
 import { ModuleWorkspace } from './components/ModuleWorkspace';
 import { MessagesWorkspace } from './components/MessagesWorkspace';
 import { DuckyWorkspace } from './components/DuckyWorkspace';
+import { ConstructionWorkspace } from './components/ConstructionWorkspace';
 import { ProfileAvatar } from './components/IdentityAvatar';
 import { useAuth } from './auth/AuthProvider';
 import type { ModuleKey } from './types';
@@ -99,6 +100,8 @@ export function App() {
             ? <Dashboard />
             : activeModule === 'MESSAGES'
             ? <MessagesWorkspace currentUserId={profile.id} currentUserRole={profile.role} />
+              : activeModule === 'CONSTRUCTION'
+                ? <ConstructionWorkspace />
               : activeModule !== 'DUCKY'
                 ? <ModuleWorkspace module={activeModule} />
                 : null}

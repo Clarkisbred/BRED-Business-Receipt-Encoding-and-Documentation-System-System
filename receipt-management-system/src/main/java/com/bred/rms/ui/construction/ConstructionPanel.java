@@ -51,6 +51,11 @@ public final class ConstructionPanel extends JPanel implements RefreshablePanel 
     private record Field(String label, String key, FieldType type) {}
     private enum FieldType { TEXT, NUMBER, DATE, BOOLEAN, JSON }
     private record TabSpec(String title, String table, List<Field> fields) {}
+    private record CategorySpec(String title, List<String> tabs) {}
+
+    public record WorkspaceField(String label, String key, String type, boolean required) { }
+    public record WorkspaceTab(String title, String table, List<WorkspaceField> fields) { }
+    public record WorkspaceCategory(String title, List<WorkspaceTab> tabs) { }
 
     private static final List<TabSpec> TABS = List.of(
             spec("Licenses", "company_licenses",
@@ -485,6 +490,29 @@ public final class ConstructionPanel extends JPanel implements RefreshablePanel 
                     field("Last error", "last_error"), field("Server record ID", "server_record_id"))
     );
 
+    private static final List<CategorySpec> CATEGORIES = List.of(
+            category("Projects and Planning", "Contracts", "BOQ items", "Cost estimates",
+                    "Estimate items", "Contract amendments", "Variation orders", "Variation items",
+                    "Price adjustments", "Activities", "Accomplishments", "Milestones",
+                    "Schedule snapshots", "Time extensions", "Project documents", "Offline queue"),
+            category("Billing and Finance", "Billings", "Billing lines", "Billing attachments",
+                    "Billing deductions", "Retentions", "Advance recoveries", "Collections",
+                    "Cash advances", "Project expenses", "Payables", "Payments",
+                    "Cash movements", "P&L snapshots", "Tax calendar", "CWT received", "CWT issued"),
+            category("Procurement and Materials", "Purchase requisitions", "Requisition items",
+                    "Purchase orders", "PO items", "Goods receipts", "Goods receipt items",
+                    "Material stock", "Stock movements", "Suppliers", "Material tests"),
+            category("Workforce and Equipment", "Wage configurations", "Workers", "Attendance",
+                    "Labor costs", "Equipment", "Equipment usage", "Equipment allocations",
+                    "Equipment fuel", "Equipment cost postings", "Equipment downtime",
+                    "Equipment maintenance"),
+            category("Safety and Quality", "Safety programs", "Safety", "Toolbox meetings",
+                    "Inspections", "Quality NCR", "Corrective actions", "Project risks", "Risk updates"),
+            category("Documents and Closeout", "Project map", "Closeout", "Closeout checklist",
+                    "Punch items", "Handover", "Licenses", "Permits", "Bids", "Securities",
+                    "Insurance", "Warranties", "Subcontracts")
+    );
+
     private final AppContext ctx;
     private final CardLayout workspaceCards = new CardLayout();
     private final JPanel workspace = new JPanel(workspaceCards);
@@ -504,6 +532,33 @@ public final class ConstructionPanel extends JPanel implements RefreshablePanel 
             "rate", "amount_withheld", "period_start", "fund_id", "transaction_type",
             "transaction_date", "program_reference", "meeting_date", "topic",
             "idempotency_key", "entity_type", "payload");
+
+    public static List<WorkspaceTab> workspaceTabs() {
+        return TABS.stream().map(ConstructionPanel::workspaceTab).toList();
+    }
+
+    public static List<WorkspaceCategory> workspaceCategories() {
+        Map<String, WorkspaceTab> tabsByTitle = new LinkedHashMap<>();
+        workspaceTabs().forEach(tab -> tabsByTitle.put(tab.title(), tab));
+        return CATEGORIES.stream()
+                .map(category -> new WorkspaceCategory(category.title(),
+                        category.tabs().stream().map(tabsByTitle::get)
+                                .filter(java.util.Objects::nonNull).toList()))
+                .filter(category -> !category.tabs().isEmpty())
+                .toList();
+    }
+
+    public static WorkspaceTab workspaceTab(String table) {
+        return TABS.stream().filter(tab -> tab.table().equals(table))
+                .map(ConstructionPanel::workspaceTab).findFirst().orElse(null);
+    }
+
+    private static WorkspaceTab workspaceTab(TabSpec tab) {
+        return new WorkspaceTab(tab.title(), tab.table(), tab.fields().stream()
+                .map(field -> new WorkspaceField(field.label(), field.key(), field.type().name(),
+                        REQUIRED_FIELDS.contains(field.key())))
+                .toList());
+    }
 
     public ConstructionPanel(AppContext ctx) {
         super(new BorderLayout());
@@ -536,26 +591,8 @@ public final class ConstructionPanel extends JPanel implements RefreshablePanel 
             tabs.put(spec.title(), panel);
             workspace.add(panel, spec.title());
         }
-        addCategory("Projects and Planning", "Contracts", "BOQ items", "Cost estimates",
-                "Estimate items", "Contract amendments", "Variation orders", "Variation items",
-                "Price adjustments", "Activities", "Accomplishments", "Milestones",
-                "Schedule snapshots", "Time extensions", "Project documents", "Offline queue");
-        addCategory("Billing and Finance", "Billings", "Billing lines", "Billing attachments",
-                "Billing deductions", "Retentions", "Advance recoveries", "Collections",
-                "Cash advances", "Project expenses", "Payables", "Payments",
-                "Cash movements", "P&L snapshots", "Tax calendar", "CWT received", "CWT issued");
-        addCategory("Procurement and Materials", "Purchase requisitions", "Requisition items",
-                "Purchase orders", "PO items", "Goods receipts", "Goods receipt items",
-                "Material stock", "Stock movements", "Suppliers", "Material tests");
-        addCategory("Workforce and Equipment", "Wage configurations", "Workers", "Attendance",
-                "Labor costs", "Equipment", "Equipment usage", "Equipment allocations",
-                "Equipment fuel", "Equipment cost postings", "Equipment downtime",
-                "Equipment maintenance");
-        addCategory("Safety and Quality", "Safety programs", "Safety", "Toolbox meetings",
-                "Inspections", "Quality NCR", "Corrective actions", "Project risks", "Risk updates");
-        addCategory("Documents and Closeout", "Project map", "Closeout", "Closeout checklist",
-                "Punch items", "Handover", "Licenses", "Permits", "Bids", "Securities",
-                "Insurance", "Warranties", "Subcontracts");
+        CATEGORIES.forEach(category ->
+                addCategory(category.title(), category.tabs().toArray(String[]::new)));
 
         JScrollPane categoryScroll = new StyledScrollPane(categoryGrid);
         categoryScroll.setBorder(BorderFactory.createEmptyBorder());
@@ -633,6 +670,10 @@ public final class ConstructionPanel extends JPanel implements RefreshablePanel 
         return new TabSpec(title, table, List.of(fields));
     }
 
+    private static CategorySpec category(String title, String... tabs) {
+        return new CategorySpec(title, List.of(tabs));
+    }
+
     private static Field field(String label, String key) {
         return new Field(label, key, FieldType.TEXT);
     }
@@ -699,7 +740,7 @@ public final class ConstructionPanel extends JPanel implements RefreshablePanel 
         @Override
         public void refreshData() {
             if (ctx.constructionData == null) {
-                status.setText("Construction CRUD requires the Supabase-backed app.");
+                status.setText("Construction editing requires a Cloud Database connection.");
                 return;
             }
             BackgroundTask.run(() -> ctx.constructionData.rows(spec.table()), this::fill,

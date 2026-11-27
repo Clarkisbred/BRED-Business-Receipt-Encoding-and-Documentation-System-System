@@ -359,7 +359,7 @@ final class DuckySettingsPopup extends JDialog {
 
     private void removeCredential() {
         if (sharedBackend != null) {
-            setStatus("The Groq key is managed with Supabase secrets and cannot be removed here.");
+            setStatus("The Groq key is managed by the Cloud Database administrator and cannot be removed here.");
             return;
         }
         try {
@@ -561,7 +561,7 @@ final class DuckySettingsPopup extends JDialog {
             if (exception.status() == 403) return "Permission denied. Your account cannot manage or test shared Ducky AI settings.";
             if (exception.status() == 404) return "The Ducky AI backend endpoint is missing. Deploy the ducky-ai function.";
             if (exception.status() == 429) return "The Ducky AI backend rate limit was reached. Wait briefly, then try again.";
-            if (exception.status() == 0) return "Ducky AI backend unreachable. Check the network and Supabase URL.";
+            if (exception.status() == 0) return "Ducky AI backend unreachable. Check the network and Cloud Database connection.";
             String message = exception.getMessage() == null ? "" : exception.getMessage().toLowerCase(Locale.ROOT);
             if (message.contains("groq authentication failed")) {
                 return "Groq authentication failed. Verify the server-side Groq secret.";
@@ -571,7 +571,7 @@ final class DuckySettingsPopup extends JDialog {
             if (exception.status() == 504 || message.contains("timed out")) return "The Groq connection timed out. Try again.";
             if (message.contains("could not reach")) return "Groq is unreachable from the backend. Check the network and try again.";
             if (message.contains("required supabase function configuration is missing")) {
-                return "Supabase function configuration is incomplete. Check the deployed function environment.";
+                return "Cloud Database function configuration is incomplete. Contact your administrator.";
             }
             if (message.contains("shared ai configuration")) {
                 return "The shared AI configuration could not be loaded. Apply migration 015_ducky_shared_ai.sql.";

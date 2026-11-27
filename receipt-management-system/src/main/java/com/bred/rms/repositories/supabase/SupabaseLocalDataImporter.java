@@ -150,7 +150,7 @@ public final class SupabaseLocalDataImporter {
                     "Project fields are optional, but project_name and project_code must be supplied together.",
                     "Amounts are non-negative. Leave discount, vat, or additional_charges blank when they are zero.",
                     "This import includes receipt details and line items; it does not import scans or other attachments.",
-                    "Receipts already in Supabase with the same supplier TIN and receipt number are skipped."
+                    "Receipts already in Cloud Database with the same supplier TIN and receipt number are skipped."
             };
             for (int i = 0; i < notes.length; i++) {
                 Row row = instructions.createRow(i);

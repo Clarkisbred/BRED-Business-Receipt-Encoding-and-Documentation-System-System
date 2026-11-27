@@ -148,7 +148,7 @@ export function Sidebar({
           <strong title={fullName}>{fullName || 'BRED user'}</strong>
           <span title={companyLabel}>{companyLabel}</span>
         </div>
-        <Cloud className="profile-cloud" aria-label="Connected to Supabase" size={16} />
+        <Cloud className="profile-cloud" aria-label="Connected to Cloud Database" size={16} />
       </div>
     </aside>
   );
