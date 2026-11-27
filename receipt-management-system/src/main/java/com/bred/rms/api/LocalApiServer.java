@@ -3,11 +3,9 @@ package com.bred.rms.api;
 import com.bred.rms.config.AppContext;
 import com.bred.rms.models.Project;
 import com.bred.rms.models.Receipt;
-import com.bred.rms.models.ReceiptMath;
 import com.bred.rms.models.User;
 import com.bred.rms.security.Module;
 import com.bred.rms.services.AuthException;
-import com.bred.rms.services.ReportService;
 import com.bred.rms.ui.theme.ThemeManager;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,7 +25,6 @@ import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -43,8 +40,22 @@ public final class LocalApiServer implements AutoCloseable {
     public record UserProfile(String id, String fullName, String email, String role, String companyName) { }
     public record SessionResponse(UserProfile user) { }
     public record ProjectSummary(String id, String name, String code, int receiptCount, String spend) { }
+    public record MonthlyMetric(String month, String revenue, String expenses, String profit, String cashFlow) { }
+    public record ExpenseMetric(String name, String amount) { }
+    public record ProjectMetric(String id, String name, String budget, String actual, String progress) { }
     public record DashboardData(String totalSpend, String monthSpend, int monthReceiptCount,
-                                int totalReceiptCount, int projectCount, List<ProjectSummary> projects) { }
+                                int totalReceiptCount, int projectCount, List<ProjectSummary> projects,
+                                String totalRevenue, String totalExpenses, String netProfit,
+                                String outstandingPayables, String outstandingReceivables, int supplierCount,
+                                List<MonthlyMetric> monthly, List<ExpenseMetric> expenseBreakdown,
+                                List<ProjectMetric> projectMetrics, boolean cashFlowAvailable) {
+        public DashboardData(String totalSpend, String monthSpend, int monthReceiptCount,
+                             int totalReceiptCount, int projectCount, List<ProjectSummary> projects) {
+            this(totalSpend, monthSpend, monthReceiptCount, totalReceiptCount, projectCount, projects,
+                    "0.00", totalSpend, "0.00", "0.00", "0.00", 0,
+                    List.of(), List.of(), List.of(), false);
+        }
+    }
     public record ModuleOption(String label, String value) { }
     public record ModuleField(String key, String label, String type, boolean required,
                               List<ModuleOption> options, Object value) { }
@@ -539,22 +550,13 @@ public final class LocalApiServer implements AutoCloseable {
         @Override public DashboardData dashboard() {
             List<Receipt> receipts = context.reports.receipts(null, null);
             List<Project> projects = context.projects.findAll();
-            ReportService.Summary summary = ReportService.summarize(receipts, YearMonth.now());
-            Map<UUID, Integer> counts = new HashMap<>();
-            Map<UUID, java.math.BigDecimal> spends = new HashMap<>();
-            for (Receipt receipt : receipts) {
-                if (receipt.projectId() == null) continue;
-                counts.merge(receipt.projectId(), 1, Integer::sum);
-                spends.merge(receipt.projectId(), receipt.grandTotal(), java.math.BigDecimal::add);
-            }
-            List<ProjectSummary> projectSummaries = new ArrayList<>();
-            for (Project project : projects) {
-                projectSummaries.add(new ProjectSummary(project.id().toString(), project.name(),
-                        project.code() == null ? "" : project.code(), counts.getOrDefault(project.id(), 0),
-                        ReceiptMath.money(spends.getOrDefault(project.id(), java.math.BigDecimal.ZERO)).toPlainString()));
-            }
-            return new DashboardData(summary.totalSpend().toPlainString(), summary.monthSpend().toPlainString(),
-                    summary.monthCount(), summary.totalCount(), projects.size(), List.copyOf(projectSummaries));
+            List<JsonNode> billings = context.constructionData.rows("project_billings");
+            List<JsonNode> boqItems = context.constructionData.rows("project_boq_items");
+            List<JsonNode> payables = context.constructionData.rows("project_payables");
+            List<JsonNode> collections = context.constructionData.rows("project_billing_collections");
+            List<JsonNode> payments = context.constructionData.rows("project_payments");
+            return DashboardAnalytics.build(receipts, projects, context.suppliers.findAll().size(),
+                    billings, boqItems, payables, collections, payments, YearMonth.now());
         }
 
         @Override public ModulePageData modulePage(Module module) {

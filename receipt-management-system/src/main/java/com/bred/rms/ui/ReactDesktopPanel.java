@@ -11,6 +11,7 @@ import org.cef.CefSettings;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.browser.CefMessageRouter;
+import org.cef.handler.CefLifeSpanHandlerAdapter;
 import org.cef.handler.CefLoadHandlerAdapter;
 import org.cef.handler.CefMessageRouterHandlerAdapter;
 import org.cef.handler.CefRequestHandlerAdapter;
@@ -199,7 +200,7 @@ public final class ReactDesktopPanel extends JPanel {
     private CefApp buildCef(Path installRoot) throws CefInitializationException {
         try {
             Files.createDirectories(installRoot);
-            Path profilePath = installRoot.resolve("profile");
+            Path profilePath = profilePath(installRoot, ProcessHandle.current().pid());
             Files.createDirectories(profilePath);
             CefAppBuilder builder = new CefAppBuilder();
             builder.setInstallDir(installRoot.resolve("runtime").toFile());
@@ -251,6 +252,13 @@ public final class ReactDesktopPanel extends JPanel {
                 }
             }, true);
             cefClient.addMessageRouter(messageRouter);
+            cefClient.addLifeSpanHandler(new CefLifeSpanHandlerAdapter() {
+                @Override
+                public boolean onBeforePopup(CefBrowser popupBrowser, CefFrame frame,
+                                             String targetUrl, String targetFrameName) {
+                    return true;
+                }
+            });
             cefClient.addRequestHandler(new CefRequestHandlerAdapter() {
                 @Override
                 public boolean onBeforeBrowse(CefBrowser requestBrowser, CefFrame frame, CefRequest request,
@@ -316,6 +324,10 @@ public final class ReactDesktopPanel extends JPanel {
                 ? Path.of(System.getProperty("user.home"), "AppData", "Local")
                 : Path.of(localAppData);
         return base.resolve("BRED").resolve("jcef");
+    }
+
+    static Path profilePath(Path installRoot, long processId) {
+        return installRoot.resolve("profiles").resolve("process-" + processId);
     }
 
     private static boolean hasOrigin(String value, String expectedOrigin) {

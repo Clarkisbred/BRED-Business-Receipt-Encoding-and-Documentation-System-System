@@ -13,6 +13,8 @@ $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $pomPath = Join-Path $projectRoot 'pom.xml'
 $targetPath = Join-Path $projectRoot 'target'
+$termsPath = Join-Path (Join-Path $projectRoot 'installer') "BRED-Terms-$Version.rtf"
+$termsSourcePath = Join-Path (Join-Path $projectRoot 'installer') "BRED-Terms-$Version.md"
 $upgradeCode = '7B6F2C1E-4A8D-4F3B-9C1A-5E2D8F0A1B34'
 $applicationName = 'BRED'
 $mainClass = 'com.bred.rms.Main'
@@ -34,6 +36,22 @@ foreach ($component in $Version.Split('.')) {
 
 if (-not (Test-Path -LiteralPath $pomPath -PathType Leaf)) {
     throw "Maven project file not found: $pomPath"
+}
+if (-not (Test-Path -LiteralPath $termsPath -PathType Leaf)) {
+    throw "Version-matched installer terms file not found: $termsPath"
+}
+if (-not (Test-Path -LiteralPath $termsSourcePath -PathType Leaf)) {
+    throw "Canonical version-matched terms source not found: $termsSourcePath"
+}
+$termsContent = [System.IO.File]::ReadAllText($termsSourcePath)
+if ($termsContent -notmatch "(?m)^\*\*Version:\*\*\s+$([regex]::Escape($Version))\s*$") {
+    throw "The canonical terms source must identify version $Version."
+}
+if ($termsContent -match '\[Insert [^\]]+\]') {
+    throw 'The canonical terms source contains unresolved placeholders.'
+}
+if (-not [System.IO.File]::ReadAllText($termsPath).StartsWith('{\rtf1')) {
+    throw "The installer terms file is not a valid RTF document: $termsPath"
 }
 
 $jpackageCommand = Get-Command jpackage -CommandType Application -ErrorAction Stop
@@ -74,6 +92,9 @@ finally {
 [xml]$pom = [System.IO.File]::ReadAllText($pomPath)
 $mavenArtifact = [string]$pom.project.artifactId
 $mavenVersion = [string]$pom.project.version
+if ($mavenVersion -ne $Version) {
+    throw "Requested MSI version $Version does not match Maven version $mavenVersion."
+}
 $shadedJar = Join-Path $targetPath "$mavenArtifact-$mavenVersion-shaded.jar"
 if (-not (Test-Path -LiteralPath $shadedJar -PathType Leaf)) {
     $shadedJar = Join-Path $targetPath "$mavenArtifact-$mavenVersion.jar"
@@ -169,7 +190,8 @@ $msiArguments = @(
     '--dest', (Join-Path $validationStage 'msi'),
     '--win-upgrade-uuid', $upgradeCode,
     '--install-dir', 'BRED',
-    '--win-dir-chooser'
+    '--win-dir-chooser',
+    '--license-file', $termsPath
 )
 
 function Assert-OptionValue {
@@ -199,6 +221,7 @@ Assert-OptionValue -Arguments $msiArguments -Option '--app-image' -ExpectedValue
 Assert-OptionValue -Arguments $msiArguments -Option '--dest' -ExpectedValue (Join-Path $validationStage 'msi')
 Assert-OptionValue -Arguments $msiArguments -Option '--win-upgrade-uuid' -ExpectedValue $upgradeCode
 Assert-OptionValue -Arguments $msiArguments -Option '--install-dir' -ExpectedValue 'BRED'
+Assert-OptionValue -Arguments $msiArguments -Option '--license-file' -ExpectedValue $termsPath
 
 if ($msiArguments -contains '--win-per-user-install') {
     throw 'The MSI must remain per-machine; do not pass --win-per-user-install.'
@@ -231,6 +254,7 @@ if ($ValidateOnly) {
     Write-Output "Preflight passed for BRED $Version."
     Write-Output "Shaded JAR: $shadedJar"
     Write-Output "UpgradeCode: $upgradeCode"
+    Write-Output "Installer terms: $termsPath"
     Write-Output 'MSI scope: per-machine (no --win-per-user-install argument)'
     Write-Output 'The MSI will offer a directory chooser; select D:\BRED to target the existing installation.'
     Write-Output "Expected output: $installerPath"
@@ -292,7 +316,8 @@ try {
         '--dest', $msiDestination,
         '--win-upgrade-uuid', $upgradeCode,
         '--install-dir', 'BRED',
-        '--win-dir-chooser'
+        '--win-dir-chooser',
+        '--license-file', $termsPath
     )
     Assert-OptionValue -Arguments $msiArguments -Option '--type' -ExpectedValue 'msi'
     Assert-OptionValue -Arguments $msiArguments -Option '--name' -ExpectedValue $applicationName
@@ -300,6 +325,7 @@ try {
     Assert-OptionValue -Arguments $msiArguments -Option '--app-image' -ExpectedValue $imagePath
     Assert-OptionValue -Arguments $msiArguments -Option '--win-upgrade-uuid' -ExpectedValue $upgradeCode
     Assert-OptionValue -Arguments $msiArguments -Option '--install-dir' -ExpectedValue 'BRED'
+    Assert-OptionValue -Arguments $msiArguments -Option '--license-file' -ExpectedValue $termsPath
     if ($msiArguments -contains '--win-per-user-install' -or $msiArguments -notcontains '--win-dir-chooser') {
         throw 'The MSI must remain per-machine and provide a directory chooser.'
     }
@@ -333,5 +359,5 @@ finally {
 }
 
 Write-Output "Created $installerPath"
-Write-Warning 'The MSI has not been installed or tested as an upgrade. Verify its metadata and test against BRED 1.0.5 in an isolated environment.'
+Write-Warning 'The MSI has not been installed or tested as an upgrade. Verify its metadata and test against the currently installed BRED version in an isolated environment.'
 

@@ -61,6 +61,10 @@ class LocalApiServerTest {
             JsonNode dashboardJson = JSON.readTree(dashboard.body());
             assertEquals("12.34", dashboardJson.path("totalSpend").asText());
             assertEquals("Test Project", dashboardJson.path("projects").get(0).path("name").asText());
+            assertTrue(dashboardJson.path("monthly").isArray());
+            assertTrue(dashboardJson.path("expenseBreakdown").isArray());
+            assertTrue(dashboardJson.path("projectMetrics").isArray());
+            assertTrue(dashboardJson.has("cashFlowAvailable"));
             assertEquals("no-store", dashboard.headers().firstValue("Cache-Control").orElse(""));
             assertFalse(dashboard.headers().firstValue("Access-Control-Allow-Origin").isPresent());
 

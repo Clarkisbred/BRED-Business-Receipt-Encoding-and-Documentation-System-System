@@ -83,31 +83,34 @@ function aggregateRange(
     revenue: number(row.revenue),
     expenses: number(row.expenses),
     profit: number(row.profit),
+    cashFlow: number(row.cashFlow),
   }));
   if (view === 'monthly') return rows;
 
   if (view === 'yearly') {
-    const map = new Map<string, { month: string; revenue: number; expenses: number; profit: number }>();
+    const map = new Map<string, { month: string; revenue: number; expenses: number; profit: number; cashFlow: number }>();
     rows.forEach((row) => {
       const key = row.month.slice(0, 4);
-      const current = map.get(key) ?? { month: key, revenue: 0, expenses: 0, profit: 0 };
+      const current = map.get(key) ?? { month: key, revenue: 0, expenses: 0, profit: 0, cashFlow: 0 };
       current.revenue += row.revenue;
       current.expenses += row.expenses;
       current.profit += row.profit;
+      current.cashFlow += row.cashFlow;
       map.set(key, current);
     });
     return Array.from(map.values());
   }
 
-  const map = new Map<string, { month: string; revenue: number; expenses: number; profit: number }>();
+  const map = new Map<string, { month: string; revenue: number; expenses: number; profit: number; cashFlow: number }>();
   rows.forEach((row) => {
     const [year, month] = row.month.split('-').map(Number);
     const quarter = Math.floor(((month ?? 1) - 1) / 3) + 1;
     const key = `${year}-Q${quarter}`;
-    const current = map.get(key) ?? { month: key, revenue: 0, expenses: 0, profit: 0 };
+    const current = map.get(key) ?? { month: key, revenue: 0, expenses: 0, profit: 0, cashFlow: 0 };
     current.revenue += row.revenue;
     current.expenses += row.expenses;
     current.profit += row.profit;
+    current.cashFlow += row.cashFlow;
     map.set(key, current);
   });
   return Array.from(map.values());
@@ -246,7 +249,7 @@ export function Dashboard() {
 
             <section className="panel chart-panel">
               <div className="panel-heading">
-                <div><h2>Expense Breakdown</h2><p>Approved and recorded categories.</p></div>
+                <div><h2>Expense Breakdown</h2><p>Recorded receipt spending by document type.</p></div>
               </div>
               {expenseRows.length === 0 ? <EmptyState message="No expense records." /> : (
                 <div className="chart-box chart-box-pie">
@@ -279,7 +282,14 @@ export function Dashboard() {
                       <XAxis dataKey="month" tick={{ fill: 'var(--muted)', fontSize: 11 }} />
                       <YAxis tickFormatter={formatCompactPeso} tick={{ fill: 'var(--muted)', fontSize: 11 }} />
                       <Tooltip content={<ChartTooltip />} />
-                      <Line type="monotone" dataKey="revenue" name="Revenue" stroke="var(--chart-1)" strokeWidth={2.5} dot={false} />
+                      <Line
+                        type="monotone"
+                        dataKey="revenue"
+                        name="Revenue"
+                        stroke="var(--chart-1)"
+                        strokeWidth={2.5}
+                        dot={rangeRows.length === 1 ? { r: 3, fill: 'var(--chart-1)' } : false}
+                      />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -288,9 +298,9 @@ export function Dashboard() {
 
             <section className="panel chart-panel">
               <div className="panel-heading">
-                <div><h2>Cash Flow</h2><p>Monthly net movement.</p></div>
+                <div><h2>Cash Flow</h2><p>Collections less approved supplier payments.</p></div>
               </div>
-              {rangeRows.length === 0 ? <EmptyState message="No cash-flow records." /> : (
+              {rangeRows.length === 0 || !data?.cashFlowAvailable ? <EmptyState message="No cash-flow records." /> : (
                 <div className="chart-box">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={rangeRows}>
@@ -298,7 +308,15 @@ export function Dashboard() {
                       <XAxis dataKey="month" tick={{ fill: 'var(--muted)', fontSize: 11 }} />
                       <YAxis tickFormatter={formatCompactPeso} tick={{ fill: 'var(--muted)', fontSize: 11 }} />
                       <Tooltip content={<ChartTooltip />} />
-                      <Area type="monotone" dataKey="profit" name="Net flow" stroke="var(--chart-2)" fill="var(--chart-2)" fillOpacity={0.18} />
+                      <Area
+                        type="monotone"
+                        dataKey="cashFlow"
+                        name="Net cash flow"
+                        stroke="var(--chart-2)"
+                        fill="var(--chart-2)"
+                        fillOpacity={0.18}
+                        dot={rangeRows.length === 1 ? { r: 3, fill: 'var(--chart-2)' } : false}
+                      />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
@@ -307,7 +325,7 @@ export function Dashboard() {
 
             <section className="panel chart-panel">
               <div className="panel-heading">
-                <div><h2>Profit and Loss</h2><p>Net result by period.</p></div>
+                <div><h2>Profit and Loss</h2><p>Billed revenue less recorded receipt expenses.</p></div>
               </div>
               {rangeRows.length === 0 ? <EmptyState message="No profit and loss records." /> : (
                 <div className="chart-box">

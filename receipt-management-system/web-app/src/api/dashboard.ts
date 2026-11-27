@@ -42,7 +42,8 @@ export interface DashboardData {
   outstandingPayables?: string;
   outstandingReceivables?: string;
   supplierCount?: number;
-  monthly?: Array<{ month: string; revenue: string; expenses: string; profit: string }>;
+  monthly?: Array<{ month: string; revenue: string; expenses: string; profit: string; cashFlow?: string }>;
+  cashFlowAvailable?: boolean;
   expenseBreakdown?: Array<{ name: string; amount: string }>;
   projectMetrics?: Array<{ id: string; name: string; budget: string; actual: string; progress: string }>;
   recentReceipts?: Array<{ id: string; receiptNo: string; date: string; supplier: string; project: string; amount: string; status: string }>;

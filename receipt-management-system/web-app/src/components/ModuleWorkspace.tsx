@@ -123,7 +123,12 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
     setError(null);
     void loadModulePage(module).then(
       (result) => {
-        if (active) setData(result);
+        if (active) {
+          setData(result);
+          if (module === 'SETTINGS' && result.key === 'SETTINGS') {
+            setReleaseVersion(result.metrics.find((metric) => metric.label === 'Latest release')?.value ?? '');
+          }
+        }
       },
       (reason: unknown) => {
         if (active) setError(reason instanceof Error ? reason.message : 'BRED could not load this workspace.');
@@ -142,7 +147,6 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
     const dark = data.fields.find((field) => field.key === 'dark');
     setSettingsAppearance(typeof appearance?.value === 'string' ? appearance.value : '');
     setSettingsDark(Boolean(dark?.value));
-    setReleaseVersion(data.metrics.find((metric) => metric.label === 'Latest release')?.value ?? '');
     setNewPassword('');
     setConfirmPassword('');
     setSettingsNotice(null);
