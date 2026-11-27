@@ -7,6 +7,7 @@ import com.bred.rms.models.User;
 import com.bred.rms.ui.RefreshablePanel;
 import com.bred.rms.ui.UiErrors;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.ModernTable;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.utils.BackgroundTask;
 
@@ -75,9 +76,7 @@ public final class UserManagementPanel extends JPanel implements RefreshablePane
             bar.add(delete);
         }
         add(bar, BorderLayout.NORTH);
-        table.setRowHeight(28);
-        table.setFillsViewportHeight(true);
-        table.getTableHeader().setReorderingAllowed(false);
+        ModernTable.apply(table);
         table.getColumnModel().getColumn(5).setCellRenderer(new StatusRenderer());
         table.getSelectionModel().addListSelectionListener(e -> updateButtons());
         table.addMouseListener(new MouseAdapter() {

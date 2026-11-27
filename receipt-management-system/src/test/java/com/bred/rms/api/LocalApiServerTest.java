@@ -4,6 +4,7 @@ import com.bred.rms.models.AccountStatus;
 import com.bred.rms.models.Role;
 import com.bred.rms.models.User;
 import com.bred.rms.services.AuthException;
+import com.bred.rms.security.Module;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -14,6 +15,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -66,6 +68,113 @@ class LocalApiServerTest {
                     .DELETE().build());
             assertEquals(204, signedOutResponse.statusCode());
             assertNull(backend.current());
+        }
+    }
+
+    @Test
+    void servesJavaThemeTokensToTheTrustedRenderer() throws Exception {
+        FakeBackend backend = new FakeBackend();
+        try (LocalApiServer api = LocalApiServer.startForTesting(backend)) {
+            LocalApiServer.RendererBootstrap bootstrap = api.rendererBootstrap();
+            HttpResponse<String> theme = send(apiRequest(URI.create(bootstrap.origin()),
+                    bootstrap.token(), "/api/v1/theme").GET().build());
+            assertEquals(200, theme.statusCode());
+            JsonNode themeJson = JSON.readTree(theme.body());
+            assertFalse(themeJson.path("appearance").asText().isBlank());
+            assertFalse(themeJson.path("background").asText().isBlank());
+            assertTrue(themeJson.path("chart1").asText().startsWith("#"));
+        }
+    }
+
+    @Test
+    void servesWorkspaceDataAndEnforcesModuleRoles() throws Exception {
+        FakeBackend backend = new FakeBackend();
+        backend.current = backend.user;
+        try (LocalApiServer api = LocalApiServer.startForTesting(backend)) {
+            LocalApiServer.RendererBootstrap bootstrap = api.rendererBootstrap();
+            URI origin = URI.create(bootstrap.origin());
+
+            HttpResponse<String> projects = send(apiRequest(origin, bootstrap.token(), "/api/v1/modules/PROJECTS")
+                    .GET().build());
+            assertEquals(200, projects.statusCode());
+            assertEquals("Projects", JSON.readTree(projects.body()).path("title").asText());
+            assertEquals("1970-01-01T00:00:00Z", JSON.readTree(projects.body()).path("rows").get(0)
+                    .path("values").path("createdAt").asText());
+            assertEquals(1, backend.modulePageCalls);
+
+            HttpResponse<String> companyAdminDenied = send(apiRequest(origin, bootstrap.token(),
+                    "/api/v1/modules/COMPANIES").GET().build());
+            assertEquals(403, companyAdminDenied.statusCode());
+            assertEquals(1, backend.modulePageCalls);
+
+            HttpResponse<String> invalidModule = send(apiRequest(origin, bootstrap.token(),
+                    "/api/v1/modules/NOT_A_MODULE").GET().build());
+            assertEquals(404, invalidModule.statusCode());
+        }
+    }
+
+    @Test
+    void validatesWorkspaceActionsAndUsesServerSideModuleService() throws Exception {
+        FakeBackend backend = new FakeBackend();
+        backend.current = backend.user;
+        try (LocalApiServer api = LocalApiServer.startForTesting(backend)) {
+            LocalApiServer.RendererBootstrap bootstrap = api.rendererBootstrap();
+            URI origin = URI.create(bootstrap.origin());
+            HttpResponse<String> updated = send(apiRequest(origin, bootstrap.token(), "/api/v1/modules/PROJECTS")
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            "{\"action\":\"save\",\"values\":{\"name\":\"New project\"}}"))
+                    .build());
+            assertEquals(200, updated.statusCode());
+            assertEquals("save", backend.lastModuleAction);
+
+            HttpResponse<String> invalidAction = send(apiRequest(origin, bootstrap.token(),
+                    "/api/v1/modules/PROJECTS")
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            "{\"action\":\"execute\",\"values\":{}}"))
+                    .build());
+            assertEquals(400, invalidAction.statusCode());
+        }
+    }
+
+    @Test
+    void acceptsBoundedDuckyHistoryRequestBodies() throws Exception {
+        FakeBackend backend = new FakeBackend();
+        backend.current = backend.user;
+        try (LocalApiServer api = LocalApiServer.startForTesting(backend)) {
+            LocalApiServer.RendererBootstrap bootstrap = api.rendererBootstrap();
+            URI origin = URI.create(bootstrap.origin());
+            String history = "界".repeat(9_000);
+            String requestBody = "{\"action\":\"ask\",\"values\":{\"question\":\"Explain this\","
+                    + "\"history\":[\"Ducky: " + history + "\"]}}";
+
+            HttpResponse<String> accepted = send(apiRequest(origin, bootstrap.token(), "/api/v1/modules/DUCKY")
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(requestBody)).build());
+            assertEquals(200, accepted.statusCode());
+            assertEquals("ask", backend.lastModuleAction);
+        }
+    }
+
+    @Test
+    void routesProjectLocationSearchThroughAuthenticatedBackend() throws Exception {
+        FakeBackend backend = new FakeBackend();
+        backend.current = backend.user;
+        try (LocalApiServer api = LocalApiServer.startForTesting(backend)) {
+            LocalApiServer.RendererBootstrap bootstrap = api.rendererBootstrap();
+            URI origin = URI.create(bootstrap.origin());
+            HttpResponse<String> found = send(apiRequest(origin, bootstrap.token(),
+                    "/api/v1/map/search?q=Manila%20Philippines").GET().build());
+            assertEquals(200, found.statusCode());
+            assertEquals("Manila, Philippines", JSON.readTree(found.body()).get(0)
+                    .path("displayName").asText());
+            assertEquals(1, backend.mapSearchCalls);
+
+            HttpResponse<String> missingQuery = send(apiRequest(origin, bootstrap.token(),
+                    "/api/v1/map/search").GET().build());
+            assertEquals(400, missingQuery.statusCode());
+            assertEquals(1, backend.mapSearchCalls);
         }
     }
 
@@ -155,6 +264,13 @@ class LocalApiServerTest {
                     .POST(HttpRequest.BodyPublishers.ofString("{")).build());
             assertEquals(400, malformed.statusCode());
             assertEquals("invalid_request", JSON.readTree(malformed.body()).path("code").asText());
+
+            String oversized = "{\"value\":\"" + "x".repeat(65 * 1024) + "\"}";
+            HttpResponse<String> tooLarge = send(apiRequest(origin, bootstrap.token())
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(oversized)).build());
+            assertEquals(413, tooLarge.statusCode());
+            assertEquals("request_too_large", JSON.readTree(tooLarge.body()).path("code").asText());
             assertEquals(0, backend.loginCalls);
         }
     }
@@ -178,6 +294,9 @@ class LocalApiServerTest {
         private final User user = new User(UUID.randomUUID(), "Test User", "user@example.test", Role.ADMIN, true,
                 AccountStatus.APPROVED, Instant.EPOCH, "Test Company", UUID.randomUUID());
         private int loginCalls;
+        private int modulePageCalls;
+        private int mapSearchCalls;
+        private String lastModuleAction;
         private char[] passwordReference;
         private User current;
 
@@ -198,6 +317,30 @@ class LocalApiServerTest {
             return new LocalApiServer.DashboardData("12.34", "5.67", 1, 2, 1,
                     List.of(new LocalApiServer.ProjectSummary(UUID.randomUUID().toString(),
                             "Test Project", "TEST", 2, "12.34")));
+        }
+
+        @Override public LocalApiServer.ModulePageData modulePage(Module module) {
+            modulePageCalls++;
+            return new LocalApiServer.ModulePageData(module.name(), "Projects", "Workspace data",
+                    List.of(), List.of(), List.of(), List.of(new LocalApiServer.ModuleRecord("record-1",
+                    Map.of("createdAt", Instant.EPOCH))), true, false, false,
+                    "New project", "Save project", "save");
+        }
+
+        @Override public LocalApiServer.ModulePageData moduleAction(Module module, String action, String id,
+                                                                      JsonNode values) {
+            lastModuleAction = action;
+            if (!"save".equals(action) && !"ask".equals(action)) {
+                throw new IllegalArgumentException("Invalid action.");
+            }
+            return modulePage(module);
+        }
+
+        @Override public List<LocalApiServer.MapSearchResult> mapSearch(String query) {
+            mapSearchCalls++;
+            assertEquals("Manila Philippines", query);
+            return List.of(new LocalApiServer.MapSearchResult(
+                    "Manila, Philippines", "14.5995", "120.9842", "city"));
         }
     }
 }

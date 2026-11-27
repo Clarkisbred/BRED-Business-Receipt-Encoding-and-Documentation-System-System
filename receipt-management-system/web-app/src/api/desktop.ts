@@ -3,8 +3,33 @@ export interface DesktopBootstrap {
   token: string;
 }
 
+export interface BredTheme {
+  appearance: string;
+  dark: boolean;
+  accent: string;
+  accentDark: string;
+  accentSoft: string;
+  background: string;
+  sidebar: string;
+  header: string;
+  surface: string;
+  surfaceMuted: string;
+  text: string;
+  muted: string;
+  border: string;
+  success: string;
+  warning: string;
+  danger: string;
+  chart1: string;
+  chart2: string;
+  chart3: string;
+  chart4: string;
+  chart5: string;
+}
+
 interface DesktopBridge {
   getBootstrap: () => Promise<DesktopBootstrap>;
+  getTheme?: () => Promise<unknown>;
 }
 
 declare global {
@@ -30,6 +55,13 @@ export function desktopBridgeError(): string | null {
     return 'Open this screen from the BRED desktop application to connect to the Java service.';
   }
   return null;
+}
+
+export async function loadDesktopTheme(): Promise<BredTheme | null> {
+  if (typeof window === 'undefined' || typeof window.bredDesktop?.getTheme !== 'function') {
+    return null;
+  }
+  return await window.bredDesktop.getTheme() as BredTheme;
 }
 
 export async function desktopRequest<T>(

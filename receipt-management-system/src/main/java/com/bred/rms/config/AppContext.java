@@ -4,6 +4,7 @@ import com.bred.rms.models.User;
 import com.bred.rms.repositories.ActivityLogRepository;
 import com.bred.rms.repositories.AppReleaseRepository;
 import com.bred.rms.repositories.BugReportRepository;
+import com.bred.rms.repositories.AppReleaseRepository;
 import com.bred.rms.repositories.CompanyRepository;
 import com.bred.rms.repositories.MessageRepository;
 import com.bred.rms.repositories.RepositoryException;
@@ -174,6 +175,25 @@ public final class AppContext {
                                         ActivityLogRepository activityLog, MessageRepository messages) {
         return new AppContext(null, () -> user, receipts, suppliers, projects, attachments, userRepository, activityLog,
                 "Test data", null, null, null, messages, unavailableCompanies(), null);
+    }
+
+    /** Test contexts can provide the authenticated bug-report service used by React Settings. */
+    public static AppContext forTesting(User user, ReceiptService receipts, SupplierService suppliers,
+                                        ProjectService projects, AttachmentStore attachments,
+                                        UserRepository userRepository, ActivityLogRepository activityLog,
+                                        MessageRepository messages, BugReportRepository bugReports) {
+        return new AppContext(null, () -> user, receipts, suppliers, projects, attachments, userRepository, activityLog,
+                "Test data", null, null, bugReports, messages, unavailableCompanies(), null);
+    }
+
+    /** Test contexts can configure creator-authorized release publishing. */
+    public static AppContext forTesting(User user, ReceiptService receipts, SupplierService suppliers,
+                                        ProjectService projects, AttachmentStore attachments,
+                                        UserRepository userRepository, ActivityLogRepository activityLog,
+                                        MessageRepository messages, BugReportRepository bugReports,
+                                        AppReleaseRepository appReleases) {
+        return new AppContext(null, () -> user, receipts, suppliers, projects, attachments, userRepository, activityLog,
+                "Test data", null, null, bugReports, messages, unavailableCompanies(), appReleases);
     }
 
     private static MessageRepository unavailableMessages() {

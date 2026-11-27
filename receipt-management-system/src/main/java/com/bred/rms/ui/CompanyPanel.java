@@ -7,6 +7,7 @@ import com.bred.rms.models.ReceiptMath;
 import com.bred.rms.models.Role;
 import com.bred.rms.models.User;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.ModernTable;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.services.ReceiptQuery;
 import com.bred.rms.utils.BackgroundTask;
@@ -60,8 +61,7 @@ public final class CompanyPanel extends JPanel implements RefreshablePanel {
         add(actions, BorderLayout.NORTH);
 
         table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        table.setRowHeight(28);
-        table.setFillsViewportHeight(true);
+        ModernTable.apply(table);
         table.setAutoCreateRowSorter(true);
         table.getSelectionModel().addListSelectionListener(event -> updateButtons());
         add(new StyledScrollPane(table), BorderLayout.CENTER);

@@ -16,6 +16,7 @@ import {
   Users,
   type LucideIcon,
 } from 'lucide-react';
+import { ProfileAvatar } from './IdentityAvatar';
 import type { AppRole, ModuleKey } from '../types';
 
 export const SIDEBAR_WIDTH_PX = 252;
@@ -90,6 +91,7 @@ export function visibleNavigation(role: AppRole): VisibleNavGroup[] {
 interface SidebarProps {
   role: AppRole;
   fullName: string;
+  email: string;
   companyName: string;
   activeModule: ModuleKey;
   onNavigate: (module: ModuleKey) => void;
@@ -98,6 +100,7 @@ interface SidebarProps {
 export function Sidebar({
   role,
   fullName,
+  email,
   companyName,
   activeModule,
   onNavigate,
@@ -140,9 +143,7 @@ export function Sidebar({
       </nav>
 
       <div className="sidebar-profile">
-        <div className="profile-mark" aria-hidden="true">
-          {fullName.trim().charAt(0).toUpperCase() || 'B'}
-        </div>
+        <ProfileAvatar className="profile-mark" name={fullName} email={email} />
         <div className="profile-copy">
           <strong title={fullName}>{fullName || 'BRED user'}</strong>
           <span title={companyLabel}>{companyLabel}</span>

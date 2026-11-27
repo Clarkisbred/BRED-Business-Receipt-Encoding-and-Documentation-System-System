@@ -6,6 +6,7 @@ import com.bred.rms.ui.RefreshablePanel;
 import com.bred.rms.ui.UiErrors;
 import com.bred.rms.ui.components.SectionHeader;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.ModernTable;
 import com.bred.rms.ui.components.LucideIcon;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.utils.BackgroundTask;
@@ -30,6 +31,7 @@ import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.geom.Point2D;
 import java.math.BigDecimal;
+import java.io.IOException;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -37,6 +39,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.LinkedHashMap;
 
 /** Verified-coordinate project map workspace backed by project_map_markers. */
 public final class LiveProjectMapPanel extends JPanel implements RefreshablePanel {
@@ -45,6 +48,9 @@ public final class LiveProjectMapPanel extends JPanel implements RefreshablePane
                           String description, String lastSeen) {}
 
     private record Loaded(List<Project> projects, List<Marker> markers) {}
+    private record Choice(UUID id, String label) {
+        @Override public String toString() { return label; }
+    }
 
     private final AppContext ctx;
     private final JTextField search = new JTextField(20);
@@ -57,6 +63,12 @@ public final class LiveProjectMapPanel extends JPanel implements RefreshablePane
             };
     private final JTable table = new JTable(model);
     private final MapPanel map = new MapPanel();
+    private final JTextField locationSearch = new JTextField(24);
+    private final JComboBox<Choice> projectChoice = new JComboBox<>();
+    private final JComboBox<NominatimGeocoder.Result> locationResults = new JComboBox<>();
+    private final JButton searchLocation = new JButton("Search location");
+    private final JButton addLocation = new JButton("Add location");
+    private final NominatimGeocoder geocoder = new NominatimGeocoder();
     private List<Marker> shown = new ArrayList<>();
 
     public LiveProjectMapPanel(AppContext ctx) {
@@ -99,15 +111,55 @@ public final class LiveProjectMapPanel extends JPanel implements RefreshablePane
         controls.add(statusFilter);
         controls.add(refresh);
         headerRow.add(controls, BorderLayout.EAST);
-        add(headerRow, BorderLayout.NORTH);
+        JPanel north = new JPanel(new BorderLayout(0, 8));
+        north.setOpaque(false);
+        north.add(headerRow, BorderLayout.NORTH);
+
+        locationSearch.putClientProperty("JTextField.placeholderText",
+                "Search an address or place with Nominatim");
+        locationSearch.setToolTipText("Search OpenStreetMap via Nominatim");
+        locationResults.setPrototypeDisplayValue(new NominatimGeocoder.Result(
+                "Select a location result", 0, 0, "", "", 0));
+        locationResults.setRenderer((list, value, index, selected, focused) -> {
+            javax.swing.JLabel label = new javax.swing.JLabel(value == null
+                    ? "No location results"
+                    : value.displayName());
+            label.setBorder(BorderFactory.createEmptyBorder(3, 5, 3, 5));
+            if (selected) {
+                label.setOpaque(true);
+                label.setBackground(RmsColors.primaryLight());
+                label.setForeground(RmsColors.text());
+            }
+            return label;
+        });
+        searchLocation.setIcon(new LucideIcon("search", 15, RmsColors::primary));
+        addLocation.setIcon(new LucideIcon("map-pin", 15, RmsColors::primary));
+        addLocation.setEnabled(false);
+        searchLocation.addActionListener(event -> searchLocation());
+        locationSearch.addActionListener(event -> searchLocation());
+        locationResults.addActionListener(event -> addLocation.setEnabled(
+                locationResults.getSelectedItem() != null
+                        && projectChoice.getSelectedItem() != null));
+        projectChoice.addActionListener(event -> addLocation.setEnabled(
+                locationResults.getSelectedItem() != null
+                        && projectChoice.getSelectedItem() != null));
+        addLocation.addActionListener(event -> addGeocodedLocation());
+
+        JPanel geocodeRow = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+        geocodeRow.setOpaque(false);
+        geocodeRow.add(projectChoice);
+        geocodeRow.add(locationSearch);
+        geocodeRow.add(searchLocation);
+        geocodeRow.add(locationResults);
+        geocodeRow.add(addLocation);
+        north.add(geocodeRow, BorderLayout.SOUTH);
+        add(north, BorderLayout.NORTH);
 
         JPanel center = new JPanel(new BorderLayout(12, 0));
         center.setOpaque(false);
         center.add(map, BorderLayout.CENTER);
 
-        table.setRowHeight(28);
-        table.setFillsViewportHeight(true);
-        table.getTableHeader().setReorderingAllowed(false);
+        ModernTable.apply(table);
         JScrollPane tableScroll = new StyledScrollPane(table);
         tableScroll.setPreferredSize(new java.awt.Dimension(330, 0));
         tableScroll.setMinimumSize(new java.awt.Dimension(280, 0));
@@ -169,12 +221,104 @@ public final class LiveProjectMapPanel extends JPanel implements RefreshablePane
     }
 
     private void fill(Loaded loaded) {
+        UUID previousProject = projectChoice.getSelectedItem() instanceof Choice choice
+                ? choice.id() : null;
+        projectChoice.removeAllItems();
+        if (loaded.projects().isEmpty()) {
+            projectChoice.addItem(new Choice(null, "Select project"));
+        } else {
+            for (Project project : loaded.projects()) {
+                projectChoice.addItem(new Choice(project.id(), project.name()));
+            }
+            if (previousProject != null) {
+                for (int i = 0; i < projectChoice.getItemCount(); i++) {
+                    Choice choice = projectChoice.getItemAt(i);
+                    if (previousProject.equals(choice.id())) {
+                        projectChoice.setSelectedIndex(i);
+                        break;
+                    }
+                }
+            }
+        }
         map.setMarkers(loaded.markers());
         map.clearSelection();
         applyFilter(loaded.markers(), loaded.projects());
         status.setText(loaded.markers().isEmpty()
                 ? "No verified project markers."
                 : loaded.markers().size() + " verified marker(s).");
+    }
+
+    private void searchLocation() {
+        String query = locationSearch.getText().trim();
+        if (query.isEmpty()) {
+            status.setText("Enter an address or place to search.");
+            locationSearch.requestFocusInWindow();
+            return;
+        }
+        searchLocation.setEnabled(false);
+        status.setText("Searching locations…");
+        BackgroundTask.run(() -> geocoder.search(query), results -> {
+            searchLocation.setEnabled(true);
+            locationResults.removeAllItems();
+            for (NominatimGeocoder.Result result : results) {
+                locationResults.addItem(result);
+            }
+            if (results.isEmpty()) {
+                status.setText("No Nominatim locations matched.");
+            } else {
+                locationResults.setSelectedIndex(0);
+                status.setText(results.size() + " location result(s).");
+            }
+        }, error -> {
+            searchLocation.setEnabled(true);
+            locationResults.removeAllItems();
+            status.setText(error instanceof IOException
+                    ? error.getMessage()
+                    : UiErrors.friendly(error));
+        });
+    }
+
+    private void addGeocodedLocation() {
+        Object project = projectChoice.getSelectedItem();
+        Object location = locationResults.getSelectedItem();
+        if (!(project instanceof Choice projectChoiceValue)
+                || projectChoiceValue.id() == null
+                || !(location instanceof NominatimGeocoder.Result geocoded)) {
+            status.setText("Select a project and location result.");
+            return;
+        }
+        if (geocoded.latitude() < -90 || geocoded.latitude() > 90
+                || geocoded.longitude() < -180 || geocoded.longitude() > 180) {
+            status.setText("Nominatim returned coordinates outside valid latitude/longitude ranges.");
+            return;
+        }
+        String markerName = geocoded.displayName();
+        int comma = markerName.indexOf(',');
+        if (comma > 0) markerName = markerName.substring(0, comma).trim();
+        if (markerName.isBlank()) markerName = "Nominatim location";
+        String finalMarkerName = markerName;
+        Map<String, Object> values = new LinkedHashMap<>();
+        values.put("project_id", projectChoiceValue.id());
+        values.put("marker_name", finalMarkerName);
+        values.put("latitude", geocoded.latitude());
+        values.put("longitude", geocoded.longitude());
+        values.put("marker_type", "Site");
+        values.put("status", "Active");
+        values.put("description", geocoded.displayName());
+        addLocation.setEnabled(false);
+        status.setText("Saving Nominatim location…");
+        BackgroundTask.run(() -> {
+            ctx.constructionData.saveRow("project_map_markers", null, values);
+            return true;
+        }, ignored -> {
+            addLocation.setEnabled(true);
+            locationSearch.setText("");
+            locationResults.removeAllItems();
+            refreshData();
+        }, error -> {
+            addLocation.setEnabled(true);
+            status.setText(UiErrors.friendly(error));
+        });
     }
 
     private void applyFilter() {

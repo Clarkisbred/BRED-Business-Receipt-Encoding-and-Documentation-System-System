@@ -20,6 +20,7 @@ public final class StatCard extends JPanel {
     private final Supplier<Color> accent;
     private JLabel valueLabel;
     private JLabel titleLabel;
+    private JLabel trendLabel;
 
     /** Creates a stat card instance. */
     public StatCard(String title, String value, Color accent) {
@@ -36,13 +37,35 @@ public final class StatCard extends JPanel {
         titleLabel.setFont(titleLabel.getFont().deriveFont(Font.PLAIN, 12f));
         valueLabel = new JLabel(value);
         valueLabel.setFont(valueLabel.getFont().deriveFont(Font.BOLD, 26f));
+        trendLabel = new JLabel(" ");
+        trendLabel.setFont(trendLabel.getFont().deriveFont(Font.BOLD, 11f));
         add(titleLabel, BorderLayout.NORTH);
         add(valueLabel, BorderLayout.CENTER);
+        add(trendLabel, BorderLayout.SOUTH);
         updateUI();
     }
 
     /** Updates the summary value displayed by this card. */
     public void setValue(String value) { valueLabel.setText(value); }
+
+    /** Sets a green profit or red loss trend; neutral values are theme-muted. */
+    public void setTrend(java.math.BigDecimal percent, boolean positiveIsProfit) {
+        if (percent == null) {
+            trendLabel.setText(" ");
+            return;
+        }
+        int comparison = percent.compareTo(java.math.BigDecimal.ZERO);
+        if (comparison == 0) {
+            trendLabel.setText("0.00%  —");
+            trendLabel.setForeground(RmsColors.SECONDARY_TEXT);
+            return;
+        }
+        boolean profit = positiveIsProfit ? comparison > 0 : comparison < 0;
+        String arrow = profit ? "↑" : "↓";
+        trendLabel.setText(arrow + " " + percent.setScale(2,
+                java.math.RoundingMode.HALF_UP).toPlainString() + "%");
+        trendLabel.setForeground(profit ? RmsColors.SUCCESS : RmsColors.DANGER);
+    }
 
     /** Updates ui. */
     @Override public void updateUI() {

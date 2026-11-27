@@ -163,7 +163,16 @@ public final class MainWindow extends JFrame {
             }));
             shell = new Shell(ctx, this::signOut, updatePreferences, updateWorkflow);
             root.add(shell, "shell");
-            cards.show(root, "shell");
+            if (localApi != null && ReactDesktopPanel.isSupportedPlatform()) {
+                if (reactPanel == null) {
+                    reactPanel = new ReactDesktopPanel(localApi);
+                    root.add(reactPanel, "react");
+                }
+                cards.show(root, "react");
+                reactPanel.start();
+            } else {
+                cards.show(root, "shell");
+            }
             updateReactMenuState();
             done.accept(null);
         }, error -> done.accept(error instanceof AuthException ? error.getMessage()
@@ -345,6 +354,10 @@ public final class MainWindow extends JFrame {
     private void showLogin() {
         if (shell != null) root.remove(shell);
         shell = null;
+        if (reactPanel != null) {
+            root.remove(reactPanel);
+            reactPanel = null;
+        }
         login.reset();
         cards.show(root, "login");
         updateReactMenuState();
@@ -367,7 +380,7 @@ public final class MainWindow extends JFrame {
     }
 
     private void openReactPreview() {
-        if (shell != null || localApi == null) return;
+        if (localApi == null) return;
         if (reactPanel == null) {
             reactPanel = new ReactDesktopPanel(localApi);
             root.add(reactPanel, "react");
@@ -393,7 +406,7 @@ public final class MainWindow extends JFrame {
     private void updateReactMenuState() {
         if (openReactItem == null || returnToSwingItem == null) return;
         boolean showingReact = reactPanel != null && reactPanel.isVisible();
-        openReactItem.setEnabled(!showingReact && shell == null);
+        openReactItem.setEnabled(!showingReact && ctx != null);
         returnToSwingItem.setEnabled(showingReact);
     }
 

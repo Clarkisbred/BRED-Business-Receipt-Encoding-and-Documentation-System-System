@@ -3,6 +3,7 @@ package com.bred.rms.ui;
 import com.bred.rms.config.AppContext;
 import com.bred.rms.models.ChatMessage;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.ModernTable;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.utils.BackgroundTask;
 
@@ -48,9 +49,7 @@ public final class HistoryPanel extends JPanel implements RefreshablePanel {
         bar.add(reload, BorderLayout.EAST);
         add(bar, BorderLayout.NORTH);
 
-        table.setRowHeight(28);
-        table.setFillsViewportHeight(true);
-        table.getTableHeader().setReorderingAllowed(false);
+        ModernTable.apply(table);
         table.getColumnModel().getColumn(4).setPreferredWidth(420);
         add(new StyledScrollPane(table), BorderLayout.CENTER);
 

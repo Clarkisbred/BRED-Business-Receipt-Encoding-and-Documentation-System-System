@@ -9,6 +9,7 @@ import com.bred.rms.ui.RefreshablePanel;
 import com.bred.rms.ui.UiErrors;
 import com.bred.rms.ui.components.DateField;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.ModernTable;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.utils.BackgroundTask;
 
@@ -48,6 +49,7 @@ public final class ReportsPanel extends JPanel implements RefreshablePanel {
     private static final String BILLING_POSITION = "Billing position";
     private static final String COLLECTIONS_REPORT = "Collections";
     private static final String OVERDUE_BILLINGS = "Overdue billings";
+    private static final String BILLING_AGING = "Billing aging";
     private static final String PROJECT_PL = "Project P&L";
     private static final String PAYABLES_REPORT = "Payables";
     private static final String CASH_FLOW_REPORT = "Cash flow";
@@ -60,6 +62,7 @@ public final class ReportsPanel extends JPanel implements RefreshablePanel {
     private static final String QUALITY_NCR_REPORT = "Quality NCR";
     private static final String PUNCH_ITEMS_REPORT = "Punch items";
     private static final String CLOSEOUT_REPORT = "Closeout";
+    private static final String BOQ_COST_VARIANCE = "BOQ cost variance";
 
     private final AppContext ctx;
     private final DateField from = new DateField();
@@ -68,10 +71,12 @@ public final class ReportsPanel extends JPanel implements RefreshablePanel {
             BY_PROJECT, BY_SUPPLIER, BY_MONTH, COMPLIANCE_EXPIRY, FAILED_TESTS, OPEN_SAFETY,
             BID_SUMMARY, SUBCONTRACT_BALANCES, EQUIPMENT_COSTS, CASH_ADVANCES, TAX_CALENDAR,
             PROGRESS, MILESTONES, BILLING_POSITION, COLLECTIONS_REPORT, OVERDUE_BILLINGS,
+            BILLING_AGING,
+            BILLING_AGING,
             PROJECT_PL, PAYABLES_REPORT, CASH_FLOW_REPORT, PROCUREMENT_REPORT, INVENTORY_REPORT,
             EQUIPMENT_USAGE_REPORT, EQUIPMENT_COST_REPORT,
             PROJECT_RISK_REPORT, PROJECT_MAP_REPORT,
-            QUALITY_NCR_REPORT, PUNCH_ITEMS_REPORT, CLOSEOUT_REPORT});
+            QUALITY_NCR_REPORT, PUNCH_ITEMS_REPORT, CLOSEOUT_REPORT, BOQ_COST_VARIANCE});
     private final DefaultTableModel model = new DefaultTableModel(new String[]{"Group", "Receipts", "Total"}, 0) {
         @Override public boolean isCellEditable(int row, int column) { return false; }
     };
@@ -106,9 +111,7 @@ public final class ReportsPanel extends JPanel implements RefreshablePanel {
         bar.add(new JLabel("Status"));
         bar.add(reportStatus);
         add(bar, BorderLayout.NORTH);
-        table.setRowHeight(28);
-        table.setFillsViewportHeight(true);
-        table.getTableHeader().setReorderingAllowed(false);
+        ModernTable.apply(table);
         add(new StyledScrollPane(table), BorderLayout.CENTER);
         status.setForeground(RmsColors.SECONDARY_TEXT);
         status.setBorder(BorderFactory.createEmptyBorder(2, 2, 0, 2));
@@ -172,7 +175,8 @@ public final class ReportsPanel extends JPanel implements RefreshablePanel {
                 PROJECT_PL, PAYABLES_REPORT, CASH_FLOW_REPORT,
                 PROCUREMENT_REPORT, INVENTORY_REPORT, EQUIPMENT_USAGE_REPORT,
                 EQUIPMENT_COST_REPORT, PROJECT_RISK_REPORT, PROJECT_MAP_REPORT,
-                QUALITY_NCR_REPORT, PUNCH_ITEMS_REPORT, CLOSEOUT_REPORT).contains(kind);
+                QUALITY_NCR_REPORT, PUNCH_ITEMS_REPORT, CLOSEOUT_REPORT,
+                BOQ_COST_VARIANCE).contains(kind);
     }
 
     private void fillConstruction(List<ConstructionReportRow> rows) {

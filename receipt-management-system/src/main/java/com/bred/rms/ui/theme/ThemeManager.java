@@ -37,6 +37,12 @@ public final class ThemeManager {
     private static Color accentOverride;
     private static final List<Consumer<Boolean>> listeners = new CopyOnWriteArrayList<>();
 
+    public record ReactTheme(
+            String appearance, boolean dark, String accent, String accentDark, String accentSoft,
+            String background, String sidebar, String header, String surface, String surfaceMuted,
+            String text, String muted, String border, String success, String warning, String danger,
+            String chart1, String chart2, String chart3, String chart4, String chart5) {}
+
     /** Available application color palettes. */
     public enum Appearance {
         DEFAULT("Default"),
@@ -89,6 +95,33 @@ public final class ThemeManager {
     /** Returns the optional user-selected accent color. */
     public static Color customAccent() {
         return accentOverride;
+    }
+
+    /** Produces semantic React theme tokens from the currently persisted Java preset. */
+    public static ReactTheme reactTheme() {
+        String[] charts = switch (appearance) {
+            case MODERN_GLASS -> new String[]{"#5B9CFF", "#4DE3C2", "#8B7CF6", "#F5B52B", "#66C7F7"};
+            case MIDNIGHT_BLUE -> new String[]{"#5B9CFF", "#38BDF8", "#22C55E", "#F59E0B", "#A78BFA"};
+            case CLEAN_LIGHT -> new String[]{"#2563EB", "#16A34A", "#0891B2", "#F59E0B", "#7C3AED"};
+            case GRAPHITE -> new String[]{"#E6A700", "#4ADE80", "#60A5FA", "#F97316", "#A3A3A3"};
+            case BREDUCK_SIGNATURE -> new String[]{"#F7A72E", "#22C55E", "#3B82F6", "#E11D48", "#A78BFA"};
+            case DUTERTES_SIGNATURE -> new String[]{"#2E7D32", "#22C55E", "#0EA5E9", "#F59E0B", "#DC2626"};
+            case SHRIMPS_AUCLAIR -> new String[]{"#F48FB1", "#EC4899", "#38BDF8", "#22C55E", "#A78BFA"};
+            case COSMIC_VIOLET -> new String[]{"#CE93D8", "#8B5CF6", "#38BDF8", "#22C55E", "#F59E0B"};
+            case CHILLI_PEPPER_RED -> new String[]{"#EF5350", "#22C55E", "#3B82F6", "#F59E0B", "#A78BFA"};
+            case MAHOGANY_WOOD -> new String[]{"#BCAAA4", "#22C55E", "#60A5FA", "#F59E0B", "#DC2626"};
+            case MILLIONAIRES_GOLD -> new String[]{"#FFD54F", "#22C55E", "#38BDF8", "#F97316", "#A78BFA"};
+            case SILVER_LINING -> new String[]{"#90A4AE", "#22C55E", "#3B82F6", "#F59E0B", "#A78BFA"};
+            case DEFAULT -> new String[]{"#1F5FBF", "#218838", "#2474C7", "#E6A700", "#D62828"};
+        };
+        return new ReactTheme(
+                appearance.name(), dark, toHex(RmsColors.primaryAccent()), toHex(RmsColors.primaryDark()),
+                toHex(RmsColors.primaryLight()), toHex(RmsColors.background()), toHex(RmsColors.sidebar()),
+                toHex(RmsColors.headerSurface()), toHex(RmsColors.surface()),
+                toHex(dark ? RmsColors.DARK_BACKGROUND : RmsColors.LIGHT_BACKGROUND),
+                toHex(RmsColors.text()), toHex(RmsColors.SECONDARY_TEXT), toHex(RmsColors.border()),
+                toHex(RmsColors.SUCCESS), toHex(RmsColors.WARNING), toHex(RmsColors.DANGER),
+                charts[0], charts[1], charts[2], charts[3], charts[4]);
     }
 
     /** Register a callback whenever the theme changes. */

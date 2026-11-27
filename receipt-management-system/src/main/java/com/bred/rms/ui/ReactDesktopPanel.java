@@ -1,7 +1,9 @@
 package com.bred.rms.ui;
 
 import com.bred.rms.api.LocalApiServer;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import me.friwi.jcefmaven.CefAppBuilder;
+import me.friwi.jcefmaven.CefInitializationException;
 import me.friwi.jcefmaven.UnsupportedPlatformException;
 import org.cef.CefApp;
 import org.cef.CefClient;
@@ -19,8 +21,11 @@ import javax.swing.JButton;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
+import javax.swing.UIManager;
 import java.awt.BorderLayout;
 import java.awt.Component;
+import java.awt.Dimension;
+import java.awt.GridLayout;
 import java.io.IOException;
 import java.net.URI;
 import java.nio.file.Files;
@@ -35,6 +40,7 @@ import java.util.logging.Logger;
 public final class ReactDesktopPanel extends JPanel {
     private static final Logger LOGGER = Logger.getLogger(ReactDesktopPanel.class.getName());
     private static final String BOOTSTRAP_QUERY = "getBootstrap";
+    private static final String THEME_QUERY = "getTheme";
     private static final String BRIDGE_SCRIPT = """
             (() => {
               if (window.bredDesktop) return;
@@ -52,8 +58,22 @@ public final class ReactDesktopPanel extends JPanel {
                   onFailure: () => reject(new Error('The BRED native bridge rejected the request.'))
                 });
               });
+              const getTheme = () => new Promise((resolve, reject) => {
+                if (typeof window.cefQuery !== 'function') {
+                  reject(new Error('The BRED native bridge is unavailable.'));
+                  return;
+                }
+                window.cefQuery({
+                  request: 'getTheme',
+                  onSuccess: value => {
+                    try { resolve(JSON.parse(value)); }
+                    catch { reject(new Error('The BRED native bridge returned invalid theme data.')); }
+                  },
+                  onFailure: () => reject(new Error('The BRED native bridge rejected the theme request.'))
+                });
+              });
               Object.defineProperty(window, 'bredDesktop', {
-                value: Object.freeze({ getBootstrap }),
+                value: Object.freeze({ getBootstrap, getTheme }),
                 configurable: false,
                 writable: false
               });
@@ -65,7 +85,7 @@ public final class ReactDesktopPanel extends JPanel {
 
     private final LocalApiServer api;
     private final JPanel message = new JPanel(new BorderLayout(0, 12));
-    private final JLabel status = new JLabel("Select Retry to start the React interface.", JLabel.CENTER);
+    private final JLabel status = new JLabel("Loading BRED workspace…", JLabel.CENTER);
     private final JButton retry = new JButton("Retry");
     private boolean starting;
     private CefApp cefApp;
@@ -77,7 +97,8 @@ public final class ReactDesktopPanel extends JPanel {
         this.api = api;
         setLayout(new BorderLayout());
         setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
-        message.add(status, BorderLayout.CENTER);
+        status.getAccessibleContext().setAccessibleName("Loading BRED workspace");
+        message.add(createLoadingSkeleton(), BorderLayout.CENTER);
         retry.addActionListener(event -> {
             if (browser == null) start();
             else {
@@ -94,6 +115,59 @@ public final class ReactDesktopPanel extends JPanel {
         retry.setVisible(false);
     }
 
+    private JPanel createLoadingSkeleton() {
+        JPanel loading = new JPanel(new BorderLayout(0, 20));
+        loading.setOpaque(false);
+        loading.add(status, BorderLayout.NORTH);
+
+        JPanel content = new JPanel(new BorderLayout(0, 14));
+        content.setOpaque(false);
+        JPanel heading = new JPanel(new GridLayout(2, 1, 0, 8));
+        heading.setOpaque(false);
+        heading.add(skeletonBar(210, 20));
+        heading.add(skeletonBar(340, 12));
+        content.add(heading, BorderLayout.NORTH);
+
+        JPanel body = new JPanel(new BorderLayout(0, 14));
+        body.setOpaque(false);
+        JPanel statistics = new JPanel(new GridLayout(1, 4, 12, 0));
+        statistics.setOpaque(false);
+        for (int index = 0; index < 4; index++) {
+            JPanel card = new JPanel(new GridLayout(3, 1, 0, 10));
+            card.setBorder(BorderFactory.createEmptyBorder(15, 14, 15, 14));
+            card.setBackground(UIManager.getColor("Panel.background"));
+            card.add(skeletonBar(100, 11));
+            card.add(skeletonBar(130, 23));
+            card.add(skeletonBar(85, 10));
+            statistics.add(card);
+        }
+        body.add(statistics, BorderLayout.NORTH);
+
+        JPanel panels = new JPanel(new GridLayout(1, 2, 14, 0));
+        panels.setOpaque(false);
+        for (int index = 0; index < 2; index++) {
+            JPanel panel = new JPanel(new BorderLayout(0, 18));
+            panel.setBorder(BorderFactory.createEmptyBorder(16, 16, 16, 16));
+            panel.setBackground(UIManager.getColor("Panel.background"));
+            panel.add(skeletonBar(190, 18), BorderLayout.NORTH);
+            panel.add(skeletonBar(400, 180), BorderLayout.CENTER);
+            panels.add(panel);
+        }
+        body.add(panels, BorderLayout.CENTER);
+        content.add(body, BorderLayout.CENTER);
+        loading.add(content, BorderLayout.CENTER);
+        return loading;
+    }
+
+    private static JPanel skeletonBar(int width, int height) {
+        JPanel bar = new JPanel();
+        bar.setPreferredSize(new Dimension(width, height));
+        bar.setBackground(UIManager.getColor("Component.borderColor") == null
+                ? UIManager.getColor("Panel.background")
+                : UIManager.getColor("Component.borderColor"));
+        return bar;
+    }
+
     public static boolean isSupportedPlatform() {
         return System.getProperty("os.name", "").toLowerCase().startsWith("windows")
                 && "amd64".equalsIgnoreCase(System.getProperty("os.arch", ""));
@@ -103,9 +177,14 @@ public final class ReactDesktopPanel extends JPanel {
         if (starting || browser != null) return;
         starting = true;
         retry.setVisible(false);
-        status.setText("Starting the React interface...");
         Path installRoot = runtimeRoot();
-        CompletableFuture.supplyAsync(() -> buildCef(installRoot))
+        CompletableFuture.supplyAsync(() -> {
+            try {
+                return buildCef(installRoot);
+            } catch (CefInitializationException e) {
+                throw new IllegalStateException("Could not initialize the JCEF runtime.", e);
+            }
+        })
                 .whenComplete((app, error) -> SwingUtilities.invokeLater(() -> {
                     starting = false;
                     if (error != null) {
@@ -117,7 +196,7 @@ public final class ReactDesktopPanel extends JPanel {
                 }));
     }
 
-    private CefApp buildCef(Path installRoot) {
+    private CefApp buildCef(Path installRoot) throws CefInitializationException {
         try {
             Files.createDirectories(installRoot);
             Path profilePath = installRoot.resolve("profile");
@@ -149,14 +228,26 @@ public final class ReactDesktopPanel extends JPanel {
                 @Override
                 public boolean onQuery(CefBrowser queryBrowser, CefFrame frame, long queryId, String request,
                                        boolean persistent, org.cef.callback.CefQueryCallback callback) {
-                    if (!BOOTSTRAP_QUERY.equals(request) || queryBrowser != browser || frame == null
+                    if (queryBrowser != browser || frame == null
                             || persistent || !frame.isMain()
                             || !isTrustedRendererUrl(frame.getURL(), expectedOrigin)) {
                         return false;
                     }
-                    callback.success("{\"origin\":\"" + bootstrap.origin()
-                            + "\",\"token\":\"" + bootstrap.token() + "\"}");
-                    return true;
+                    if (BOOTSTRAP_QUERY.equals(request)) {
+                        callback.success("{\"origin\":\"" + bootstrap.origin()
+                                + "\",\"token\":\"" + bootstrap.token() + "\"}");
+                        return true;
+                    }
+                    if (THEME_QUERY.equals(request)) {
+                        try {
+                            callback.success(new ObjectMapper().writeValueAsString(
+                                    com.bred.rms.ui.theme.ThemeManager.reactTheme()));
+                        } catch (IOException error) {
+                            callback.failure(-1, "Could not serialize the BRED theme.");
+                        }
+                        return true;
+                    }
+                    return false;
                 }
             }, true);
             cefClient.addMessageRouter(messageRouter);

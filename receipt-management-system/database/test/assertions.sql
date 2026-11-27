@@ -55,6 +55,18 @@ insert into suppliers(id, business_name, tin, company_id) values
 insert into projects(id, name, code, company_id)
 values ('22222222-0000-0000-0000-000000000001', 'Bridge', 'BR-01', '11111111-0000-0000-0000-000000000001'),
        ('22222222-0000-0000-0000-000000000002', 'Beta Bridge', 'BB-01', '33333333-0000-0000-0000-000000000003');
+insert into project_boq_items(
+  id, company_id, project_id, item_code, description, unit, quantity, unit_price,
+  estimated_cost, actual_cost
+) values
+  ('a6000000-0000-0000-0000-000000000001',
+   '11111111-0000-0000-0000-000000000001',
+   '22222222-0000-0000-0000-000000000001',
+   'ACME-BOQ-1', 'Acme concrete', 'm3', 100, 1000, 100000, 112500),
+  ('a6000000-0000-0000-0000-000000000002',
+   '33333333-0000-0000-0000-000000000003',
+   '22222222-0000-0000-0000-000000000002',
+   'BETA-BOQ-1', 'Beta concrete', 'm3', 80, 1000, 80000, 75000);
 insert into bids(id, company_id, bid_reference, agency_or_client, project_id)
 values ('a3000000-0000-0000-0000-000000000001',
         '11111111-0000-0000-0000-000000000001', 'ACME-BASE', 'Acme Client',
@@ -168,6 +180,54 @@ insert into project_billing_attachments(
 insert into billing_attachment_requirements(company_id, contract_type, requirement_name) values
   ('11111111-0000-0000-0000-000000000001', 'Design-Build', 'Acme Progress Report'),
   ('33333333-0000-0000-0000-000000000003', 'Lump Sum', 'Beta Progress Report');
+insert into tax_calendar_items(company_id, name, frequency, due_date, status) values
+  ('11111111-0000-0000-0000-000000000001', 'Expanded Withholding Tax', 'Monthly', '2026-12-15', 'Pending'),
+  ('33333333-0000-0000-0000-000000000003', 'Quarterly Income Tax', 'Quarterly', '2026-10-15', 'Overdue');
+insert into petty_cash_funds(id, company_id, project_id, fund_name, opening_balance) values
+  ('a5000000-0000-0000-0000-000000000001',
+   '11111111-0000-0000-0000-000000000001',
+   '22222222-0000-0000-0000-000000000001', 'Acme Petty Cash', 5000),
+  ('a5000000-0000-0000-0000-000000000002',
+   '33333333-0000-0000-0000-000000000003',
+   '22222222-0000-0000-0000-000000000002', 'Beta Petty Cash', 3000);
+insert into petty_cash_transactions(company_id, fund_id, transaction_type, amount, transaction_date) values
+  ('11111111-0000-0000-0000-000000000001',
+   'a5000000-0000-0000-0000-000000000001', 'Expense', 500, '2026-11-20'),
+  ('33333333-0000-0000-0000-000000000003',
+   'a5000000-0000-0000-0000-000000000002', 'Expense', 300, '2026-11-20');
+insert into withholding_tax_issued(
+  company_id, supplier_id, tax_base, rate, amount_withheld, period_start, status
+) values
+  ('11111111-0000-0000-0000-000000000001',
+   '11111111-0000-0000-0000-000000000001', 10000, 2, 200, '2026-11-01', 'Issued'),
+  ('33333333-0000-0000-0000-000000000003',
+   '33333333-0000-0000-0000-000000000003', 8000, 2, 160, '2026-11-01', 'Issued');
+insert into project_workers(id, company_id, project_id, worker_name, worker_code) values
+  ('a5000000-0000-0000-0000-000000000011',
+   '11111111-0000-0000-0000-000000000001',
+   '22222222-0000-0000-0000-000000000001', 'Acme Worker', 'ACME-W1'),
+  ('a5000000-0000-0000-0000-000000000012',
+   '33333333-0000-0000-0000-000000000003',
+   '22222222-0000-0000-0000-000000000002', 'Beta Worker', 'BETA-W1');
+insert into project_attendance(company_id, project_id, worker_id, attendance_date, regular_hours) values
+  ('11111111-0000-0000-0000-000000000001',
+   '22222222-0000-0000-0000-000000000001',
+   'a5000000-0000-0000-0000-000000000011', '2026-11-20', 8),
+  ('33333333-0000-0000-0000-000000000003',
+   '22222222-0000-0000-0000-000000000002',
+   'a5000000-0000-0000-0000-000000000012', '2026-11-20', 8);
+insert into project_labor_costs(
+  company_id, project_id, period_start, period_end, regular_pay, overtime_pay, holiday_pay, total_pay
+) values
+  ('11111111-0000-0000-0000-000000000001',
+   '22222222-0000-0000-0000-000000000001', '2026-11-01', '2026-11-30', 8000, 1000, 500, 9500),
+  ('33333333-0000-0000-0000-000000000003',
+   '22222222-0000-0000-0000-000000000002', '2026-11-01', '2026-11-30', 7000, 500, 0, 7500);
+insert into safety_records(company_id, project_id, record_date, description, severity, status) values
+  ('11111111-0000-0000-0000-000000000001',
+   '22222222-0000-0000-0000-000000000001', '2026-11-20', 'Acme safety issue', 'Medium', 'Open'),
+  ('33333333-0000-0000-0000-000000000003',
+   '22222222-0000-0000-0000-000000000002', '2026-11-20', 'Beta safety issue', 'High', 'Open');
 
 create function tests.payload(no text, supplier uuid, price text default '100.00', discount text default '0') returns jsonb
 language sql as $$
@@ -217,6 +277,48 @@ select tests.expect_error($$insert into project_documents(company_id, project_id
   'row-level security');
 select tests.expect_error($$insert into project_closeout_records(company_id, project_id, certificate_type)
   values ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'Encoder Certificate')$$,
+  'row-level security');
+select tests.expect_true(
+  (select count(*) from petty_cash_funds) = 1
+  and (select count(*) from petty_cash_transactions) = 1
+  and (select count(*) from withholding_tax_issued) = 1
+  and (select count(*) from project_workers) = 1
+  and (select count(*) from project_attendance) = 1
+  and (select count(*) from project_labor_costs) = 1
+  and (select count(*) from safety_records) = 1,
+  'encoder reads only same-company petty cash, tax, labor and safety records');
+select tests.expect_true(
+  (select count(*) from project_boq_cost_variance) = 1
+  and (select estimated_total = 100000
+       and actual_total = 112500
+       and variance_peso = 12500
+       and status = 'Over budget'
+       from project_boq_cost_variance),
+  'encoder sees only same-company BOQ cost variance');
+select tests.expect_true(
+  (select count(*) from tax_calendar_items) = 1
+  and (select count(*) from project_billing_aging) = 1
+  and (select outstanding_amount = 87000
+       from project_billing_aging
+       where billing_number = 'ACME-BILL-1'),
+  'encoder sees only same-company tax calendar and billing aging records');
+select tests.expect_error($$insert into tax_calendar_items(
+  company_id, name, frequency, due_date, status
+) values (
+  '11111111-0000-0000-0000-000000000001',
+  'Invalid tax item', 'Weekly', '2026-12-31', 'Pending'
+)$$, 'row-level security');
+select tests.expect_error($$insert into petty_cash_funds(company_id, project_id, fund_name)
+  values ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'Encoder Petty Cash')$$,
+  'row-level security');
+select tests.expect_error($$insert into petty_cash_transactions(company_id, fund_id, transaction_type, amount, transaction_date)
+  values ('11111111-0000-0000-0000-000000000001', 'a5000000-0000-0000-0000-000000000002', 'Expense', 1, '2026-11-21')$$,
+  'row-level security');
+select tests.expect_error($$insert into project_workers(company_id, project_id, worker_name)
+  values ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'Encoder Worker')$$,
+  'row-level security');
+select tests.expect_error($$insert into safety_records(company_id, project_id, record_date, description, severity)
+  values ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', '2026-11-21', 'Encoder issue', 'High')$$,
   'row-level security');
 select tests.expect_true(
   (select count(*) from project_billings) = 1
@@ -309,6 +411,42 @@ select tests.expect_true((select count(*) from receipts) = 0, 'rejected user see
 select tests.login('a0000000-0000-0000-0000-000000000001');
 select tests.expect_true((select count(*) from profiles) = 6, 'approved admin can list company account statuses');
 select tests.expect_true((select count(*) from companies) = 1, 'admin can see only their own company');
+select tests.expect_error($$insert into petty_cash_transactions(
+  company_id, fund_id, transaction_type, amount, transaction_date
+) values (
+  '11111111-0000-0000-0000-000000000001',
+  'a5000000-0000-0000-0000-000000000002',
+  'Expense', 10, '2026-11-21'
+)$$, 'foreign key constraint');
+select tests.expect_error($$insert into project_attendance(
+  company_id, project_id, worker_id, attendance_date
+) values (
+  '11111111-0000-0000-0000-000000000001',
+  '22222222-0000-0000-0000-000000000001',
+  'a5000000-0000-0000-0000-000000000012',
+  '2026-11-21'
+)$$, 'foreign key constraint');
+select tests.expect_error($$insert into petty_cash_transactions(
+  company_id, fund_id, transaction_type, amount, transaction_date
+) values (
+  '11111111-0000-0000-0000-000000000001',
+  'a5000000-0000-0000-0000-000000000001',
+  'Invalid', 10, '2026-11-21'
+)$$, 'petty_cash_transaction_type_check');
+select tests.expect_error($$insert into project_labor_costs(
+  company_id, project_id, period_start, period_end, regular_pay, overtime_pay, holiday_pay, total_pay
+) values (
+  '11111111-0000-0000-0000-000000000001',
+  '22222222-0000-0000-0000-000000000001',
+  '2026-11-01', '2026-10-31', 100, 20, 10, 130
+)$$, 'labor_cost_period_check');
+select tests.expect_error($$insert into safety_records(
+  company_id, project_id, record_date, description, severity, status
+) values (
+  '11111111-0000-0000-0000-000000000001',
+  '22222222-0000-0000-0000-000000000001',
+  '2026-11-21', 'Invalid status test', 'Medium', 'Unknown'
+)$$, 'safety_record_status_check');
 select tests.expect_error($$insert into project_billings(
   company_id, project_id, contract_id, billing_number, billing_date, net_amount
 ) values (

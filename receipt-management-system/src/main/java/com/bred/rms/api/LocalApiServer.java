@@ -5,10 +5,13 @@ import com.bred.rms.models.Project;
 import com.bred.rms.models.Receipt;
 import com.bred.rms.models.ReceiptMath;
 import com.bred.rms.models.User;
+import com.bred.rms.security.Module;
 import com.bred.rms.services.AuthException;
 import com.bred.rms.services.ReportService;
+import com.bred.rms.ui.theme.ThemeManager;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 
@@ -16,6 +19,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -41,15 +45,39 @@ public final class LocalApiServer implements AutoCloseable {
     public record ProjectSummary(String id, String name, String code, int receiptCount, String spend) { }
     public record DashboardData(String totalSpend, String monthSpend, int monthReceiptCount,
                                 int totalReceiptCount, int projectCount, List<ProjectSummary> projects) { }
+    public record ModuleOption(String label, String value) { }
+    public record ModuleField(String key, String label, String type, boolean required,
+                              List<ModuleOption> options, Object value) { }
+    public record ModuleColumn(String key, String label, boolean numeric) { }
+    public record ModuleMetric(String label, String value, String note) { }
+    public record ModuleRecord(String id, Map<String, Object> values) { }
+    public record ModulePageData(String key, String title, String description, List<ModuleMetric> metrics,
+                                 List<ModuleColumn> columns, List<ModuleField> fields, List<ModuleRecord> rows,
+                                 boolean canCreate, boolean canEdit, boolean canDelete,
+                                 String primaryActionLabel, String submitLabel, String createAction) { }
+    public record MapSearchResult(String displayName, String latitude, String longitude, String type) { }
+    public record ThemeData(String appearance, boolean dark, String accent, String accentDark, String accentSoft,
+                            String background, String sidebar, String header, String surface, String surfaceMuted,
+                            String text, String muted, String border, String success, String warning, String danger,
+                            String chart1, String chart2, String chart3, String chart4, String chart5) {
+        static ThemeData from(ThemeManager.ReactTheme theme) {
+            return new ThemeData(theme.appearance(), theme.dark(), theme.accent(), theme.accentDark(),
+                    theme.accentSoft(), theme.background(), theme.sidebar(), theme.header(), theme.surface(),
+                    theme.surfaceMuted(), theme.text(), theme.muted(), theme.border(), theme.success(),
+                    theme.warning(), theme.danger(), theme.chart1(), theme.chart2(), theme.chart3(),
+                    theme.chart4(), theme.chart5());
+        }
+    }
     private record ApiError(String code, String message) { }
     private record RequestFailure(int status, String code, String message) { }
 
     private static final Logger LOGGER = Logger.getLogger(LocalApiServer.class.getName());
-    private static final int MAX_REQUEST_BYTES = 16 * 1024;
+    private static final int MAX_REQUEST_BYTES = 64 * 1024;
     private static final int MAX_STATIC_RESOURCE_BYTES = 10 * 1024 * 1024;
     private static final int TOKEN_BYTES = 32;
     private static final SecureRandom RANDOM = new SecureRandom();
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = new ObjectMapper().findAndRegisterModules()
+            .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     private final HttpServer server;
     private final ExecutorService executor;
@@ -130,6 +158,16 @@ public final class LocalApiServer implements AutoCloseable {
                 } else {
                     handleDashboard(exchange);
                 }
+            } else if ("/api/v1/theme".equals(path)) {
+                if (!"GET".equals(method)) {
+                    methodNotAllowed(exchange, "GET");
+                } else {
+                    sendJson(exchange, 200, backend.theme());
+                }
+            } else if ("/api/v1/map/search".equals(path)) {
+                handleMapSearch(exchange, method);
+            } else if (path.startsWith("/api/v1/modules/")) {
+                handleModule(exchange, path, method);
             } else {
                 sendError(exchange, 404, "not_found", "The requested BRED API endpoint was not found.");
             }
@@ -284,6 +322,99 @@ public final class LocalApiServer implements AutoCloseable {
         }
     }
 
+    private void handleModule(HttpExchange exchange, String path, String method)
+            throws IOException, RequestException {
+        String key = path.substring("/api/v1/modules/".length());
+        if (key.isBlank() || key.contains("/")) {
+            sendError(exchange, 404, "not_found", "The requested BRED workspace was not found.");
+            return;
+        }
+        Module module;
+        try {
+            module = Module.valueOf(key);
+        } catch (IllegalArgumentException invalidModule) {
+            sendError(exchange, 404, "not_found", "The requested BRED workspace was not found.");
+            return;
+        }
+        if (module == Module.DASHBOARD) {
+            sendError(exchange, 404, "not_found", "The dashboard uses its dedicated data endpoint.");
+            return;
+        }
+        synchronized (sessionLock) {
+            User user = backend.current();
+            if (user == null) {
+                sendError(exchange, 401, "signed_out", "Sign in to continue.");
+                return;
+            }
+            if (!module.allows(user.role())) {
+                sendError(exchange, 403, "forbidden", "Your BRED role cannot open this workspace.");
+                return;
+            }
+            try {
+                if ("GET".equals(method)) {
+                    sendJson(exchange, 200, backend.modulePage(module));
+                } else if ("POST".equals(method)) {
+                    JsonNode request = readJson(exchange);
+                    String action = request.path("action").asText("");
+                    String id = request.path("id").isTextual() ? request.path("id").asText() : null;
+                    sendJson(exchange, 200, backend.moduleAction(module, action, id, request.get("values")));
+                } else {
+                    methodNotAllowed(exchange, "GET, POST");
+                }
+            } catch (SecurityException denied) {
+                sendError(exchange, 403, "forbidden", denied.getMessage());
+            } catch (IllegalArgumentException | com.bred.rms.models.ValidationException invalid) {
+                sendError(exchange, 400, "invalid_request", invalid.getMessage());
+            }
+        }
+    }
+
+    private void handleMapSearch(HttpExchange exchange, String method) throws IOException, RequestException {
+        if (!"GET".equals(method)) {
+            methodNotAllowed(exchange, "GET");
+            return;
+        }
+        User user;
+        synchronized (sessionLock) {
+            user = backend.current();
+        }
+        if (user == null) {
+            sendError(exchange, 401, "signed_out", "Sign in to continue.");
+            return;
+        }
+        if (!Module.LIVE_MAP.allows(user.role())) {
+            sendError(exchange, 403, "forbidden", "Your BRED role cannot open the project map.");
+            return;
+        }
+        String query = queryParameter(exchange.getRequestURI().getRawQuery(), "q");
+        if (query == null || query.isBlank() || query.length() > 160) {
+            throw new RequestException(400, "invalid_request", "Enter a place or address to search.");
+        }
+        try {
+            sendJson(exchange, 200, backend.mapSearch(query));
+        } catch (IllegalArgumentException invalid) {
+            throw new RequestException(400, "invalid_request", invalid.getMessage());
+        } catch (SecurityException denied) {
+            sendError(exchange, 403, "forbidden", denied.getMessage());
+        }
+    }
+
+    private static String queryParameter(String rawQuery, String key) throws RequestException {
+        if (rawQuery == null || rawQuery.isBlank()) return null;
+        for (String part : rawQuery.split("&")) {
+            String[] pair = part.split("=", 2);
+            try {
+                String name = URLDecoder.decode(pair[0], StandardCharsets.UTF_8);
+                if (key.equals(name)) {
+                    return pair.length == 1 ? "" : URLDecoder.decode(pair[1], StandardCharsets.UTF_8);
+                }
+            } catch (IllegalArgumentException malformed) {
+                throw new RequestException(400, "invalid_request", "The location search query is invalid.");
+            }
+        }
+        return null;
+    }
+
     private JsonNode readJson(HttpExchange exchange) throws IOException, RequestException {
         String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
         String mediaType = contentType == null ? "" : contentType.split(";", 2)[0].trim();
@@ -293,7 +424,7 @@ public final class LocalApiServer implements AutoCloseable {
         byte[] body = exchange.getRequestBody().readNBytes(MAX_REQUEST_BYTES + 1);
         try {
             if (body.length > MAX_REQUEST_BYTES) {
-                throw new RequestException(413, "request_too_large", "The sign-in request is too large.");
+                throw new RequestException(413, "request_too_large", "The request body is too large.");
             }
             JsonNode parsed = JSON.readTree(body);
             if (parsed == null || !parsed.isObject()) {
@@ -386,9 +517,11 @@ public final class LocalApiServer implements AutoCloseable {
 
     private static final class ContextBackend implements LocalApiBackend {
         private final AppContext context;
+        private final ReactWorkspaceService workspaces;
 
         private ContextBackend(AppContext context) {
             this.context = context;
+            this.workspaces = new ReactWorkspaceService(context);
         }
 
         @Override public User login(String email, char[] password) throws AuthException {
@@ -422,6 +555,18 @@ public final class LocalApiServer implements AutoCloseable {
             }
             return new DashboardData(summary.totalSpend().toPlainString(), summary.monthSpend().toPlainString(),
                     summary.monthCount(), summary.totalCount(), projects.size(), List.copyOf(projectSummaries));
+        }
+
+        @Override public ModulePageData modulePage(Module module) {
+            return workspaces.load(module);
+        }
+
+        @Override public ModulePageData moduleAction(Module module, String action, String id, JsonNode values) {
+            return workspaces.apply(module, action, id, values);
+        }
+
+        @Override public List<MapSearchResult> mapSearch(String query) {
+            return workspaces.searchMap(query);
         }
     }
 }

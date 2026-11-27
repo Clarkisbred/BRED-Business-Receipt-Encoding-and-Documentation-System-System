@@ -9,6 +9,7 @@ describe('Sidebar', () => {
       <Sidebar
         role="encoder"
         fullName="Riley Encoder"
+        email="riley@example.test"
         companyName="BRED Company"
         activeModule="DASHBOARD"
         onNavigate={onNavigate}
@@ -21,6 +22,10 @@ describe('Sidebar', () => {
     expect(SIDEBAR_WIDTH_PX).toBe(252);
     expect(screen.getByRole('button', { name: 'Dashboard' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('button', { name: 'Receipts' })).toBeInTheDocument();
+    const duckyItem = screen.getByRole('button', { name: 'Ducky' });
+    expect(duckyItem.querySelector('svg')).not.toBeNull();
+    expect(duckyItem.querySelector('img')).toBeNull();
+    expect(container.querySelector('.profile-mark')).toHaveTextContent('RE');
     expect(screen.queryByRole('button', { name: 'Users' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Companies' })).not.toBeInTheDocument();
 

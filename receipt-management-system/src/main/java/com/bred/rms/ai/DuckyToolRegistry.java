@@ -135,10 +135,10 @@ public final class DuckyToolRegistry {
     private static final java.util.Set<String> CONSTRUCTION_REPORT_NAMES = java.util.Set.of(
             "Compliance expiry", "Failed tests", "Open safety", "Bid summary",
             "Subcontract balances", "Equipment costs", "Cash advances", "Tax calendar",
-            "Progress and accomplishments", "Milestones", "Billing position",
+            "Billing aging", "Progress and accomplishments", "Milestones", "Billing position",
             "Collections", "Overdue billings", "Project P&L", "Payables", "Cash flow",
             "Procurement", "Inventory stock", "Equipment usage", "Project risks",
-            "Project map", "Quality NCR", "Punch items", "Closeout");
+            "Project map", "Quality NCR", "Punch items", "Closeout", "BOQ cost variance");
 
     private ToolResult constructionReport(JsonNode args) {
         only(args, "reportName");
@@ -599,7 +599,7 @@ public final class DuckyToolRegistry {
                         "One of: Compliance expiry, Failed tests, Open safety, Bid summary, "
                                 + "Subcontract balances, Equipment costs, Cash advances, Tax calendar, "
                                 + "Progress and accomplishments, Milestones, Billing position, Collections, "
-                                + "Overdue billings, Project P&L, Payables, Cash flow, Procurement, "
+                                + "Overdue billings, Billing aging, BOQ cost variance, Project P&L, Payables, Cash flow, Procurement, "
                                 + "Inventory stock, Equipment usage, Project risks, Project map, "
                                 + "Quality NCR, Punch items, Closeout")));
         return List.copyOf(tools);

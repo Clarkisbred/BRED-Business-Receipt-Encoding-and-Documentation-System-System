@@ -10,6 +10,7 @@ import com.bred.rms.services.ReceiptQuery;
 import com.bred.rms.ui.RefreshablePanel;
 import com.bred.rms.ui.UiErrors;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.ModernTable;
 import com.bred.rms.ui.components.LucideIcon;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.utils.BackgroundTask;
@@ -69,9 +70,7 @@ public final class ProjectPanel extends JPanel implements RefreshablePanel {
         if (user != null && user.role().canManageCompany()) bar.add(delete);
         add(bar, BorderLayout.NORTH);
 
-        table.setRowHeight(28);
-        table.setFillsViewportHeight(true);
-        table.getTableHeader().setReorderingAllowed(false);
+        ModernTable.apply(table);
         table.getSelectionModel().addListSelectionListener(e -> updateButtons());
         table.addMouseListener(new MouseAdapter() {
             @Override public void mouseClicked(MouseEvent e) {

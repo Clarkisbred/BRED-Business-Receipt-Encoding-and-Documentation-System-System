@@ -9,6 +9,7 @@ import com.bred.rms.models.ReceiptMath;
 import com.bred.rms.models.ReceiptType;
 import com.bred.rms.models.Supplier;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.ModernTable;
 import com.bred.rms.models.ValidationException;
 import com.bred.rms.repositories.AttachmentException;
 import com.bred.rms.repositories.AttachmentRules;
@@ -182,8 +183,7 @@ public final class ReceiptFormDialog extends JDialog {
         root.add(header, BorderLayout.NORTH);
 
         JPanel middle = new JPanel(new BorderLayout(0, 8));
-        itemsTable.setRowHeight(26);
-        itemsTable.setFillsViewportHeight(true);
+        ModernTable.apply(itemsTable);
         itemsTable.putClientProperty("terminateEditOnFocusLost", Boolean.TRUE);
         itemsTable.getColumnModel().getColumn(0).setPreferredWidth(420);
         for (int c = 1; c <= 3; c++) {

@@ -36,6 +36,25 @@ export interface DashboardData {
   totalReceiptCount: number;
   projectCount: number;
   projects: ProjectSummary[];
+  totalRevenue?: string;
+  totalExpenses?: string;
+  netProfit?: string;
+  outstandingPayables?: string;
+  outstandingReceivables?: string;
+  supplierCount?: number;
+  monthly?: Array<{ month: string; revenue: string; expenses: string; profit: string }>;
+  expenseBreakdown?: Array<{ name: string; amount: string }>;
+  projectMetrics?: Array<{ id: string; name: string; budget: string; actual: string; progress: string }>;
+  recentReceipts?: Array<{ id: string; receiptNo: string; date: string; supplier: string; project: string; amount: string; status: string }>;
+  recentTransactions?: Array<{ id: string; title: string; date: string; amount: string; status: string }>;
+  deadlines?: Array<{ id: string; title: string; date: string; status: string }>;
+  procurement?: Array<{ name: string; amount: string; status: string }>;
+  inventory?: Array<{ name: string; quantity: string; value: string }>;
+  activity?: Array<{ id: string; actor: string; action: string; at: string }>;
+  locations?: Array<{ id: string; name: string; latitude: string; longitude: string; status: string }>;
+  supplierPayments?: Array<{ name: string; paid: string; withholding: string }>;
+  workforce?: Array<{ name: string; amount: string; status: string }>;
+  equipment?: Array<{ name: string; amount: string; status: string }>;
 }
 
 function decimal(value: string | number | null | undefined): Decimal {

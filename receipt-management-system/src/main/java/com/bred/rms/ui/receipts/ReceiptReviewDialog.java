@@ -7,6 +7,7 @@ import com.bred.rms.importer.ReceiptCandidateValidator;
 import com.bred.rms.importer.ReceiptField;
 import com.bred.rms.models.Supplier;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.ModernTable;
 import com.bred.rms.ui.theme.RmsColors;
 
 import javax.swing.BorderFactory;
@@ -186,8 +187,7 @@ public final class ReceiptReviewDialog extends JDialog {
         JPanel lineItems = new JPanel(new BorderLayout(6, 6));
         lineItems.setBorder(BorderFactory.createTitledBorder("Line items"));
         JTable table = new JTable(lineItemsModel);
-        table.setFillsViewportHeight(true);
-        table.setRowHeight(25);
+        ModernTable.apply(table);
         table.putClientProperty("terminateEditOnFocusLost", Boolean.TRUE);
         JPanel itemButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 5, 0));
         JButton addItem = new JButton("+ Add item");

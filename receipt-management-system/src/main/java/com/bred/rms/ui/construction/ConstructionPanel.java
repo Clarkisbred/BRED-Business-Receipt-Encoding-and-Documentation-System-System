@@ -6,6 +6,7 @@ import com.bred.rms.models.User;
 import com.bred.rms.ui.RefreshablePanel;
 import com.bred.rms.ui.UiErrors;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.ModernTable;
 import com.bred.rms.ui.components.GlassPanel;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.utils.BackgroundTask;
@@ -663,7 +664,7 @@ public final class ConstructionPanel extends JPanel implements RefreshablePanel 
                 @Override public boolean isCellEditable(int row, int column) { return false; }
             };
             table = new JTable(model);
-            table.setRowHeight(28);
+            ModernTable.apply(table);
             table.setAutoResizeMode(JTable.AUTO_RESIZE_OFF);
             table.getTableHeader().setReorderingAllowed(false);
 

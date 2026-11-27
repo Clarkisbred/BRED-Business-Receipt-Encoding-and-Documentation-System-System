@@ -2,6 +2,7 @@ package com.bred.rms.services;
 
 import com.bred.rms.models.ConstructionModels.ExpiryAlert;
 import com.bred.rms.models.ConstructionModels.ExpiryState;
+import com.bred.rms.models.ConstructionModels;
 import com.bred.rms.supabase.RestClient;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.bred.rms.supabase.SupabaseException;
@@ -19,6 +20,8 @@ public final class ConstructionDataService {
     public record ConstructionReportRow(String label, int count, String status, BigDecimal amount) {}
     public record ConstructionSummary(BigDecimal grossBillings, BigDecimal collected,
                                       BigDecimal receivable, int overdueBillings) {}
+    public record BOQCostSummary(BigDecimal estimated, BigDecimal actual, BigDecimal variance,
+                                 BigDecimal variancePercent, String status) {}
     private final RestClient rest;
     private final int warningDays;
 
@@ -79,6 +82,34 @@ public final class ConstructionDataService {
                     || (outstanding.signum() > 0 && overdue(row))) overdue++;
         }
         return new ConstructionSummary(gross, collected, receivable, overdue);
+    }
+
+    public BOQCostSummary boqCostSummary() {
+        if (rest == null) return new BOQCostSummary(
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, null, "N/A");
+        BigDecimal estimated = BigDecimal.ZERO;
+        BigDecimal actual = BigDecimal.ZERO;
+        try {
+            for (JsonNode row : rest.selectAll("project_boq_cost_variance",
+                    "select=estimated_total,actual_total,variance_peso,variance_percent,status")) {
+                estimated = estimated.add(decimal(row, "estimated_total"));
+                actual = actual.add(decimal(row, "actual_total"));
+            }
+            var cost = ConstructionCalculations.costVariance(estimated, actual);
+            return new BOQCostSummary(cost.budget(), cost.actual(),
+                    cost.variancePeso(), cost.variancePercent(), cost.status());
+        } catch (SupabaseException | RuntimeException ignored) {
+            // The aggregate view is unavailable until migration 035 is deployed.
+        }
+        estimated = BigDecimal.ZERO;
+        actual = BigDecimal.ZERO;
+        for (JsonNode row : rows("project_boq_items")) {
+            estimated = estimated.add(decimal(row, "estimated_cost"));
+            actual = actual.add(decimal(row, "actual_cost"));
+        }
+        var cost = ConstructionCalculations.costVariance(estimated, actual);
+        return new BOQCostSummary(cost.budget(), cost.actual(),
+                cost.variancePeso(), cost.variancePercent(), cost.status());
     }
 
     private boolean overdue(JsonNode row) {
@@ -149,7 +180,8 @@ public final class ConstructionDataService {
             case "Punch items" -> simpleStatusReport("project_punch_items", "punch_number", "status", null);
             case "Closeout" -> simpleStatusReport("project_handover_records", "certificate_number", "status", null);
             case "Cash advances" -> amountReport("cash_advances", "issued_to", "amount", "Cash advance");
-            case "Tax calendar" -> simpleStatusReport("tax_calendar_items", "name", "status", null);
+            case "Tax calendar" -> taxCalendarReport();
+            case "Billing aging" -> billingAgingReport();
             case "Progress and accomplishments" -> simpleStatusReport("project_accomplishments",
                     "remarks", "approved", null);
             case "Milestones" -> simpleStatusReport("project_milestones", "milestone_name", "status", null);
@@ -164,8 +196,130 @@ public final class ConstructionDataService {
             case "Procurement" -> simpleStatusReport("purchase_orders", "po_number", "status", null);
             case "Inventory stock" -> amountReport("material_stock", "description", "quantity", "Stock quantity");
             case "Equipment usage" -> simpleStatusReport("equipment_usage", "usage_date", "approved", null);
+            case "BOQ cost variance" -> boqCostVarianceReport();
             default -> List.of();
         };
+    }
+
+    public List<ConstructionReportRow> taxCalendarReport() {
+        List<ConstructionReportRow> result = new ArrayList<>();
+        LocalDate today = LocalDate.now();
+        for (JsonNode row : rows("tax_calendar_items")) {
+            String name = text(row, "name");
+            String frequency = text(row, "frequency");
+            String rawStatus = text(row, "status");
+            LocalDate due = parseDate(text(row, "due_date"));
+            if (due == null) {
+                result.add(new ConstructionReportRow(name, 1, rawStatus.isBlank() ? "N/A" : rawStatus,
+                        BigDecimal.ZERO));
+                continue;
+            }
+            String quarter = ConstructionCalculations.taxQuarter(due);
+            String status = rawStatus;
+            if (!"Filed".equalsIgnoreCase(rawStatus)
+                    && !"Paid".equalsIgnoreCase(rawStatus)
+                    && !"Cancelled".equalsIgnoreCase(rawStatus)) {
+                if (due.isBefore(today)) status = "Overdue";
+                else if (!due.isAfter(today.plusDays(30))) status = "Due soon";
+                else status = "Scheduled";
+            }
+            String label = name + " · " + quarter
+                    + (frequency.isBlank() ? "" : " · " + frequency);
+            result.add(new ConstructionReportRow(label, 1, status, BigDecimal.ZERO));
+        }
+        return result;
+    }
+
+    public List<ConstructionReportRow> billingAgingReport() {
+        List<ConstructionReportRow> result = new ArrayList<>();
+        LocalDate today = LocalDate.now();
+        List<JsonNode> agingRows;
+        try {
+            agingRows = rest == null ? List.of() : rest.selectAll("project_billing_aging",
+                    "select=billing_number,submitted_date,due_date,status,net_amount,collected_amount,outstanding_amount");
+        } catch (SupabaseException | RuntimeException ignored) {
+            try {
+                agingRows = rest == null ? List.of() : rest.selectAll("project_billings",
+                        "select=billing_number,submitted_at,billing_date,due_date,status,net_amount,collected_amount");
+            } catch (SupabaseException | RuntimeException fallbackError) {
+                return List.of();
+            }
+        }
+        for (JsonNode row : agingRows) {
+            String billing = text(row, "billing_number");
+            BigDecimal net = decimal(row, "net_amount");
+            BigDecimal collected = decimal(row, "collected_amount");
+            BigDecimal outstanding = row.hasNonNull("outstanding_amount")
+                    ? decimal(row, "outstanding_amount")
+                    : net.subtract(collected).max(BigDecimal.ZERO);
+            if (outstanding.signum() == 0) continue;
+            LocalDate submitted = parseDate(text(row, "submitted_date"));
+            if (submitted == null) {
+                submitted = parseDate(text(row, "submitted_at"));
+            }
+            if (submitted == null) {
+                submitted = parseDate(text(row, "billing_date"));
+            }
+            LocalDate due = parseDate(text(row, "due_date"));
+            if (submitted == null) submitted = due;
+            if (submitted == null) {
+                result.add(new ConstructionReportRow(billing, 1, "0-30", outstanding));
+                continue;
+            }
+            ConstructionModels.AgeingBilling aging =
+                    ConstructionCalculations.ageingBilling(submitted, due, today);
+            result.add(new ConstructionReportRow(
+                    billing + " · " + aging.daysOverdue() + " days overdue",
+                    1, aging.bucket(), outstanding));
+        }
+        return result;
+    }
+
+    public List<ConstructionReportRow> boqCostVarianceReport() {
+        if (rest == null) return List.of();
+        Map<String, String> projectNames = new LinkedHashMap<>();
+        try {
+            for (JsonNode project : rest.selectAll("projects", "select=id,name")) {
+                projectNames.put(text(project, "id"), text(project, "name"));
+            }
+        } catch (SupabaseException | RuntimeException ignored) {
+            return List.of();
+        }
+        try {
+            List<JsonNode> viewRows = rest.selectAll("project_boq_cost_variance",
+                    "select=project_id,estimated_total,actual_total,variance_peso,variance_percent,status");
+            List<ConstructionReportRow> result = new ArrayList<>();
+            for (JsonNode row : viewRows) {
+                String projectId = text(row, "project_id");
+                result.add(new ConstructionReportRow(
+                        projectNames.getOrDefault(projectId, "Project " + projectId),
+                        1,
+                        text(row, "status"),
+                        decimal(row, "variance_peso")));
+            }
+            return result;
+        } catch (SupabaseException | RuntimeException ignored) {
+            Map<String, BigDecimal[]> totals = new LinkedHashMap<>();
+            Map<String, Integer> counts = new LinkedHashMap<>();
+            for (JsonNode row : rows("project_boq_items")) {
+                String projectId = text(row, "project_id");
+                if (projectId.isBlank()) continue;
+                BigDecimal[] values = totals.computeIfAbsent(projectId,
+                        key -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
+                values[0] = values[0].add(decimal(row, "estimated_cost"));
+                values[1] = values[1].add(decimal(row, "actual_cost"));
+                counts.merge(projectId, 1, Integer::sum);
+            }
+            List<ConstructionReportRow> result = new ArrayList<>();
+            for (Map.Entry<String, BigDecimal[]> entry : totals.entrySet()) {
+                var cost = ConstructionCalculations.costVariance(entry.getValue()[0], entry.getValue()[1]);
+                result.add(new ConstructionReportRow(
+                        projectNames.getOrDefault(entry.getKey(), "Project " + entry.getKey()),
+                        counts.getOrDefault(entry.getKey(), 0),
+                        cost.status(), cost.variancePeso()));
+            }
+            return result;
+        }
     }
 
     private List<ConstructionReportRow> expiryReport() {
@@ -260,5 +414,15 @@ public final class ConstructionDataService {
 
     private static String text(JsonNode row, String field) {
         return row.hasNonNull(field) ? row.get(field).asText() : "";
+    }
+
+    private static LocalDate parseDate(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            if (value.length() > 10) return LocalDate.parse(value.substring(0, 10));
+            return LocalDate.parse(value);
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 }

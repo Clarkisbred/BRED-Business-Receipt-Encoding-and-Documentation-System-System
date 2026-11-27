@@ -159,4 +159,25 @@ class ThemeManagerTest {
             ThemeManager.apply(previousDark);
         }
     }
+
+    @Test
+    void reactThemeExportContainsSemanticTokensAndChartPalette() {
+        ThemeManager.Appearance previousAppearance = ThemeManager.appearance();
+        boolean previousDark = ThemeManager.isDark();
+        try {
+            ThemeManager.setAppearance(ThemeManager.Appearance.MODERN_GLASS);
+            ThemeManager.apply(true);
+            ThemeManager.ReactTheme theme = ThemeManager.reactTheme();
+            assertEquals("MODERN_GLASS", theme.appearance());
+            assertTrue(theme.dark());
+            assertEquals("#060435", theme.background());
+            assertEquals("#1A1C2B", theme.sidebar());
+            assertEquals("#5B9CFF", theme.chart1());
+            assertEquals("#4DE3C2", theme.chart2());
+            assertTrue(theme.surface().startsWith("#"));
+        } finally {
+            ThemeManager.setAppearance(previousAppearance);
+            ThemeManager.apply(previousDark);
+        }
+    }
 }
