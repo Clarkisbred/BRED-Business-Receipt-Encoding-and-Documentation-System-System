@@ -3,7 +3,7 @@ package com.bred.rms.models;
 /** Kinds of receipt/invoice documents that can be encoded. */
 public enum ReceiptType {
     OFFICIAL_RECEIPT("Official Receipt"), SALES_INVOICE("Sales Invoice"), CASH_INVOICE("Cash Invoice"),
-    DELIVERY_RECEIPT("Delivery Receipt"), OTHER("Other");
+    DELIVERY_RECEIPT("Delivery Receipt"), SALARY("Salary"), OTHER("Other");
 
     private final String label;
 

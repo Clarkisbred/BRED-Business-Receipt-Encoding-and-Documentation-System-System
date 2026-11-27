@@ -25,6 +25,7 @@ export interface ModuleMetric {
   label: string;
   value: string;
   note?: string;
+  chart?: Array<{ label: string; value: number }>;
 }
 
 export interface ModuleRecord {

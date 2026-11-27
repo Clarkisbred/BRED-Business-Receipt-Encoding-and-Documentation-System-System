@@ -224,7 +224,10 @@ class LocalApiServerTest {
 
             assertEquals(200, page.statusCode());
             assertTrue(page.headers().firstValue("Content-Type").orElse("").startsWith("text/html"));
-            assertTrue(page.headers().firstValue("Content-Security-Policy").orElse("").contains("frame-ancestors 'none'"));
+            String contentSecurityPolicy = page.headers().firstValue("Content-Security-Policy").orElse("");
+            assertTrue(contentSecurityPolicy.contains("frame-src https://www.openstreetmap.org"));
+            assertTrue(contentSecurityPolicy.contains("frame-ancestors 'none'"));
+            assertFalse(contentSecurityPolicy.contains("frame-src 'none'"));
             assertFalse(page.body().contains(bootstrap.token()));
             Matcher scriptPath = Pattern.compile("src=\"([^\"]+\\.js)\"").matcher(page.body());
             assertTrue(scriptPath.find());

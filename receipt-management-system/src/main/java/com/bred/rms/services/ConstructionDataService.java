@@ -20,8 +20,13 @@ public final class ConstructionDataService {
     public record ConstructionReportRow(String label, int count, String status, BigDecimal amount) {}
     public record ConstructionSummary(BigDecimal grossBillings, BigDecimal collected,
                                       BigDecimal receivable, int overdueBillings) {}
+    public record ProjectBillingMetric(String projectId, BigDecimal grossBillings,
+                                       BigDecimal collected, BigDecimal receivable) {}
+    public record BillingAnalytics(ConstructionSummary summary, List<ProjectBillingMetric> byProject) {}
     public record BOQCostSummary(BigDecimal estimated, BigDecimal actual, BigDecimal variance,
                                  BigDecimal variancePercent, String status) {}
+    public record ProjectBOQMetric(String projectId, BigDecimal variance) {}
+    public record BOQCostAnalytics(BOQCostSummary summary, List<ProjectBOQMetric> byProject) {}
     private final RestClient rest;
     private final int warningDays;
 
@@ -64,52 +69,102 @@ public final class ConstructionDataService {
     }
 
     public ConstructionSummary summary() {
-        if (rest == null) return new ConstructionSummary(
-                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, 0);
+        return billingAnalytics().summary();
+    }
+
+    public BillingAnalytics billingAnalytics() {
+        if (rest == null) return new BillingAnalytics(new ConstructionSummary(
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, 0), List.of());
         BigDecimal gross = BigDecimal.ZERO;
         BigDecimal collected = BigDecimal.ZERO;
         BigDecimal receivable = BigDecimal.ZERO;
         int overdue = 0;
+        Map<String, BigDecimal[]> projects = new LinkedHashMap<>();
         for (JsonNode row : rows("project_billings")) {
             BigDecimal net = decimal(row, "net_amount");
             BigDecimal paid = decimal(row, "collected_amount");
-            gross = gross.add(decimal(row, "gross_amount"));
+            BigDecimal grossAmount = decimal(row, "gross_amount");
+            gross = gross.add(grossAmount);
             collected = collected.add(paid);
             BigDecimal outstanding = net.subtract(paid);
             if (outstanding.signum() > 0) receivable = receivable.add(outstanding);
+            String projectId = text(row, "project_id");
+            if (!projectId.isBlank()) {
+                BigDecimal[] amounts = projects.computeIfAbsent(projectId,
+                        ignored -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
+                amounts[0] = amounts[0].add(grossAmount);
+                amounts[1] = amounts[1].add(paid);
+                if (outstanding.signum() > 0) amounts[2] = amounts[2].add(outstanding);
+            }
             String status = text(row, "status");
             if ("Overdue".equalsIgnoreCase(status)
                     || (outstanding.signum() > 0 && overdue(row))) overdue++;
         }
-        return new ConstructionSummary(gross, collected, receivable, overdue);
+        List<ProjectBillingMetric> byProject = projects.entrySet().stream()
+                .map(entry -> new ProjectBillingMetric(entry.getKey(),
+                        entry.getValue()[0], entry.getValue()[1], entry.getValue()[2]))
+                .toList();
+        return new BillingAnalytics(new ConstructionSummary(gross, collected, receivable, overdue), byProject);
     }
 
     public BOQCostSummary boqCostSummary() {
-        if (rest == null) return new BOQCostSummary(
-                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, null, "N/A");
+        return boqCostAnalytics().summary();
+    }
+
+    public BOQCostAnalytics boqCostAnalytics() {
+        if (rest == null) return new BOQCostAnalytics(new BOQCostSummary(
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, null, "N/A"), List.of());
         BigDecimal estimated = BigDecimal.ZERO;
         BigDecimal actual = BigDecimal.ZERO;
+        Map<String, BigDecimal[]> projects = new LinkedHashMap<>();
         try {
             for (JsonNode row : rest.selectAll("project_boq_cost_variance",
-                    "select=estimated_total,actual_total,variance_peso,variance_percent,status")) {
-                estimated = estimated.add(decimal(row, "estimated_total"));
-                actual = actual.add(decimal(row, "actual_total"));
+                    "select=project_id,estimated_total,actual_total")) {
+                BigDecimal estimatedTotal = decimal(row, "estimated_total");
+                BigDecimal actualTotal = decimal(row, "actual_total");
+                estimated = estimated.add(estimatedTotal);
+                actual = actual.add(actualTotal);
+                String projectId = text(row, "project_id");
+                if (!projectId.isBlank()) {
+                    BigDecimal[] amounts = projects.computeIfAbsent(projectId,
+                            ignored -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
+                    amounts[0] = amounts[0].add(estimatedTotal);
+                    amounts[1] = amounts[1].add(actualTotal);
+                }
             }
-            var cost = ConstructionCalculations.costVariance(estimated, actual);
-            return new BOQCostSummary(cost.budget(), cost.actual(),
-                    cost.variancePeso(), cost.variancePercent(), cost.status());
+            return boqAnalytics(estimated, actual, projects);
         } catch (SupabaseException | RuntimeException ignored) {
             // The aggregate view is unavailable until migration 035 is deployed.
         }
         estimated = BigDecimal.ZERO;
         actual = BigDecimal.ZERO;
+        projects.clear();
         for (JsonNode row : rows("project_boq_items")) {
-            estimated = estimated.add(decimal(row, "estimated_cost"));
-            actual = actual.add(decimal(row, "actual_cost"));
+            BigDecimal estimatedCost = decimal(row, "estimated_cost");
+            BigDecimal actualCost = decimal(row, "actual_cost");
+            estimated = estimated.add(estimatedCost);
+            actual = actual.add(actualCost);
+            String projectId = text(row, "project_id");
+            if (!projectId.isBlank()) {
+                BigDecimal[] amounts = projects.computeIfAbsent(projectId,
+                        ignored -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
+                amounts[0] = amounts[0].add(estimatedCost);
+                amounts[1] = amounts[1].add(actualCost);
+            }
         }
+        return boqAnalytics(estimated, actual, projects);
+    }
+
+    private static BOQCostAnalytics boqAnalytics(BigDecimal estimated, BigDecimal actual,
+                                                 Map<String, BigDecimal[]> projects) {
         var cost = ConstructionCalculations.costVariance(estimated, actual);
-        return new BOQCostSummary(cost.budget(), cost.actual(),
-                cost.variancePeso(), cost.variancePercent(), cost.status());
+        List<ProjectBOQMetric> byProject = projects.entrySet().stream()
+                .map(entry -> new ProjectBOQMetric(entry.getKey(),
+                        ConstructionCalculations.costVariance(entry.getValue()[0], entry.getValue()[1])
+                                .variancePeso()))
+                .toList();
+        return new BOQCostAnalytics(new BOQCostSummary(cost.budget(), cost.actual(),
+                cost.variancePeso(), cost.variancePercent(), cost.status()), byProject);
     }
 
     private boolean overdue(JsonNode row) {

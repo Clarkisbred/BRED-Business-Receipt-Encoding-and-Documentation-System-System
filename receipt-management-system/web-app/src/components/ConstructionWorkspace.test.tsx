@@ -25,7 +25,15 @@ const contractsPage: ModulePageData = {
   key: 'CONSTRUCTION',
   title: 'Contracts',
   description: 'Project contracts.',
-  metrics: [],
+  metrics: [
+    {
+      label: 'Gross billings',
+      value: '₱125,000.00',
+      note: 'By project',
+      chart: [{ label: 'Bridge Alpha', value: 125000 }],
+    },
+    { label: 'Collected', value: '₱0.00', note: 'By project', chart: [] },
+  ],
   columns: [{ key: 'contract_name', label: 'Contract name' }],
   fields: [{ key: 'contract_name', label: 'Contract name', type: 'text', required: true }],
   rows: [],
@@ -64,6 +72,8 @@ describe('ConstructionWorkspace', () => {
     render(<ConstructionWorkspace />);
 
     expect(await screen.findByText('No contracts records yet')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: /Gross billings By project: Bridge Alpha/ })).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Collected: no breakdown data' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /Billing and Finance/ }));
 
     expect(await screen.findByText('Concrete invoice')).toBeInTheDocument();

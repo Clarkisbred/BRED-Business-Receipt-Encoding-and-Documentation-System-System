@@ -28,6 +28,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -322,15 +323,32 @@ final class ReactWorkspaceService {
                 ? availableTabs.get(0) : ConstructionPanel.workspaceTab(table);
         if (tab == null) throw new IllegalArgumentException("Choose a valid construction section.");
 
-        List<LocalApiServer.ModuleRecord> rows = context.constructionData.rows(tab.table()).stream()
+        List<JsonNode> sourceRows = context.constructionData.rows(tab.table());
+        List<LocalApiServer.ModuleRecord> rows = sourceRows.stream()
                 .map(source -> {
                     Map<String, Object> values = new LinkedHashMap<>();
                     tab.fields().forEach(field -> values.put(field.key(), jsonValue(source.get(field.key()))));
                     return new LocalApiServer.ModuleRecord(text(source, "id"), values);
                 })
                 .toList();
-        var summary = context.constructionData.summary();
-        var cost = context.constructionData.boqCostSummary();
+        var billingAnalytics = context.constructionData.billingAnalytics();
+        var costAnalytics = context.constructionData.boqCostAnalytics();
+        var summary = billingAnalytics.summary();
+        var cost = costAnalytics.summary();
+        Map<String, String> projectNames = new LinkedHashMap<>();
+        context.projects.findAll().forEach(project -> projectNames.put(project.id().toString(), project.name()));
+        Map<String, BigDecimal> grossByProject = new LinkedHashMap<>();
+        Map<String, BigDecimal> collectedByProject = new LinkedHashMap<>();
+        Map<String, BigDecimal> receivableByProject = new LinkedHashMap<>();
+        billingAnalytics.byProject().forEach(project -> {
+            grossByProject.put(project.projectId(), project.grossBillings());
+            collectedByProject.put(project.projectId(), project.collected());
+            receivableByProject.put(project.projectId(), project.receivable());
+        });
+        Map<String, BigDecimal> varianceByProject = new LinkedHashMap<>();
+        costAnalytics.byProject().forEach(project ->
+                varianceByProject.put(project.projectId(), project.variance()));
+        var recordBreakdown = constructionRecordBreakdown(sourceRows, tab.title(), projectNames);
         List<LocalApiServer.ConstructionCategory> categories = ConstructionPanel.workspaceCategories().stream()
                 .map(category -> new LocalApiServer.ConstructionCategory(category.title(),
                         category.tabs().stream().map(item ->
@@ -338,7 +356,10 @@ final class ReactWorkspaceService {
                 .toList();
         List<LocalApiServer.ModuleField> fields = tab.fields().stream()
                 .map(field -> {
-                    List<LocalApiServer.ModuleOption> options = constructionFieldOptions(field.key());
+                    List<LocalApiServer.ModuleOption> options = "project_id".equals(field.key())
+                            ? projectNames.entrySet().stream()
+                                    .map(entry -> option(entry.getValue(), entry.getKey())).toList()
+                            : constructionFieldOptions(field.key());
                     return new LocalApiServer.ModuleField(field.key(), field.label(),
                             options.isEmpty() ? constructionFieldType(field.type()) : "select",
                             field.required(), options, null);
@@ -350,15 +371,72 @@ final class ReactWorkspaceService {
         boolean canWrite = context.supabaseRest != null && currentRole().canManageCompany();
         return new LocalApiServer.ModulePageData(Module.CONSTRUCTION.name(), tab.title(),
                 "Manage " + tab.title().toLowerCase(java.util.Locale.ROOT) + " records.",
-                List.of(metric("Gross billings", money(summary.grossBillings())),
-                        metric("Collected", money(summary.collected())),
-                        metric("Receivables", money(summary.receivable())),
-                        metric("BOQ variance", money(cost.variance())),
-                        metric(tab.title() + " records", rows.size())),
+                List.of(chartMetric("Gross billings", money(summary.grossBillings()), "By project",
+                                projectMetricPoints(grossByProject, projectNames)),
+                        chartMetric("Collected", money(summary.collected()), "By project",
+                                projectMetricPoints(collectedByProject, projectNames)),
+                        chartMetric("Receivables", money(summary.receivable()), "By project",
+                                projectMetricPoints(receivableByProject, projectNames)),
+                        chartMetric("BOQ variance", money(cost.variance()), "By project",
+                                projectMetricPoints(varianceByProject, projectNames)),
+                        chartMetric(tab.title() + " records", String.valueOf(rows.size()),
+                                recordBreakdown.note(), recordBreakdown.points())),
                 columns, fields, rows, canWrite, canWrite, canWrite,
                 "Add " + tab.title().toLowerCase(java.util.Locale.ROOT),
                 "Save record", "save", categories);
     }
+
+    private static ConstructionRecordBreakdown constructionRecordBreakdown(
+            List<JsonNode> rows, String title, Map<String, String> projectNames) {
+        Map<String, BigDecimal> counts = new LinkedHashMap<>();
+        boolean hasStatus = rows.stream().anyMatch(row -> row.has("status"));
+        boolean hasProject = rows.stream().anyMatch(row -> row.has("project_id"));
+        if (hasStatus) {
+            for (JsonNode row : rows) {
+                String status = text(row, "status");
+                counts.merge(status.isBlank() ? "Unspecified" : status, BigDecimal.ONE, BigDecimal::add);
+            }
+            return new ConstructionRecordBreakdown("By status", metricPoints(counts, Map.of()));
+        }
+        if (hasProject) {
+            for (JsonNode row : rows) {
+                String projectId = text(row, "project_id");
+                if (projectId.isBlank()) continue;
+                String label = projectNames.getOrDefault(projectId, projectLabel(projectId));
+                counts.merge(label, BigDecimal.ONE, BigDecimal::add);
+            }
+            return new ConstructionRecordBreakdown("By project", metricPoints(counts, Map.of()));
+        }
+        if (!rows.isEmpty()) counts.put(title, BigDecimal.valueOf(rows.size()));
+        return new ConstructionRecordBreakdown("Records", metricPoints(counts, Map.of()));
+    }
+
+    private static List<LocalApiServer.ModuleMetricPoint> projectMetricPoints(
+            Map<String, BigDecimal> values, Map<String, String> projectNames) {
+        Map<String, BigDecimal> labeled = new LinkedHashMap<>();
+        values.forEach((projectId, value) ->
+                labeled.put(projectNames.getOrDefault(projectId, projectLabel(projectId)), value));
+        return metricPoints(labeled, Map.of());
+    }
+
+    private static List<LocalApiServer.ModuleMetricPoint> metricPoints(
+            Map<String, BigDecimal> values, Map<String, String> labels) {
+        return values.entrySet().stream()
+                .filter(entry -> entry.getValue() != null && entry.getValue().signum() != 0)
+                .sorted(Comparator.comparing((Map.Entry<String, BigDecimal> entry) ->
+                        entry.getValue().abs()).reversed())
+                .limit(5)
+                .map(entry -> new LocalApiServer.ModuleMetricPoint(
+                        labels.getOrDefault(entry.getKey(), entry.getKey()), entry.getValue()))
+                .toList();
+    }
+
+    private static String projectLabel(String projectId) {
+        return "Project " + projectId.substring(0, Math.min(8, projectId.length()));
+    }
+
+    private record ConstructionRecordBreakdown(
+            String note, List<LocalApiServer.ModuleMetricPoint> points) {}
 
     private LocalApiServer.ModulePageData saveConstruction(String id, JsonNode input) {
         String table = text(input, "table");
@@ -843,6 +921,11 @@ final class ReactWorkspaceService {
 
     private static LocalApiServer.ModuleMetric metric(String label, Object value) {
         return new LocalApiServer.ModuleMetric(label, String.valueOf(value), "");
+    }
+
+    private static LocalApiServer.ModuleMetric chartMetric(String label, Object value, String note,
+                                                            List<LocalApiServer.ModuleMetricPoint> points) {
+        return new LocalApiServer.ModuleMetric(label, String.valueOf(value), note, points);
     }
 
     private static LocalApiServer.ModuleColumn column(String key, String label) {

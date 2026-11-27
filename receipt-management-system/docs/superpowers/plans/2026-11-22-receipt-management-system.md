@@ -19,7 +19,7 @@
 - Currency PHP, shown as `₱1,234.50`. All money is `BigDecimal`, scale 2, `RoundingMode.HALF_UP`. Never `double`.
 - Grand total = subtotal − discount + VAT + additional charges; VAT defaults to 12% of (subtotal − discount) and may be overridden by hand.
 - Duplicate rule: same receipt no. (case-insensitive, trimmed) + same supplier TIN is rejected.
-- Receipt types: Official Receipt, Sales Invoice, Cash Invoice, Delivery Receipt, Other.
+- Receipt types: Official Receipt, Sales Invoice, Cash Invoice, Delivery Receipt, Salary, Other.
 - All data lives in Supabase (new project); no local JSON/database storage. Config from `application.properties` in the working folder or env `RMS_SUPABASE_URL` / `RMS_SUPABASE_ANON_KEY`; only the anon/publishable key is accepted (service-role or `sb_secret_` keys are rejected at startup, as in GERMS `AppConfig`). Missing config shows a setup screen, not a crash.
 - Login is email + password via Supabase Auth; role comes only from `profiles.role` (`admin` | `encoder`).
 - RLS is the real security boundary; any signed-in active user may read; only `admin` may delete receipts/suppliers/projects, read the activity log, or manage users.
@@ -66,7 +66,7 @@
 - Produces:
   - `enum Role { ADMIN("Administrator"), ENCODER("Encoder"); String label() }`
   - `record User(UUID id, String fullName, String email, Role role, boolean active)`
-  - `enum ReceiptType { OFFICIAL_RECEIPT, SALES_INVOICE, CASH_INVOICE, DELIVERY_RECEIPT, OTHER; String label() }`
+  - `enum ReceiptType { OFFICIAL_RECEIPT, SALES_INVOICE, CASH_INVOICE, DELIVERY_RECEIPT, SALARY, OTHER; String label() }`
   - `record ReceiptItem(String description, BigDecimal quantity, BigDecimal unitPrice) { BigDecimal subtotal() }`
   - `record Supplier(UUID id, String businessName, String tin, String address, String contactNumber)`
   - `record Project(UUID id, String name, String code, String fundSource)`

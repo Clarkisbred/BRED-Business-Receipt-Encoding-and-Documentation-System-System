@@ -60,7 +60,16 @@ public final class LocalApiServer implements AutoCloseable {
     public record ModuleField(String key, String label, String type, boolean required,
                               List<ModuleOption> options, Object value) { }
     public record ModuleColumn(String key, String label, boolean numeric) { }
-    public record ModuleMetric(String label, String value, String note) { }
+    public record ModuleMetricPoint(String label, java.math.BigDecimal value) { }
+    public record ModuleMetric(String label, String value, String note, List<ModuleMetricPoint> chart) {
+        public ModuleMetric {
+            chart = chart == null ? List.of() : List.copyOf(chart);
+        }
+
+        public ModuleMetric(String label, String value, String note) {
+            this(label, value, note, List.of());
+        }
+    }
     public record ModuleRecord(String id, Map<String, Object> values) { }
     public record ConstructionTabInfo(String title, String table) { }
     public record ConstructionCategory(String title, List<ConstructionTabInfo> tabs) { }
@@ -242,7 +251,8 @@ public final class LocalApiServer implements AutoCloseable {
             exchange.getResponseHeaders().set("Content-Security-Policy",
                     "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
                             + "img-src 'self' data:; font-src 'self' data:; connect-src 'self'; "
-                            + "object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+                            + "object-src 'none'; frame-src https://www.openstreetmap.org; "
+                            + "frame-ancestors 'none'; base-uri 'none'");
             exchange.getResponseHeaders().set("X-Frame-Options", "DENY");
             exchange.getResponseHeaders().set("Cross-Origin-Resource-Policy", "same-origin");
             if ("HEAD".equals(method)) {

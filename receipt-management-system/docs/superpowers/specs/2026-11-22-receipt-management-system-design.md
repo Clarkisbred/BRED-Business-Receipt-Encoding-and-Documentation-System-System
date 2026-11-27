@@ -55,7 +55,7 @@ no user management). No Viewer/Guest role and no public self-registration; Admin
 **Modules:** Dashboard · Receipts (directory + add/edit dialog) · Receipt Detail (paper-style) · Suppliers · Projects ·
 Reports · Users (Admin) · Activity Log (Admin) · Settings.
 
-**Receipt record:** receipt no., date, type (Official Receipt, Sales Invoice, Cash Invoice, Delivery Receipt, Other),
+**Receipt record:** receipt no., date, type (Official Receipt, Sales Invoice, Cash Invoice, Delivery Receipt, Salary, Other),
 supplier, project (optional), line items, VAT, discount, additional charges, grand total, attachment(s),
 encoded by, created, last modified.
 

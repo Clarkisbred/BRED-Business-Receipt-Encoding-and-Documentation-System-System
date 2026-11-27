@@ -287,7 +287,8 @@ public final class ReactDesktopPanel extends JPanel {
                                         org.cef.handler.CefLoadHandler.ErrorCode errorCode,
                                         String errorText, String failedUrl) {
                     if (failedBrowser == browser
-                            && errorCode != org.cef.handler.CefLoadHandler.ErrorCode.ERR_ABORTED) {
+                            && errorCode != org.cef.handler.CefLoadHandler.ErrorCode.ERR_ABORTED
+                            && isTrustedMainFrameUrl(frame != null && frame.isMain(), failedUrl, expectedOrigin)) {
                         SwingUtilities.invokeLater(() -> showFailure(
                                 new IOException("The React page failed to load: " + errorText)));
                     }
@@ -348,6 +349,10 @@ public final class ReactDesktopPanel extends JPanel {
         } catch (IllegalArgumentException malformed) {
             return false;
         }
+    }
+
+    static boolean isTrustedMainFrameUrl(boolean mainFrame, String failedUrl, String expectedOrigin) {
+        return mainFrame && isTrustedRendererUrl(failedUrl, expectedOrigin);
     }
 
     private static Throwable unwrap(Throwable error) {

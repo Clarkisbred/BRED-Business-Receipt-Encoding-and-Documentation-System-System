@@ -38,6 +38,17 @@ const categoryIcons: Record<string, LucideIcon> = {
 
 const defaultTable = 'project_contracts';
 
+function formatMetricPoint(metricLabel: string, value: number): string {
+  if (/records$/i.test(metricLabel)) {
+    return new Intl.NumberFormat('en-PH', { maximumFractionDigits: 0 }).format(value);
+  }
+  return new Intl.NumberFormat('en-PH', {
+    style: 'currency',
+    currency: 'PHP',
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
 function fieldDefault(field: ModuleField): string | boolean {
   if (field.type === 'checkbox') return booleanValue(field.value);
   return inputValue(field.value);
@@ -259,12 +270,54 @@ export function ConstructionWorkspace() {
       {notice && <p className="construction-notice-success" role="status">{notice}</p>}
 
       <div className="module-metric-grid construction-metrics">
-        {(page?.metrics ?? []).map((metric) => (
-          <article className="panel module-metric-card" key={metric.label}>
-            <span>{metric.label}</span>
-            <strong>{metric.value}</strong>
-          </article>
-        ))}
+        {(page?.metrics ?? []).map((metric) => {
+          const points = metric.chart ?? [];
+          const largestValue = Math.max(0, ...points.map((point) => Math.abs(point.value)));
+          return (
+            <article className="panel module-metric-card construction-metric-card" key={metric.label}>
+              <span>{metric.label}</span>
+              <strong>{metric.value}</strong>
+              {points.length ? (
+                <div
+                  className="construction-metric-chart"
+                  role="img"
+                  aria-label={`${metric.label} ${metric.note ?? 'breakdown'}: ${points
+                    .map((point) => `${point.label}, ${formatMetricPoint(metric.label, point.value)}`)
+                    .join('; ')}`}
+                >
+                  {points.map((point, index) => {
+                    const height = largestValue === 0
+                      ? 0
+                      : Math.max(8, Math.abs(point.value) / largestValue * 100);
+                    return (
+                      <span
+                        className="construction-metric-bar"
+                        key={point.label}
+                        title={`${point.label}: ${formatMetricPoint(metric.label, point.value)}`}
+                        aria-hidden="true"
+                        style={{
+                          height: `${height}%`,
+                          backgroundColor: point.value < 0
+                            ? 'var(--danger)'
+                            : `var(--chart-${(index % 5) + 1})`,
+                        }}
+                      />
+                    );
+                  })}
+                </div>
+              ) : (
+                <div
+                  className="construction-metric-chart-empty"
+                  role="img"
+                  aria-label={`${metric.label}: no breakdown data`}
+                >
+                  No breakdown data
+                </div>
+              )}
+              {metric.note && <small className="construction-metric-note">{metric.note}</small>}
+            </article>
+          );
+        })}
         {loading && !page && Array.from({ length: 5 }, (_, index) => (
           <article className="panel module-metric-card construction-metric-loading" key={index} aria-hidden="true" />
         ))}
