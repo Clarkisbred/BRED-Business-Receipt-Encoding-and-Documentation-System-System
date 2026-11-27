@@ -12,6 +12,10 @@
     <maven.compiler.release>21</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <main.class>com.bred.rms.Main</main.class>
+    <jcef.version>152.0.6</jcef.version>
+    <jcef.release.tag>jcef-17e805a+cef-152.0.6+g708dc14+chromium-152.0.7977.83</jcef.release.tag>
+    <frontend.cache.dir>${user.home}/.bred-build/${project.artifactId}-${project.version}-node24</frontend.cache.dir>
+    <frontend.build.dir>${frontend.cache.dir}/web-app</frontend.build.dir>
   </properties>
 
   <dependencies>
@@ -32,11 +36,71 @@
     </dependency>
     <dependency><groupId>org.apache.poi</groupId><artifactId>poi</artifactId><version>5.4.1</version></dependency>
     <dependency><groupId>org.apache.poi</groupId><artifactId>poi-ooxml</artifactId><version>5.4.1</version></dependency>
+    <dependency>
+      <groupId>me.friwi</groupId><artifactId>jcefmaven</artifactId><version>${jcef.version}</version>
+    </dependency>
+    <dependency>
+      <groupId>me.friwi</groupId><artifactId>jcef-natives-windows-amd64</artifactId>
+      <version>${jcef.release.tag}</version><scope>runtime</scope>
+    </dependency>
     <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.10.3</version><scope>test</scope></dependency>
   </dependencies>
 
   <build>
+    <resources>
+      <resource><directory>src/main/resources</directory></resource>
+    </resources>
     <plugins>
+      <plugin>
+        <artifactId>maven-resources-plugin</artifactId><version>3.3.1</version>
+        <executions>
+          <execution>
+            <id>stage-web-app-sources</id><phase>generate-resources</phase>
+            <goals><goal>copy-resources</goal></goals>
+            <configuration>
+              <outputDirectory>${frontend.build.dir}</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${project.basedir}/web-app</directory>
+                  <filtering>false</filtering>
+                  <excludes>
+                    <exclude>node_modules/**</exclude>
+                    <exclude>dist/**</exclude>
+                    <exclude>.env*</exclude>
+                  </excludes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>com.github.eirslett</groupId><artifactId>frontend-maven-plugin</artifactId><version>2.0.2</version>
+        <configuration>
+          <workingDirectory>${frontend.build.dir}</workingDirectory>
+          <installDirectory>${frontend.cache.dir}</installDirectory>
+          <nodeVersion>v24.21.0</nodeVersion>
+          <environmentVariables>
+            <BRED_WEB_OUT_DIR>${project.build.outputDirectory}/web-app</BRED_WEB_OUT_DIR>
+          </environmentVariables>
+        </configuration>
+        <executions>
+          <execution>
+            <id>install-node-and-npm</id><phase>generate-resources</phase>
+            <goals><goal>install-node-and-npm</goal></goals>
+          </execution>
+          <execution>
+            <id>install-web-dependencies</id><phase>generate-resources</phase>
+            <goals><goal>npm</goal></goals>
+            <configuration><arguments>run maven:install-dependencies</arguments></configuration>
+          </execution>
+          <execution>
+            <id>build-web-app</id><phase>generate-resources</phase>
+            <goals><goal>npm</goal></goals>
+            <configuration><arguments>run build</arguments></configuration>
+          </execution>
+        </executions>
+      </plugin>
       <plugin><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
       <plugin><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
       <plugin>
@@ -51,7 +115,20 @@
             <transformers><transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
               <mainClass>${main.class}</mainClass>
               <manifestEntries><Implementation-Version>${project.version}</Implementation-Version></manifestEntries>
-            </transformer></transformers>
+            </transformer>
+              <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                <resource>META-INF/LICENSE</resource>
+              </transformer>
+              <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                <resource>META-INF/LICENSE.txt</resource>
+              </transformer>
+              <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                <resource>META-INF/NOTICE</resource>
+              </transformer>
+              <transformer implementation="org.apache.maven.plugins.shade.resource.AppendingTransformer">
+                <resource>META-INF/NOTICE.txt</resource>
+              </transformer>
+            </transformers>
             <filters><filter><artifact>*:*</artifact><excludes><exclude>META-INF/*.SF</exclude><exclude>META-INF/*.DSA</exclude><exclude>META-INF/*.RSA</exclude></excludes></filter></filters>
           </configuration></execution></executions>
       </plugin>

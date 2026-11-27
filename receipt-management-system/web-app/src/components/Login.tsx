@@ -29,9 +29,9 @@ export function Login() {
 
         {configurationError && (
           <div className="notice notice-config" role="status">
-            <strong>Connect the existing Supabase project</strong>
+            <strong>Connect to the BRED desktop service</strong>
             <p>{configurationError}</p>
-            <p>Use only the public anon/publishable key; never put a service-role key in browser configuration.</p>
+            <p>The React interface communicates with Java through the local desktop API.</p>
           </div>
         )}
 

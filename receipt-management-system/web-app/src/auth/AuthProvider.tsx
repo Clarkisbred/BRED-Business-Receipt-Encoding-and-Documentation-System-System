@@ -7,21 +7,13 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import type { Session, SupabaseClient } from '@supabase/supabase-js';
-import { supabaseClient, supabaseConfigError } from '../api/supabase';
+import { desktopBridgeError, desktopRequest, DesktopApiError } from '../api/desktop';
 import type { AppRole, UserProfile } from '../types';
 
 type AuthStatus = 'initializing' | 'signed-out' | 'signed-in';
 
-interface ProfileRow {
-  id: string;
-  full_name: string;
-  email: string;
-  role: string;
-  is_active: boolean;
-  account_status: string;
-  company_id: string | null;
-  companies: { name: string } | { name: string }[] | null;
+interface SessionResponse {
+  user: UserProfile;
 }
 
 interface AuthContextValue {
@@ -36,169 +28,126 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-function safeRole(value: string): AppRole {
-  if (value === 'creator' || value === 'admin') return value;
-  return 'encoder';
+function isAppRole(value: string): value is AppRole {
+  return value === 'creator' || value === 'admin' || value === 'encoder';
 }
 
-function profileStatusMessage(profile: ProfileRow): string | null {
-  if (profile.account_status === 'PENDING') {
-    return 'Your registration is pending administrator approval.';
+function validateProfile(value: UserProfile): UserProfile {
+  if (!value || typeof value.id !== 'string' || typeof value.fullName !== 'string'
+      || typeof value.email !== 'string' || typeof value.companyName !== 'string'
+      || !isAppRole(value.role)) {
+    throw new Error('The BRED service returned an invalid account profile.');
   }
-  if (profile.account_status === 'REJECTED') {
-    return 'Your registration was rejected. Please contact an administrator.';
-  }
-  if (!profile.is_active || profile.account_status !== 'APPROVED') {
-    return 'This account is inactive or not approved.';
-  }
-  return null;
+  return value;
 }
 
-function readableAuthError(error: unknown): string {
-  if (error instanceof Error && /invalid login credentials/i.test(error.message)) {
-    return 'Email or password is incorrect.';
-  }
-  return 'Sign-in could not be completed. Check your connection and try again.';
-}
-
-async function readProfile(client: SupabaseClient, userId: string): Promise<UserProfile> {
-  const { data, error } = await client
-    .from('profiles')
-    .select('id,full_name,email,role,is_active,account_status,company_id,companies(name)')
-    .eq('id', userId)
-    .maybeSingle();
-
-  if (error) throw new Error('Your BRED profile could not be loaded.');
-  if (!data) throw new Error('This account has no BRED profile. Contact an administrator.');
-
-  const row = data as unknown as ProfileRow;
-  const statusMessage = profileStatusMessage(row);
-  if (statusMessage) throw new Error(statusMessage);
-
-  const relation = Array.isArray(row.companies) ? row.companies[0] : row.companies;
-  return {
-    id: row.id,
-    fullName: row.full_name,
-    email: row.email,
-    role: safeRole(row.role),
-    companyName: relation?.name ?? '',
-  };
+function messageFrom(error: unknown): string {
+  return error instanceof Error
+    ? error.message
+    : 'Sign-in could not be completed. Check the BRED desktop service and try again.';
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('initializing');
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [configurationError, setConfigurationError] = useState<string | null>(desktopBridgeError);
   const generation = useRef(0);
 
-  const applySession = useCallback(async (session: Session | null): Promise<void> => {
-    const currentGeneration = ++generation.current;
-    if (!session || !supabaseClient) {
-      setProfile(null);
-      setStatus('signed-out');
-      return;
-    }
+  useEffect(() => {
+    const initializeSession = () => {
+      const requestGeneration = ++generation.current;
+      const bridgeError = desktopBridgeError();
+      if (bridgeError) {
+        setConfigurationError(bridgeError);
+        setStatus('signed-out');
+        return;
+      }
 
+      void desktopRequest<SessionResponse>('/api/v1/session').then(
+        (session) => {
+          if (requestGeneration !== generation.current) return;
+          try {
+            setProfile(validateProfile(session.user));
+            setConfigurationError(null);
+            setMessage(null);
+            setStatus('signed-in');
+          } catch (error) {
+            setProfile(null);
+            setConfigurationError(messageFrom(error));
+            setStatus('signed-out');
+          }
+        },
+        (error: unknown) => {
+          if (requestGeneration !== generation.current) return;
+          if (error instanceof DesktopApiError && error.status === 401) {
+            setProfile(null);
+            setConfigurationError(null);
+            setMessage(null);
+          } else {
+            setProfile(null);
+            setConfigurationError(messageFrom(error));
+          }
+          setStatus('signed-out');
+        },
+      );
+    };
+
+    window.bredDesktopReadyCallback = initializeSession;
+    initializeSession();
+    return () => {
+      generation.current += 1;
+      if (window.bredDesktopReadyCallback === initializeSession) {
+        delete window.bredDesktopReadyCallback;
+      }
+    };
+  }, []);
+
+  const signIn = useCallback(async (email: string, password: string) => {
+    const requestGeneration = ++generation.current;
+    setMessage(null);
     setStatus('initializing');
     try {
-      const nextProfile = await readProfile(supabaseClient, session.user.id);
-      if (currentGeneration !== generation.current) return;
-      setProfile(nextProfile);
-      setMessage(null);
+      const session = await desktopRequest<SessionResponse>('/api/v1/session', {
+        method: 'POST',
+        body: { email, password },
+      });
+      if (requestGeneration !== generation.current) return;
+      setProfile(validateProfile(session.user));
+      setConfigurationError(null);
       setStatus('signed-in');
     } catch (error) {
-      if (currentGeneration !== generation.current) return;
+      if (requestGeneration !== generation.current) return;
       setProfile(null);
-      setMessage(error instanceof Error ? error.message : 'Your BRED account could not be verified.');
       setStatus('signed-out');
-      try {
-        await supabaseClient.auth.signOut();
-      } catch {
-        // The application stays signed out even if the remote sign-out request cannot reach Supabase.
+      if (error instanceof DesktopApiError
+          && ['desktop_host_unavailable', 'invalid_desktop_host'].includes(error.code)) {
+        setConfigurationError(error.message);
+      } else {
+        setMessage(messageFrom(error));
       }
     }
   }, []);
 
-  useEffect(() => {
-    if (!supabaseClient) {
-      setStatus('signed-out');
-      return;
-    }
-
-    let active = true;
-    const { data: { subscription } } = supabaseClient.auth.onAuthStateChange((_event, session) => {
-      // Supabase auth callbacks are kept synchronous; profile I/O is deferred outside the callback.
-      globalThis.setTimeout(() => {
-        if (active) void applySession(session);
-      }, 0);
-    });
-
-    void supabaseClient.auth.getSession()
-      .then(({ data, error }) => {
-        if (!active) return;
-        if (error) {
-          setMessage('Your saved sign-in session could not be checked. Sign in again.');
-          setStatus('signed-out');
-          return;
-        }
-        void applySession(data.session);
-      })
-      .catch(() => {
-        if (!active) return;
-        setMessage('Your saved sign-in session could not be checked. Sign in again.');
-        setStatus('signed-out');
-      });
-
-    return () => {
-      active = false;
-      generation.current += 1;
-      subscription.unsubscribe();
-    };
-  }, [applySession]);
-
-  const signIn = useCallback(async (email: string, password: string) => {
-    if (!supabaseClient) {
-      setMessage(supabaseConfigError ?? 'Supabase is not configured.');
-      return;
-    }
-
-    setMessage(null);
-    setStatus('initializing');
-    try {
-      const { data, error } = await supabaseClient.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
-
-      if (error || !data.session) {
-        setStatus('signed-out');
-        setMessage(readableAuthError(error ?? new Error('No session returned.')));
-        return;
-      }
-
-      await applySession(data.session);
-    } catch (error) {
-      setStatus('signed-out');
-      setMessage(readableAuthError(error));
-    }
-  }, [applySession]);
-
   const signOut = useCallback(async () => {
+    generation.current += 1;
     try {
-      if (supabaseClient) await supabaseClient.auth.signOut();
-    } finally {
-      generation.current += 1;
-      setProfile(null);
-      setMessage(null);
-      setStatus('signed-out');
+      await desktopRequest<void>('/api/v1/session', { method: 'DELETE' });
+    } catch (error) {
+      setMessage(messageFrom(error));
+      return;
     }
+    generation.current += 1;
+    setProfile(null);
+    setMessage(null);
+    setStatus('signed-out');
   }, []);
 
   const clearMessage = useCallback(() => setMessage(null), []);
 
   return (
     <AuthContext.Provider
-      value={{ status, profile, message, configurationError: supabaseConfigError, signIn, signOut, clearMessage }}
+      value={{ status, profile, message, configurationError, signIn, signOut, clearMessage }}
     >
       {children}
     </AuthContext.Provider>

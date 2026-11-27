@@ -1,5 +1,6 @@
 package com.bred.rms.ui;
 
+import com.bred.rms.api.LocalApiServer;
 import com.bred.rms.config.AppContext;
 import com.bred.rms.config.AppVersion;
 import com.bred.rms.services.AuthException;
@@ -22,6 +23,9 @@ import javax.swing.JButton;
 import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
+import javax.swing.JMenu;
+import javax.swing.JMenuBar;
+import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
@@ -49,8 +53,12 @@ public final class MainWindow extends JFrame {
     private final CardLayout cards = new CardLayout();
     private final JPanel root = new JPanel(cards);
     private final AppContext ctx;
+    private final LocalApiServer localApi;
     private final LoginPanel login;
     private Shell shell;
+    private ReactDesktopPanel reactPanel;
+    private JMenuItem openReactItem;
+    private JMenuItem returnToSwingItem;
     private UpdatePreferences updatePreferences;
     private UpdateWorkflow updateWorkflow;
     private final WindowsInstallerHandoff installerHandoff = new WindowsInstallerHandoff();
@@ -60,8 +68,13 @@ public final class MainWindow extends JFrame {
     /** @param ctx the application, or null when Supabase is not configured
      *  @param setupProblem detail to show on the setup screen when ctx is null */
     public MainWindow(AppContext ctx, String setupProblem) {
+        this(ctx, setupProblem, null);
+    }
+
+    public MainWindow(AppContext ctx, String setupProblem, LocalApiServer localApi) {
         super("BRED - Business Receipt Encoding and Documentation System");
         this.ctx = ctx;
+        this.localApi = localApi;
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setMinimumSize(new Dimension(960, 620));
         setSize(1180, 760);
@@ -100,6 +113,7 @@ public final class MainWindow extends JFrame {
         UpdateDownloadManager downloadManager = new UpdateDownloadManager();
         updateWorkflow = new UpdateWorkflow(updatePreferences, updateChecker, downloadManager);
         updateWorkflow.addProgressListener(this::onUpdateProgress);
+        if (localApi != null && ReactDesktopPanel.isSupportedPlatform()) installReactMenu();
         installTray();
         SwingUtilities.invokeLater(this::checkForUpdatesAutomatically);
         SwingUtilities.invokeLater(this::showPreviousInstallResult);
@@ -150,6 +164,7 @@ public final class MainWindow extends JFrame {
             shell = new Shell(ctx, this::signOut, updatePreferences, updateWorkflow);
             root.add(shell, "shell");
             cards.show(root, "shell");
+            updateReactMenuState();
             done.accept(null);
         }, error -> done.accept(error instanceof AuthException ? error.getMessage()
                 : "Something went wrong while signing in. Please try again."));
@@ -332,8 +347,54 @@ public final class MainWindow extends JFrame {
         shell = null;
         login.reset();
         cards.show(root, "login");
+        updateReactMenuState();
         root.revalidate();
         root.repaint();
+    }
+
+    private void installReactMenu() {
+        JMenuBar menuBar = new JMenuBar();
+        JMenu viewMenu = new JMenu("View");
+        openReactItem = new JMenuItem("React dashboard preview");
+        returnToSwingItem = new JMenuItem("Return to Swing interface");
+        openReactItem.addActionListener(event -> openReactPreview());
+        returnToSwingItem.addActionListener(event -> returnToSwing());
+        viewMenu.add(openReactItem);
+        viewMenu.add(returnToSwingItem);
+        menuBar.add(viewMenu);
+        setJMenuBar(menuBar);
+        updateReactMenuState();
+    }
+
+    private void openReactPreview() {
+        if (shell != null || localApi == null) return;
+        if (reactPanel == null) {
+            reactPanel = new ReactDesktopPanel(localApi);
+            root.add(reactPanel, "react");
+        }
+        cards.show(root, "react");
+        reactPanel.start();
+        updateReactMenuState();
+    }
+
+    private void returnToSwing() {
+        if (ctx == null || localApi == null || reactPanel == null) return;
+        BackgroundTask.run(() -> {
+            localApi.signOutRendererSession();
+            return null;
+        }, ignored -> showLogin(), error -> {
+            LOGGER.log(Level.WARNING, "Unable to sign out before returning to the Swing interface.", error);
+            JOptionPane.showMessageDialog(this,
+                    "BRED could not sign out. The React interface remains open.",
+                    "Unable to return to Swing", JOptionPane.WARNING_MESSAGE);
+        });
+    }
+
+    private void updateReactMenuState() {
+        if (openReactItem == null || returnToSwingItem == null) return;
+        boolean showingReact = reactPanel != null && reactPanel.isVisible();
+        openReactItem.setEnabled(!showingReact && shell == null);
+        returnToSwingItem.setEnabled(showingReact);
     }
 
     private static final class RegistrationFailure extends RuntimeException {

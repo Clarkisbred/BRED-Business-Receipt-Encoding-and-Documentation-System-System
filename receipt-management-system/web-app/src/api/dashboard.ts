@@ -1,8 +1,5 @@
 import Decimal from 'decimal.js';
-import type { SupabaseClient } from '@supabase/supabase-js';
-import { requireSupabaseClient } from './supabase';
-
-const PAGE_SIZE = 1000;
+import { desktopRequest } from './desktop';
 
 interface ProjectRow {
   id: string;
@@ -111,44 +108,6 @@ export function summarizeDashboard(
   };
 }
 
-async function loadProjects(client: SupabaseClient): Promise<ProjectRow[]> {
-  const projects: ProjectRow[] = [];
-  for (let offset = 0; ; offset += PAGE_SIZE) {
-    const { data, error } = await client
-      .from('projects')
-      .select('id,name,code')
-      .order('name')
-      .range(offset, offset + PAGE_SIZE - 1);
-    if (error) throw error;
-
-    const page = (data ?? []) as unknown as ProjectRow[];
-    projects.push(...page);
-    if (page.length < PAGE_SIZE) return projects;
-  }
-}
-
-async function loadReceipts(client: SupabaseClient): Promise<ReceiptRow[]> {
-  const receipts: ReceiptRow[] = [];
-  for (let offset = 0; ; offset += PAGE_SIZE) {
-    const { data, error } = await client
-      .from('receipts')
-      .select('id,project_id,receipt_date,created_at,discount,vat,additional_charges,receipt_items(quantity,unit_price)')
-      .order('receipt_date', { ascending: false })
-      .order('created_at', { ascending: false })
-      .range(offset, offset + PAGE_SIZE - 1);
-    if (error) throw error;
-
-    const page = (data ?? []) as unknown as ReceiptRow[];
-    receipts.push(...page);
-    if (page.length < PAGE_SIZE) return receipts;
-  }
-}
-
-export async function loadDashboardData(today = new Date()): Promise<DashboardData> {
-  const client = requireSupabaseClient();
-  const [receipts, projects] = await Promise.all([
-    loadReceipts(client),
-    loadProjects(client),
-  ]);
-  return summarizeDashboard(receipts, projects, today);
+export async function loadDashboardData(): Promise<DashboardData> {
+ return desktopRequest<DashboardData>('/api/v1/dashboard');
 }

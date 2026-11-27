@@ -110,6 +110,8 @@ if ($manifest -notmatch "(?m)^Main-Class:\s*$([regex]::Escape($mainClass))\s*$")
 
 $requiredJarEntries = @(
     "$($mainClass.Replace('.', '/')).class",
+    'web-app/index.html',
+    'org/cef/CefApp.class',
     'com/formdev/flatlaf/FlatLaf.class',
     'com/fasterxml/jackson/databind/ObjectMapper.class',
     'org/apache/poi/ss/usermodel/Workbook.class',
@@ -120,6 +122,20 @@ foreach ($requiredEntry in $requiredJarEntries) {
     if ($entryNames -notcontains $requiredEntry) {
         throw "Required application or bundled dependency is missing from the shaded JAR: $requiredEntry"
     }
+}
+
+$jcefNativeEntries = @($entryNames | Where-Object {
+    $_ -match '^jcef-natives-windows-amd64-.*\.tar\.gz$'
+})
+if ($jcefNativeEntries.Count -ne 1) {
+    throw 'The shaded JAR must contain exactly one bundled Windows AMD64 JCEF native runtime.'
+}
+
+$reactScriptEntries = @($entryNames | Where-Object {
+    $_ -match '^web-app/assets/.*\.js$'
+})
+if ($reactScriptEntries.Count -eq 0) {
+    throw 'The shaded JAR must contain the built React JavaScript assets.'
 }
 
 $ocrPayloadEntries = @($entryNames | Where-Object {

@@ -63,7 +63,7 @@ export function Dashboard() {
           <AlertCircle aria-hidden="true" size={20} />
           <div>
             <strong>Dashboard data is unavailable.</strong>
-            <p>Check your connection and Supabase project, then retry.</p>
+            <p>Check the BRED desktop service, then retry.</p>
           </div>
           <button className="button button-secondary" type="button" onClick={() => setAttempt((value) => value + 1)}>
             <RefreshCw aria-hidden="true" size={16} />

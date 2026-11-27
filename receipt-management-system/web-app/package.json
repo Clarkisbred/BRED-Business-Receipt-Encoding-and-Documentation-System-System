@@ -7,10 +7,10 @@
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
     "test": "vitest run",
+    "maven:install-dependencies": "node scripts/install-dependencies.mjs",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.119.2",
     "decimal.js": "^10.6.0",
     "lucide-react": "^1.82.0",
     "react": "^19.3.1",

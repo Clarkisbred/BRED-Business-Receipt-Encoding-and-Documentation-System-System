@@ -8,6 +8,7 @@
 - The application is a Java 21 Swing desktop program, not a web server. The UI calls in-process Java services and repository interfaces.
 - The Windows installer is built by `scripts/build-windows-msi.ps1` with `jpackage --type msi`. It keeps product name `BRED`, a fixed upgrade UUID (`7B6F2C1E-4A8D-4F3B-9C1A-5E2D8F0A1B34`), a per-machine install, and a directory chooser.
 - The script requires a Java 21 `jpackage`, a shaded Java JAR, and WiX. The checked-in `BRED-Setup-1.0.8.msi` is 78,467,996 bytes; it is a release snapshot, not a measured React/browser build.
+- The React-enabled shaded JAR currently measures 208,816,698 bytes, including a 171,413,552-byte compressed Windows AMD64 JCEF native archive. This is a JAR measurement, not an app-image or MSI measurement.
 - The current script explicitly says upgrade installation has not been tested. The existing GitHub-release updater and MSI identity must not be changed as part of the frontend scaffold.
 
 ## Comparison for this application
@@ -22,12 +23,12 @@
 
 ## Recommendation
 
-**Prefer a JCEF prototype for the first embedded React host**, because the existing product is Java/Swing and there is no WebView2 Java integration in the repository. This is a prototype recommendation, not permission to replace Swing or change the MSI now. JCEF avoids inventing a COM bridge inside the current Java launcher; evaluate it first in a branch/app-image prototype and keep the current launcher available.
+**Continue with the JCEF prototype for the first embedded React host**, because the existing product is Java/Swing and there is no WebView2 Java integration in the repository. This is still a prototype recommendation, not approval to replace Swing or change MSI identity. JCEF avoids inventing a COM bridge inside the current Java launcher; keep the Swing interface as the primary, supported path until native startup, packaging, parity, and upgrade checks pass.
 
 Before final adoption:
 
-1. Pin a supported JCEF/CEF build for the project's Java 21 and Windows architecture.
-2. Measure the generated app image/MSI size and startup time against the 78,467,996-byte release snapshot; confirm native resources load after install, not only from the development classpath.
+1. The prototype pins `me.friwi:jcefmaven:152.0.6`, CEF `152.0.6`, Chromium `152.0.7977.83`, and the matching `jcef-natives-windows-amd64` archive. The Maven release page currently marks Windows AMD64 as untested; a successful compile/package does not establish runtime compatibility.
+2. Measure the generated app image/MSI size and startup time against the 78,467,996-byte release snapshot; confirm native extraction and loading after install, not only from the development classpath.
 3. Scan and record bundled Chromium/CEF/JCEF licenses and security-update ownership.
 4. Verify the React asset origin, navigation allow-list, browser-to-Java bridge surface, and separation of public Supabase credentials from privileged keys.
 5. Test install/upgrade/uninstall on an isolated machine while retaining `BRED`, the existing per-machine scope, the same MSI upgrade code, update filename/release metadata, and Swing fallback.
@@ -36,11 +37,16 @@ Reconsider WebView2 if a supported Java binding or an approved native host is in
 
 ## Current implementation boundary
 
-The new Vite shell runs as a local development web app and makes authenticated, read-only Supabase client requests with the public anon/publishable key. No Java HTTP listener, WebView dependency, service-role key, schema migration, MSI change, or updater change has been introduced. The rest of the Java services and local-storage code remain available in Swing until a reviewed host/bridge and parity plan pass verification.
+- Maven now stages and builds `web-app` with pinned Node 24.21.0 during the build, writing directly to `target/classes/web-app` so stale Vite bundles cannot remain in the shaded JAR. Node is build-time only; the installed application does not need Node. The npm dependency cache is isolated under the build user's `.bred-build` directory so Maven does not run `npm ci` over a potentially active source `node_modules`.
+- `LocalApiServer` serves the packaged static bundle and the existing Java API from the same loopback origin. Static content has a restrictive CSP and no bootstrap secret. API requests require the loopback host, per-launch bearer token, and exact Origin or Chromium's `Sec-Fetch-Site: same-origin` signal for same-origin GET fetches.
+- `ReactDesktopPanel` initializes JCEF lazily from a native archive bundled in the JAR. It disables fallback downloads, extracts runtime files under `%LOCALAPPDATA%\BRED\jcef`, rejects non-Windows/non-AMD64 hosts, blocks non-root/cross-origin top-level navigation, and exposes the token only through a per-query native bridge for the trusted top-level root document.
+- In the existing `MainWindow`, `View > React dashboard preview` opens the React shell only when signed out; `Return to Swing interface` serializes sign-out before returning to the legacy login screen. Swing remains the default and supported interface. The React feature set is still limited to sign-in and a read-only dashboard.
+- Maven unit tests (335), web tests (6), and the standalone web build pass. MSI validation-only preflight passes without invoking `jpackage`; the shaded JAR contains one current JavaScript bundle, CSS, JCEF classes, and the native archive. The actual JCEF window/native startup, browser request headers, React preview screenshots, clean app-image/MSI, installation, upgrade, and updater flow have not yet been runtime-verified. No MSI identity or updater changes have been made.
 
 ## Sources
 
 - Microsoft Learn, [Distribute your app and the WebView2 Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution) — Evergreen/Fixed Version distribution, runtime presence checks, and bootstrapper guidance (reviewed 2026-11-27).
 - Microsoft Learn, [Evergreen vs. fixed version of the WebView2 Runtime](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/evergreen-vs-fixed-version) — shared automatic updates versus app-managed fixed runtime.
 - Chromium Embedded Framework, [java-cef](https://github.com/chromiumembedded/java-cef) — Java wrapper, supported embedding use case, and project status.
+- JCEF Maven, [152.0.6 release](https://github.com/jcefmaven/jcefmaven/releases/tag/152.0.6) — artifact/native coordinates, Chromium build, and platform test status (reviewed 2026-11-27).
 - Oracle Java 21, [jpackage Packaging Overview](https://docs.oracle.com/en/java/javase/21/jpackage/packaging-overview.html) — target-platform packaging and Windows MSI/WiX prerequisites.
