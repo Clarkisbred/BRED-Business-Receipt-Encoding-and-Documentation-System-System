@@ -10,6 +10,32 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ThemeManagerTest {
     @Test
+    void modernGlassFoundationThemesAndCustomAccentPersist() {
+        ThemeManager.Appearance previousAppearance = ThemeManager.appearance();
+        boolean previousDark = ThemeManager.isDark();
+        java.awt.Color previousAccent = ThemeManager.customAccent();
+        try {
+            ThemeManager.setAppearance(ThemeManager.Appearance.MODERN_GLASS);
+            ThemeManager.apply(true);
+            assertEquals(com.bred.rms.ui.theme.RmsColors.GLASS_BACKGROUND,
+                    RmsColors.background());
+            assertEquals(com.bred.rms.ui.theme.RmsColors.GLASS_CARD,
+                    RmsColors.surface());
+            ThemeManager.setCustomAccent(java.awt.Color.decode("#22C55E"));
+            assertEquals(java.awt.Color.decode("#22C55E"), RmsColors.primaryAccent());
+            ThemeManager.installSaved();
+            assertEquals(java.awt.Color.decode("#22C55E"), RmsColors.primaryAccent());
+            ThemeManager.setAppearance(ThemeManager.Appearance.CLEAN_LIGHT);
+            ThemeManager.apply(false);
+            assertEquals(java.awt.Color.decode("#F8FAFC"), RmsColors.background());
+        } finally {
+            if (previousAccent == null) ThemeManager.clearCustomAccent();
+            else ThemeManager.setCustomAccent(previousAccent);
+            ThemeManager.setAppearance(previousAppearance);
+            ThemeManager.apply(previousDark);
+        }
+    }
+    @Test
     void themeChangesAndListenersRunOnTheSwingEventThreadWithoutDuplicateCallbacks() {
         boolean previousDark = ThemeManager.isDark();
         AtomicInteger notifications = new AtomicInteger();

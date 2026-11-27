@@ -4,6 +4,7 @@ import com.bred.rms.models.Project;
 import com.bred.rms.models.Receipt;
 import com.bred.rms.models.ReceiptMath;
 import com.bred.rms.models.Supplier;
+import com.bred.rms.services.ConstructionDataService.ConstructionReportRow;
 
 import java.io.IOException;
 import java.math.BigDecimal;
@@ -167,6 +168,90 @@ public final class ReportService {
             for (int i = 0; i < HEADER.length; i++) sheet.autoSizeColumn(i);
             sheet.createFreezePane(0, 1);
             book.write(out);
+        }
+    }
+
+    /** Exports a construction report as UTF-8 CSV. */
+    public void exportConstructionCsv(String reportName, List<ConstructionReportRow> list, Path file)
+            throws IOException {
+        StringBuilder sb = new StringBuilder("﻿Report,Status,Label,Count,Amount\r\n");
+        for (ConstructionReportRow row : list) {
+            sb.append(String.join(",", text(reportName), text(row.status()), text(row.label()),
+                    String.valueOf(row.count()),
+                    row.amount().setScale(2, java.math.RoundingMode.HALF_UP).toPlainString()))
+                    .append("\r\n");
+        }
+        Files.writeString(file, sb.toString(), StandardCharsets.UTF_8);
+    }
+
+    /** Exports a construction report as an Excel workbook. */
+    public void exportConstructionXlsx(String reportName, List<ConstructionReportRow> list, Path file)
+            throws IOException {
+        try (org.apache.poi.xssf.usermodel.XSSFWorkbook book = new org.apache.poi.xssf.usermodel.XSSFWorkbook();
+             java.io.OutputStream out = Files.newOutputStream(file)) {
+            org.apache.poi.ss.usermodel.Sheet sheet = book.createSheet(reportName);
+            org.apache.poi.ss.usermodel.Font bold = book.createFont();
+            bold.setBold(true);
+            org.apache.poi.ss.usermodel.CellStyle head = book.createCellStyle();
+            head.setFont(bold);
+            org.apache.poi.ss.usermodel.CellStyle money = book.createCellStyle();
+            money.setDataFormat(book.createDataFormat().getFormat("#,##0.00"));
+
+            org.apache.poi.ss.usermodel.Row header = sheet.createRow(0);
+            String[] columns = {"Report", "Status", "Label", "Count", "Amount"};
+            for (int i = 0; i < columns.length; i++) {
+                org.apache.poi.ss.usermodel.Cell c = header.createCell(i);
+                c.setCellValue(columns[i]);
+                c.setCellStyle(head);
+            }
+            int rowNo = 1;
+            for (ConstructionReportRow result : list) {
+                org.apache.poi.ss.usermodel.Row row = sheet.createRow(rowNo++);
+                row.createCell(0).setCellValue(reportName);
+                row.createCell(1).setCellValue(result.status());
+                row.createCell(2).setCellValue(result.label());
+                row.createCell(3).setCellValue(result.count());
+                org.apache.poi.ss.usermodel.Cell amount = row.createCell(4);
+                amount.setCellValue(result.amount().doubleValue());
+                amount.setCellStyle(money);
+            }
+            for (int i = 0; i < columns.length; i++) sheet.autoSizeColumn(i);
+            sheet.createFreezePane(0, 1);
+            book.write(out);
+        }
+    }
+
+    /** Exports a construction report as a basic text PDF. */
+    public void exportConstructionPdf(String reportName, List<ConstructionReportRow> list, Path file)
+            throws IOException {
+        try (org.apache.pdfbox.pdmodel.PDDocument document =
+                     new org.apache.pdfbox.pdmodel.PDDocument()) {
+            org.apache.pdfbox.pdmodel.PDPage page =
+                    new org.apache.pdfbox.pdmodel.PDPage();
+            document.addPage(page);
+            try (org.apache.pdfbox.pdmodel.PDPageContentStream content =
+                         new org.apache.pdfbox.pdmodel.PDPageContentStream(document, page)) {
+                content.beginText();
+                content.setFont(new org.apache.pdfbox.pdmodel.font.PDType1Font(
+                        org.apache.pdfbox.pdmodel.font.Standard14Fonts.FontName.HELVETICA_BOLD), 14);
+                content.newLineAtOffset(50, 760);
+                content.showText("BRED - " + reportName);
+                content.setFont(new org.apache.pdfbox.pdmodel.font.PDType1Font(
+                        org.apache.pdfbox.pdmodel.font.Standard14Fonts.FontName.HELVETICA), 9);
+                content.newLineAtOffset(0, -24);
+                int y = 736;
+                for (ConstructionReportRow row : list) {
+                    if (y < 40) break;
+                    String line = row.status() + " | " + row.label() + " | "
+                            + row.count() + " | " + row.amount().setScale(2,
+                            java.math.RoundingMode.HALF_UP).toPlainString();
+                    content.showText(line);
+                    content.newLineAtOffset(0, -14);
+                    y -= 14;
+                }
+                content.endText();
+            }
+            document.save(file.toFile());
         }
     }
 

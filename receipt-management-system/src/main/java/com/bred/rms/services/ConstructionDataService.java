@@ -17,6 +17,8 @@ import java.math.BigDecimal;
 /** Read-only construction alerts for the dashboard. Mutating workflows require authorized UI flows. */
 public final class ConstructionDataService {
     public record ConstructionReportRow(String label, int count, String status, BigDecimal amount) {}
+    public record ConstructionSummary(BigDecimal grossBillings, BigDecimal collected,
+                                      BigDecimal receivable, int overdueBillings) {}
     private final RestClient rest;
     private final int warningDays;
 
@@ -56,6 +58,37 @@ public final class ConstructionDataService {
     public int openSafetyCount() {
         if (rest == null) return 0;
         return countRows("safety_records", "status", "Open");
+    }
+
+    public ConstructionSummary summary() {
+        if (rest == null) return new ConstructionSummary(
+                BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, 0);
+        BigDecimal gross = BigDecimal.ZERO;
+        BigDecimal collected = BigDecimal.ZERO;
+        BigDecimal receivable = BigDecimal.ZERO;
+        int overdue = 0;
+        for (JsonNode row : rows("project_billings")) {
+            BigDecimal net = decimal(row, "net_amount");
+            BigDecimal paid = decimal(row, "collected_amount");
+            gross = gross.add(decimal(row, "gross_amount"));
+            collected = collected.add(paid);
+            BigDecimal outstanding = net.subtract(paid);
+            if (outstanding.signum() > 0) receivable = receivable.add(outstanding);
+            String status = text(row, "status");
+            if ("Overdue".equalsIgnoreCase(status)
+                    || (outstanding.signum() > 0 && overdue(row))) overdue++;
+        }
+        return new ConstructionSummary(gross, collected, receivable, overdue);
+    }
+
+    private boolean overdue(JsonNode row) {
+        JsonNode due = row.get("due_date");
+        if (due == null || due.isNull()) return false;
+        try {
+            return LocalDate.parse(due.asText()).isBefore(LocalDate.now());
+        } catch (RuntimeException error) {
+            return false;
+        }
     }
 
     public List<JsonNode> rows(String table) {
@@ -108,7 +141,13 @@ public final class ConstructionDataService {
             case "Bid summary" -> simpleStatusReport("bids", "bid_reference", "result", null);
             case "Subcontract balances" -> amountReport("subcontracts", "scope",
                     "subcontract_amount", "Subcontract commitment");
-            case "Equipment costs" -> amountReport("equipment", "name", "rate", "Equipment rate");
+            case "Equipment costs" -> amountReport("equipment_cost_postings", "equipment_id",
+                    "total_cost", "Equipment cost");
+            case "Project risks" -> simpleStatusReport("project_risks", "title", "level", null);
+            case "Project map" -> simpleStatusReport("project_map_markers", "marker_name", "status", null);
+            case "Quality NCR" -> simpleStatusReport("project_quality_ncr", "ncr_number", "status", null);
+            case "Punch items" -> simpleStatusReport("project_punch_items", "punch_number", "status", null);
+            case "Closeout" -> simpleStatusReport("project_handover_records", "certificate_number", "status", null);
             case "Cash advances" -> amountReport("cash_advances", "issued_to", "amount", "Cash advance");
             case "Tax calendar" -> simpleStatusReport("tax_calendar_items", "name", "status", null);
             case "Progress and accomplishments" -> simpleStatusReport("project_accomplishments",
@@ -122,6 +161,9 @@ public final class ConstructionDataService {
             case "Payables" -> simpleStatusReport("project_payables", "invoice_number", "status", null);
             case "Cash flow" -> simpleStatusReport("project_cash_movements",
                     "movement_type", "approved", null);
+            case "Procurement" -> simpleStatusReport("purchase_orders", "po_number", "status", null);
+            case "Inventory stock" -> amountReport("material_stock", "description", "quantity", "Stock quantity");
+            case "Equipment usage" -> simpleStatusReport("equipment_usage", "usage_date", "approved", null);
             default -> List.of();
         };
     }

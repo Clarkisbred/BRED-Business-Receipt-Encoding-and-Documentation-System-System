@@ -49,7 +49,7 @@ class DuckyToolRegistryTest {
         assertTrue(result.content().contains("RCPT-SECRET-7"));
         assertFalse(result.content().contains("TIN-PRIVATE-123"));
         assertFalse(result.content().contains("Private address"));
-        assertEquals(15, registry.definitions().size());
+        assertEquals(16, registry.definitions().size());
     }
 
     @Test
@@ -75,6 +75,26 @@ class DuckyToolRegistryTest {
                 Role.ADMIN, true, AccountStatus.APPROVED, Instant.EPOCH, "", null)).registry();
         assertThrows(SecurityException.class, () -> unscopedRegistry.execute("getRecentReceipts",
                 JSON.readTree("{}"), DuckyPermission.ASSIST));
+    }
+
+    @Test
+    void constructionReportsAreReadOnlyAndRejectUnauthorizedReportNames() throws Exception {
+        Fixture fixture = new Fixture(approvedUser());
+        DuckyToolRegistry registry = fixture.registry();
+
+        var result = registry.execute("getConstructionReport",
+                JSON.readTree("{\"reportName\":\"Overdue billings\"}"),
+                DuckyPermission.ASSIST);
+
+        assertTrue(result.content().contains("Overdue billings"));
+        assertThrows(IllegalArgumentException.class,
+                () -> registry.execute("getConstructionReport",
+                        JSON.readTree("{\"reportName\":\"Create receipt\"}"),
+                        DuckyPermission.ASSIST));
+        assertThrows(IllegalArgumentException.class,
+                () -> registry.execute("getConstructionReport",
+                        JSON.readTree("{\"reportName\":\"Overdue billings\",\"unexpected\":true}"),
+                        DuckyPermission.ASSIST));
     }
 
     @Test

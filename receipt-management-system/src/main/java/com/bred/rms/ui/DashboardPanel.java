@@ -4,10 +4,15 @@ import com.bred.rms.config.AppContext;
 import com.bred.rms.models.Receipt;
 import com.bred.rms.models.ReceiptMath;
 import com.bred.rms.models.Supplier;
+import com.bred.rms.models.User;
 import com.bred.rms.models.ConstructionModels.ExpiryAlert;
 import com.bred.rms.services.ReportService;
+import com.bred.rms.models.Project;
 import com.bred.rms.ui.components.StatCard;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.GlassPanel;
+import com.bred.rms.ui.components.SectionHeader;
+import com.bred.rms.ui.components.UiConstants;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.utils.BackgroundTask;
 
@@ -20,6 +25,12 @@ import javax.swing.table.DefaultTableModel;
 import java.awt.BorderLayout;
 import java.awt.Font;
 import java.awt.GridLayout;
+import java.awt.FlowLayout;
+import java.awt.Component;
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.time.YearMonth;
@@ -34,19 +45,21 @@ import java.util.function.Consumer;
 public final class DashboardPanel extends JPanel implements RefreshablePanel {
     private static final int RECENT = 8;
 
-    private record Loaded(List<Receipt> receipts, List<Supplier> suppliers,
-                          List<ExpiryAlert> expiryAlerts, int failedTests, int openSafetyRecords) { }
+    private record Loaded(List<Receipt> receipts, List<Supplier> suppliers, List<Project> projects,
+                          List<ExpiryAlert> expiryAlerts, int failedTests, int openSafetyRecords,
+                          com.bred.rms.services.ConstructionDataService.ConstructionSummary financial) { }
 
     private final AppContext ctx;
     private final Consumer<UUID> onOpen;
     private final StatCard totalSpend = new StatCard("Total expenses", "–", RmsColors::primaryAccent);
     private final StatCard monthSpend = new StatCard("Spend this month", "–", RmsColors.SUCCESS);
     private final StatCard totalCount = new StatCard("Total receipts", "–", RmsColors.INFO);
-    private final StatCard projectCount = new StatCard("Projects with spend", "–", RmsColors.WARNING);
+    private final StatCard projectCount = new StatCard("Projects", "–", RmsColors.WARNING);
     private final StatCard complianceAlerts = new StatCard("Compliance alerts", "–", RmsColors.DANGER);
-    private final StatCard failedTests = new StatCard("Failed tests", "–", RmsColors.WARNING);
-    private final StatCard openSafetyRecords = new StatCard("Open safety records", "–", RmsColors.INFO);
-    private final DefaultTableModel model = new DefaultTableModel(new String[]{"Receipt no.", "Date", "Supplier", "Total"}, 0) {
+    private final StatCard receivable = new StatCard("Outstanding receivable", "–", RmsColors.INFO);
+    private final StatCard overdueBillings = new StatCard("Overdue billings", "–", RmsColors.DANGER);
+    private final DefaultTableModel model = new DefaultTableModel(
+            new String[]{"Project", "Receipts", "Spend"}, 0) {
         @Override public boolean isCellEditable(int row, int column) { return false; }
     };
     private final JTable table = new JTable(model);
@@ -56,6 +69,10 @@ public final class DashboardPanel extends JPanel implements RefreshablePanel {
     };
     private final JTable alertTable = new JTable(alertModel);
     private final JLabel status = new JLabel(" ");
+    private final JLabel grossBillings = new JLabel("Gross billings: –");
+    private final JLabel collections = new JLabel("Collections: –");
+    private final JLabel outstanding = new JLabel("Outstanding: –");
+    private final JLabel overdueLabel = new JLabel("Overdue: –");
     private List<Receipt> recent = new ArrayList<>();
 
     /** Builds the dashboard; {@code onOpen} is called with a receipt id when a recent receipt is clicked. */
@@ -63,63 +80,87 @@ public final class DashboardPanel extends JPanel implements RefreshablePanel {
         super(new BorderLayout(0, 14));
         this.ctx = ctx;
         this.onOpen = onOpen;
-        JPanel cards = new JPanel(new GridLayout(2, 3, 12, 12));
-        cards.setOpaque(false);
-        for (StatCard c : List.of(totalSpend, monthSpend, totalCount, projectCount,
-                complianceAlerts, failedTests)) {
-            cards.add(c);
-        }
-        cards.add(openSafetyRecords);
-        add(cards, BorderLayout.NORTH);
+        setOpaque(false);
+        setBorder(BorderFactory.createEmptyBorder(4, 2, 2, 2));
 
-        JLabel heading = new JLabel("Recent receipts");
-        heading.setFont(heading.getFont().deriveFont(Font.BOLD, 15f));
-        heading.setBorder(BorderFactory.createEmptyBorder(0, 2, 6, 0));
-        table.setRowHeight(28);
+        User user = ctx.currentUser.get();
+        String company = user == null || user.companyName().isBlank()
+                ? "BRED workspace" : user.companyName();
+        SectionHeader welcome = new SectionHeader(
+                "Good " + dayPart() + (user == null || user.fullName().isBlank()
+                        ? "" : ", " + user.fullName()),
+                company + "  •  " + LocalDate.now().format(DateTimeFormatter
+                        .ofPattern("EEEE, MMMM d, yyyy", Locale.ENGLISH)));
+        add(welcome, BorderLayout.NORTH);
+
+        JPanel cards = new JPanel(new GridLayout(2, 3, UiConstants.CARD_GAP, UiConstants.CARD_GAP));
+        cards.setOpaque(false);
+        for (StatCard card : List.of(totalSpend, monthSpend, totalCount,
+                projectCount, complianceAlerts, receivable)) {
+            cards.add(card);
+        }
+
+        JPanel lower = new JPanel(new GridLayout(1, 3, UiConstants.CARD_GAP, 0));
+        lower.setOpaque(false);
+        lower.setBorder(BorderFactory.createEmptyBorder(14, 0, 0, 0));
+
+        GlassPanel projectPanel = new GlassPanel(new BorderLayout(0, 8));
+        JLabel projectHeading = new JLabel("Project overview");
+        projectHeading.setFont(projectHeading.getFont().deriveFont(Font.BOLD, 15f));
+        projectHeading.setForeground(RmsColors.text());
+        projectPanel.add(projectHeading, BorderLayout.NORTH);
+        table.setRowHeight(32);
         table.setFillsViewportHeight(true);
         table.getTableHeader().setReorderingAllowed(false);
-        table.addMouseListener(new MouseAdapter() {
-            @Override public void mouseClicked(MouseEvent e) {
-                int row = table.rowAtPoint(e.getPoint());
-                if (row >= 0 && row < recent.size()) DashboardPanel.this.onOpen.accept(recent.get(row).id());
-            }
-        });
-        JPanel lower = new JPanel(new BorderLayout());
-        lower.setOpaque(false);
-        lower.add(heading, BorderLayout.NORTH);
-        JPanel dashboardTables = new JPanel(new GridLayout(1, 2, 12, 0));
-        dashboardTables.setOpaque(false);
+        projectPanel.add(new StyledScrollPane(table), BorderLayout.CENTER);
+        lower.add(projectPanel);
 
-        JPanel recentPanel = new JPanel(new BorderLayout());
-        recentPanel.setOpaque(false);
-        recentPanel.add(new StyledScrollPane(table), BorderLayout.CENTER);
-        dashboardTables.add(recentPanel);
+        GlassPanel financialPanel = new GlassPanel();
+        financialPanel.setLayout(new BorderLayout(0, 10));
+        JLabel financialHeading = new JLabel("Financial overview");
+        financialHeading.setFont(financialHeading.getFont().deriveFont(Font.BOLD, 15f));
+        financialHeading.setForeground(RmsColors.text());
+        financialPanel.add(financialHeading, BorderLayout.NORTH);
+        JPanel financialRows = new JPanel(new GridLayout(4, 1, 4, 8));
+        financialRows.setOpaque(false);
+        for (JLabel label : List.of(grossBillings, collections, outstanding, overdueLabel)) {
+            label.setForeground(RmsColors.text());
+            financialRows.add(label);
+        }
+        financialPanel.add(financialRows, BorderLayout.CENTER);
+        lower.add(financialPanel);
 
-        JPanel alertsPanel = new JPanel(new BorderLayout());
-        alertsPanel.setOpaque(false);
+        GlassPanel activityPanel = new GlassPanel(new BorderLayout(0, 8));
         JLabel alertsHeading = new JLabel("Compliance and project alerts");
         alertsHeading.setFont(alertsHeading.getFont().deriveFont(Font.BOLD, 15f));
-        alertsHeading.setBorder(BorderFactory.createEmptyBorder(0, 2, 6, 0));
+        alertsHeading.setForeground(RmsColors.text());
         alertTable.setRowHeight(28);
         alertTable.setFillsViewportHeight(true);
         alertTable.getTableHeader().setReorderingAllowed(false);
-        alertsPanel.add(alertsHeading, BorderLayout.NORTH);
-        alertsPanel.add(new StyledScrollPane(alertTable), BorderLayout.CENTER);
-        dashboardTables.add(alertsPanel);
+        activityPanel.add(alertsHeading, BorderLayout.NORTH);
+        activityPanel.add(new StyledScrollPane(alertTable), BorderLayout.CENTER);
+        lower.add(activityPanel);
 
-        lower.add(dashboardTables, BorderLayout.CENTER);
+        JPanel center = new JPanel(new BorderLayout(0, 12));
+        center.setOpaque(false);
+        center.add(cards, BorderLayout.CENTER);
+        center.add(lower, BorderLayout.SOUTH);
+        add(center, BorderLayout.CENTER);
         status.setForeground(RmsColors.SECONDARY_TEXT);
-        lower.add(status, BorderLayout.SOUTH);
-        add(lower, BorderLayout.CENTER);
+        add(status, BorderLayout.SOUTH);
         refreshData();
     }
 
     @Override
     public void refreshData() {
-        BackgroundTask.run(() -> new Loaded(ctx.reports.receipts(null, null), ctx.suppliers.findAll(),
+        BackgroundTask.run(() -> new Loaded(
+                        ctx.reports.receipts(null, null),
+                        ctx.suppliers.findAll(),
+                        ctx.projects.findAll(),
                         ctx.constructionData.expiryAlerts(),
                         ctx.constructionData.failedTestCount(),
-                        ctx.constructionData.openSafetyCount()),
+                        ctx.constructionData.openSafetyCount(),
+                        ctx.constructionData.summary()),
                 this::fill, e -> status.setText(UiErrors.friendly(e)));
     }
 
@@ -128,22 +169,45 @@ public final class DashboardPanel extends JPanel implements RefreshablePanel {
         totalSpend.setValue(ReceiptMath.format(s.totalSpend()));
         monthSpend.setValue(ReceiptMath.format(s.monthSpend()));
         totalCount.setValue(String.valueOf(s.totalCount()));
-        projectCount.setValue(String.valueOf(s.projectsWithSpend()));
+        projectCount.setValue(String.valueOf(loaded.projects().size()));
         complianceAlerts.setValue(String.valueOf(loaded.expiryAlerts().size()));
-        failedTests.setValue(String.valueOf(loaded.failedTests()));
-        openSafetyRecords.setValue(String.valueOf(loaded.openSafetyRecords()));
+        receivable.setValue(ReceiptMath.format(loaded.financial().receivable()));
+        overdueBillings.setValue(String.valueOf(loaded.financial().overdueBillings()));
+        grossBillings.setText("Gross billings: " + ReceiptMath.format(loaded.financial().grossBillings()));
+        collections.setText("Collections: " + ReceiptMath.format(loaded.financial().collected()));
+        outstanding.setText("Outstanding: " + ReceiptMath.format(loaded.financial().receivable()));
+        overdueLabel.setText("Overdue billings: " + loaded.financial().overdueBillings());
         Map<UUID, String> names = new HashMap<>();
         for (Supplier sup : loaded.suppliers()) names.put(sup.id(), sup.businessName());
-        recent = new ArrayList<>(loaded.receipts().subList(0, Math.min(RECENT, loaded.receipts().size())));
         model.setRowCount(0);
-        for (Receipt r : recent) {
-            model.addRow(new Object[]{r.receiptNo(), r.date().toString(), names.getOrDefault(r.supplierId(), "–"), ReceiptMath.format(r.grandTotal())});
+        Map<UUID, Integer> counts = new HashMap<>();
+        Map<UUID, BigDecimal> spends = new HashMap<>();
+        for (Receipt receipt : loaded.receipts()) {
+            if (receipt.projectId() == null) continue;
+            counts.merge(receipt.projectId(), 1, Integer::sum);
+            spends.merge(receipt.projectId(), receipt.grandTotal(), BigDecimal::add);
+        }
+        for (Project project : loaded.projects()) {
+            model.addRow(new Object[]{
+                    project.name(),
+                    counts.getOrDefault(project.id(), 0),
+                    ReceiptMath.format(spends.getOrDefault(project.id(), BigDecimal.ZERO))
+            });
         }
         alertModel.setRowCount(0);
         for (ExpiryAlert alert : loaded.expiryAlerts()) {
             alertModel.addRow(new Object[]{alert.label(), alert.category(), alert.name(),
                     alert.expiryDate().toString()});
         }
-        status.setText(recent.isEmpty() ? "No receipts yet. Add your first one under Receipts." : "Click a receipt to open it.");
+        status.setText(loaded.projects().isEmpty()
+                ? "No projects yet. Add your first project under Projects."
+                : "Dashboard uses authorized company data.");
+    }
+
+    private static String dayPart() {
+        int hour = java.time.LocalTime.now().getHour();
+        if (hour < 12) return "morning";
+        if (hour < 18) return "afternoon";
+        return "evening";
     }
 }

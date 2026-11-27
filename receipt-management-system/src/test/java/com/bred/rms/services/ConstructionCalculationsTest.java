@@ -212,4 +212,84 @@ class ConstructionCalculationsTest {
                 new BigDecimal("10000"), new BigDecimal("50000"), new BigDecimal("35000"));
         assertEquals(new BigDecimal("25000.00"), cash.closing());
     }
+
+    @Test
+    void procurementAndStockRulesPreventNegativeMovements() {
+        assertFalse(ConstructionCalculations.canPostStockMovement(
+                "Issue", new BigDecimal("10"), new BigDecimal("12")));
+        assertTrue(ConstructionCalculations.canPostStockMovement(
+                "Issue", new BigDecimal("12"), new BigDecimal("10")));
+        assertTrue(ConstructionCalculations.canPostStockMovement(
+                "Purchase Receipt", new BigDecimal("0"), new BigDecimal("25")));
+        assertEquals(new BigDecimal("500.00"),
+                ConstructionCalculations.purchaseOrderRemaining(
+                        new BigDecimal("2500.00"), new BigDecimal("2000.00")));
+        ConstructionModels.StockPosition stock = ConstructionCalculations.stockPosition(
+                new BigDecimal("40"), new BigDecimal("125.50"));
+        assertEquals(new BigDecimal("5020.00"), stock.inventoryValue());
+    }
+
+    @Test
+    void laborCostUsesConfiguredMultipliers() {
+        ConstructionModels.LaborCost cost = ConstructionCalculations.laborCost(
+                new BigDecimal("8"), new BigDecimal("2"), new BigDecimal("4"),
+                new BigDecimal("100"), new BigDecimal("1.25"), new BigDecimal("2.00"));
+        assertEquals(new BigDecimal("800.00"), cost.regularPay());
+        assertEquals(new BigDecimal("250.00"), cost.overtimePay());
+        assertEquals(new BigDecimal("800.00"), cost.holidayPay());
+        assertEquals(new BigDecimal("1850.00"), cost.totalPay());
+    }
+
+    @Test
+    void equipmentCostIsRentalFuelAndMaintenanceOnlyWhenApprovedRecordsExist() {
+        assertEquals(new BigDecimal("3200.00"),
+                ConstructionCalculations.equipmentCost(
+                        new BigDecimal("2000"), new BigDecimal("700"), new BigDecimal("500")));
+    }
+
+    @Test
+    void riskScoreAndMapCoordinatesAreValidated() {
+        ConstructionModels.RiskScore critical = ConstructionCalculations.riskScore(5, 5);
+        assertEquals(25, critical.score());
+        assertEquals("Critical", critical.level());
+        ConstructionCalculations.validateCoordinates(
+                new BigDecimal("14.5995"), new BigDecimal("120.9842"));
+        assertThrows(IllegalArgumentException.class,
+                () -> ConstructionCalculations.validateCoordinates(
+                        new BigDecimal("91"), new BigDecimal("120")));
+        assertThrows(IllegalArgumentException.class,
+                () -> ConstructionCalculations.riskScore(6, 3));
+    }
+
+    @Test
+    void closeoutRequiresAllItemsAndNoOpenDeficiencies() {
+        ConstructionModels.CloseoutStatus incomplete =
+                ConstructionCalculations.closeoutStatus(10, 8, 0);
+        assertFalse(incomplete.canClose());
+        assertEquals("Incomplete closeout", incomplete.status());
+
+        ConstructionModels.CloseoutStatus blocked =
+                ConstructionCalculations.closeoutStatus(10, 10, 2);
+        assertFalse(blocked.canClose());
+        assertEquals("Open deficiencies", blocked.status());
+
+        ConstructionModels.CloseoutStatus ready =
+                ConstructionCalculations.closeoutStatus(10, 10, 0);
+        assertTrue(ready.canClose());
+        assertEquals("Ready for closeout", ready.status());
+    }
+
+    @Test
+    void offlineSyncRequiresOnlineAuthorizedSessionAndIsIdempotent() {
+        assertFalse(ConstructionCalculations.canSyncOfflineEntry(false, true, true, "Queued"));
+        assertFalse(ConstructionCalculations.canSyncOfflineEntry(true, false, true, "Queued"));
+        assertFalse(ConstructionCalculations.canSyncOfflineEntry(true, true, false, "Failed"));
+        assertTrue(ConstructionCalculations.canSyncOfflineEntry(true, true, true, "Queued"));
+        assertEquals("Synced",
+                ConstructionCalculations.nextOfflineStatus("Queued", true));
+        assertEquals("Failed",
+                ConstructionCalculations.nextOfflineStatus("Syncing", false));
+        assertEquals("Synced",
+                ConstructionCalculations.nextOfflineStatus("Synced", false));
+    }
 }

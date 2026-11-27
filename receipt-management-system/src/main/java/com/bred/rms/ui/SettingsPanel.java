@@ -37,9 +37,11 @@ import javax.swing.JPanel;
 import javax.swing.JPasswordField;
 import javax.swing.JProgressBar;
 import javax.swing.JRadioButton;
+import javax.swing.JColorChooser;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.SwingUtilities;
 import javax.swing.ListSelectionModel;
 import javax.swing.filechooser.FileNameExtensionFilter;
 import javax.imageio.ImageIO;
@@ -109,6 +111,7 @@ public final class SettingsPanel extends JPanel {
     private boolean updateStatusError;
     private final Consumer<Boolean> themeListener = dark -> applyTheme();
     private Path selectedImage;
+    private JPanel themePreview;
 
     /** Builds the settings screen for the signed-in user. */
     public SettingsPanel(AppContext ctx) {
@@ -176,8 +179,40 @@ public final class SettingsPanel extends JPanel {
         Dimension appearanceSize = appearances.getPreferredSize();
         appearances.setMaximumSize(appearanceSize);
         appearances.addActionListener(e ->
-                ThemeManager.setAppearance((ThemeManager.Appearance) appearances.getSelectedItem()));
+                {
+                    ThemeManager.Appearance selected =
+                            (ThemeManager.Appearance) appearances.getSelectedItem();
+                    ThemeManager.setAppearance(selected);
+                    if (selected == ThemeManager.Appearance.CLEAN_LIGHT
+                            && ThemeManager.isDark()) ThemeManager.apply(false);
+                });
         add(appearances);
+        JButton accent = new JButton("Choose accent color");
+        accent.setAlignmentX(LEFT_ALIGNMENT);
+        accent.addActionListener(e -> {
+            Color chosen = JColorChooser.showDialog(SwingUtilities.getWindowAncestor(this),
+                    "Choose BRED accent", ThemeManager.customAccent() == null
+                            ? RmsColors.primaryAccent() : ThemeManager.customAccent());
+            if (chosen != null) ThemeManager.setCustomAccent(chosen);
+        });
+        add(Box.createVerticalStrut(8));
+        add(accent);
+        JButton resetAccent = new JButton("Use theme accent");
+        resetAccent.setAlignmentX(LEFT_ALIGNMENT);
+        resetAccent.addActionListener(e -> ThemeManager.clearCustomAccent());
+        add(Box.createVerticalStrut(6));
+        add(resetAccent);
+        themePreview = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 8));
+        themePreview.setName("themeLivePreview");
+        themePreview.setAlignmentX(LEFT_ALIGNMENT);
+        themePreview.setBorder(BorderFactory.createTitledBorder("Live theme preview"));
+        themePreview.add(new JButton("Button"));
+        JLabel accentPreview = new JLabel("Accent");
+        accentPreview.setName("themeAccentPreview");
+        accentPreview.setOpaque(true);
+        accentPreview.setBorder(BorderFactory.createEmptyBorder(6, 10, 6, 10));
+        themePreview.add(accentPreview);
+        add(themePreview);
         add(Box.createVerticalStrut(20));
         addUpdateSection();
         add(Box.createVerticalStrut(20));
@@ -220,6 +255,17 @@ public final class SettingsPanel extends JPanel {
 
     private void applyTheme() {
         applyTextTheme(this);
+        if (themePreview != null) {
+            themePreview.setBackground(RmsColors.surface());
+            themePreview.setForeground(RmsColors.text());
+            for (Component child : themePreview.getComponents()) {
+                if ("themeAccentPreview".equals(child.getName())) {
+                    JLabel accentPreview = (JLabel) child;
+                    accentPreview.setBackground(RmsColors.primaryAccent());
+                    accentPreview.setForeground(RmsColors.primaryForeground());
+                }
+            }
+        }
         reportSubtitle.setForeground(RmsColors.SECONDARY_TEXT);
         imageName.setForeground(RmsColors.SECONDARY_TEXT);
         releaseMessage.setForeground(RmsColors.SECONDARY_TEXT);

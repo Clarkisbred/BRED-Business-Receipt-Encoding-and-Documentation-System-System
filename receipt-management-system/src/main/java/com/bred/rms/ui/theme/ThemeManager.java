@@ -31,13 +31,19 @@ public final class ThemeManager {
     private static final Preferences PREFS = Preferences.userNodeForPackage(ThemeManager.class);
     private static final String KEY_DARK = "theme.dark";
     private static final String KEY_APPEARANCE = "theme.appearance";
+    private static final String KEY_ACCENT = "theme.accent";
     private static boolean dark;
     private static Appearance appearance = Appearance.DEFAULT;
+    private static Color accentOverride;
     private static final List<Consumer<Boolean>> listeners = new CopyOnWriteArrayList<>();
 
     /** Available application color palettes. */
     public enum Appearance {
         DEFAULT("Default"),
+        MODERN_GLASS("Modern Glass"),
+        MIDNIGHT_BLUE("Midnight Blue"),
+        CLEAN_LIGHT("Clean Light"),
+        GRAPHITE("Graphite"),
         BREDUCK_SIGNATURE("BreDuck's Signature"),
         DUTERTES_SIGNATURE("Duterte for 2028"),
         SHRIMPS_AUCLAIR("Shrimp's Auclair"),
@@ -80,6 +86,11 @@ public final class ThemeManager {
         return appearance;
     }
 
+    /** Returns the optional user-selected accent color. */
+    public static Color customAccent() {
+        return accentOverride;
+    }
+
     /** Register a callback whenever the theme changes. */
     public static void addThemeListener(Consumer<Boolean> listener) {
         if (!listeners.contains(listener)) {
@@ -94,8 +105,26 @@ public final class ThemeManager {
 
     /** Applies the saved theme and appearance preferences. */
     public static void installSaved() { 
-        appearance = Appearance.fromPreference(PREFS.get(KEY_APPEARANCE, Appearance.DEFAULT.name()));
-        apply(PREFS.getBoolean(KEY_DARK, false)); 
+        appearance = Appearance.fromPreference(PREFS.get(KEY_APPEARANCE, Appearance.MODERN_GLASS.name()));
+        accentOverride = parseHex(PREFS.get(KEY_ACCENT, ""), null);
+        boolean defaultDark = appearance == Appearance.MODERN_GLASS
+                || appearance == Appearance.MIDNIGHT_BLUE
+                || appearance == Appearance.GRAPHITE;
+        apply(PREFS.getBoolean(KEY_DARK, defaultDark));
+    }
+
+    /** Sets and persists a custom accent color, or {@code null} to use the theme accent. */
+    public static void setCustomAccent(Color selected) {
+        accentOverride = selected;
+        if (selected == null) PREFS.remove(KEY_ACCENT);
+        else PREFS.put(KEY_ACCENT, toHex(selected));
+        flushPreferences();
+        apply(dark);
+    }
+
+    /** Removes the custom accent and restores the selected theme accent. */
+    public static void clearCustomAccent() {
+        setCustomAccent(null);
     }
 
     /** Switches between light and dark themes. */
@@ -181,6 +210,13 @@ public final class ThemeManager {
 
     private static String toHex(Color color) {
         return String.format("#%02X%02X%02X", color.getRed(), color.getGreen(), color.getBlue());
+    }
+
+    private static Color parseHex(String value, Color fallback) {
+        if (value == null) return fallback;
+        String hex = value.trim();
+        if (!hex.matches("(?i)^#[0-9A-F]{6}$")) return fallback;
+        return Color.decode(hex);
     }
 
     private static void flushPreferences() {

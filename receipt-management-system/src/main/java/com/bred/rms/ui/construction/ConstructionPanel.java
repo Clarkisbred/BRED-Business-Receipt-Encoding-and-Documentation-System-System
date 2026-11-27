@@ -6,6 +6,7 @@ import com.bred.rms.models.User;
 import com.bred.rms.ui.RefreshablePanel;
 import com.bred.rms.ui.UiErrors;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.GlassPanel;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.utils.BackgroundTask;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -17,6 +18,9 @@ import javax.swing.JLabel;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
 import javax.swing.JTabbedPane;
+import javax.swing.JTextField;
+import javax.swing.JScrollPane;
+import javax.swing.ScrollPaneConstants;
 import javax.swing.JTable;
 import javax.swing.JTextField;
 import javax.swing.SwingUtilities;
@@ -25,6 +29,11 @@ import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
+import java.awt.CardLayout;
+import java.awt.GridLayout;
+import java.awt.Font;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
 import java.awt.Insets;
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -253,6 +262,125 @@ public final class ConstructionPanel extends JPanel implements RefreshablePanel 
                     field("Profit", "profit", FieldType.NUMBER),
                     field("Margin percent", "margin_percent", FieldType.NUMBER),
                     field("Status", "status"), field("Approved", "approved", FieldType.BOOLEAN)),
+            spec("Wage configurations", "labor_wage_configurations",
+                    field("Region", "region"), field("Effective from", "effective_from", FieldType.DATE),
+                    field("Effective to", "effective_to", FieldType.DATE),
+                    field("Daily minimum wage", "daily_minimum_wage", FieldType.NUMBER),
+                    field("Hourly reference", "hourly_reference", FieldType.NUMBER),
+                    field("Overtime multiplier", "overtime_multiplier", FieldType.NUMBER),
+                    field("Holiday multiplier", "holiday_multiplier", FieldType.NUMBER),
+                    field("13th month", "thirteenth_month_enabled", FieldType.BOOLEAN)),
+            spec("Workers", "project_workers",
+                    field("Project UUID", "project_id"), field("Worker name", "worker_name"),
+                    field("Worker code", "worker_code"), field("Role", "role"),
+                    field("Daily rate", "daily_rate", FieldType.NUMBER),
+                    field("Hourly rate", "hourly_rate", FieldType.NUMBER),
+                    field("SSS number", "sss_number"), field("PhilHealth number", "philhealth_number"),
+                    field("Pag-IBIG number", "pagibig_number"), field("Active", "active", FieldType.BOOLEAN)),
+            spec("Attendance", "project_attendance",
+                    field("Project UUID", "project_id"), field("Worker UUID", "worker_id"),
+                    field("Attendance date", "attendance_date", FieldType.DATE),
+                    field("Time in", "time_in"), field("Time out", "time_out"),
+                    field("Regular hours", "regular_hours", FieldType.NUMBER),
+                    field("Overtime hours", "overtime_hours", FieldType.NUMBER),
+                    field("Holiday hours", "holiday_hours", FieldType.NUMBER),
+                    field("Present", "present", FieldType.BOOLEAN), field("Remarks", "remarks"),
+                    field("Approved", "approved", FieldType.BOOLEAN)),
+            spec("Labor costs", "project_labor_costs",
+                    field("Project UUID", "project_id"), field("Period start", "period_start", FieldType.DATE),
+                    field("Period end", "period_end", FieldType.DATE),
+                    field("Regular pay", "regular_pay", FieldType.NUMBER),
+                    field("Overtime pay", "overtime_pay", FieldType.NUMBER),
+                    field("Holiday pay", "holiday_pay", FieldType.NUMBER),
+                    field("Total pay", "total_pay", FieldType.NUMBER),
+                    field("Approved", "approved", FieldType.BOOLEAN)),
+            spec("Equipment usage", "equipment_usage",
+                    field("Equipment UUID", "equipment_id"), field("Project UUID", "project_id"),
+                    field("Usage date", "usage_date", FieldType.DATE), field("Quantity", "quantity", FieldType.NUMBER),
+                    field("Fuel consumed", "fuel_consumed", FieldType.NUMBER),
+                    field("Operator", "operator_name"), field("Approved", "approved", FieldType.BOOLEAN)),
+            spec("Equipment maintenance", "equipment_maintenance",
+                    field("Equipment UUID", "equipment_id"), field("Maintenance date", "maintenance_date", FieldType.DATE),
+                    field("Cost", "cost", FieldType.NUMBER), field("Description", "description"),
+                    field("Approved", "approved", FieldType.BOOLEAN)),
+            spec("Equipment allocations", "equipment_allocations",
+                    field("Equipment UUID", "equipment_id"), field("Project UUID", "project_id"),
+                    field("Allocated from", "allocated_from", FieldType.DATE),
+                    field("Allocated to", "allocated_to", FieldType.DATE), field("Purpose", "purpose"),
+                    field("Operator", "operator_name"), field("Status", "status"),
+                    field("Approved", "approved", FieldType.BOOLEAN)),
+            spec("Equipment fuel", "equipment_fuel_logs",
+                    field("Equipment UUID", "equipment_id"), field("Project UUID", "project_id"),
+                    field("Usage UUID", "usage_id"), field("Receipt UUID", "receipt_id"),
+                    field("Fuel date", "fuel_date", FieldType.DATE), field("Liters", "liters", FieldType.NUMBER),
+                    field("Cost", "cost", FieldType.NUMBER), field("Supplier UUID", "supplier_id"),
+                    field("Odometer", "odometer_reading", FieldType.NUMBER),
+                    field("Remarks", "remarks"), field("Approved", "approved", FieldType.BOOLEAN)),
+            spec("Equipment cost postings", "equipment_cost_postings",
+                    field("Equipment UUID", "equipment_id"), field("Project UUID", "project_id"),
+                    field("Usage UUID", "usage_id"), field("Period start", "period_start", FieldType.DATE),
+                    field("Period end", "period_end", FieldType.DATE),
+                    field("Rental cost", "rental_cost", FieldType.NUMBER),
+                    field("Fuel cost", "fuel_cost", FieldType.NUMBER),
+                    field("Maintenance cost", "maintenance_cost", FieldType.NUMBER),
+                    field("Total cost", "total_cost", FieldType.NUMBER),
+                    field("Posted to expense", "posted_to_expense", FieldType.BOOLEAN),
+                    field("Approved", "approved", FieldType.BOOLEAN)),
+            spec("Equipment downtime", "equipment_down_time",
+                    field("Equipment UUID", "equipment_id"), field("Project UUID", "project_id"),
+                    field("Down date", "down_date", FieldType.DATE), field("Restored date", "restored_date", FieldType.DATE),
+                    field("Reason", "reason"), field("Maintenance UUID", "maintenance_id"),
+                    field("Status", "status")),
+            spec("Purchase requisitions", "purchase_requisitions",
+                    field("Project UUID", "project_id"), field("Requisition number", "requisition_number"),
+                    field("Requested by UUID", "requested_by"), field("Request date", "request_date", FieldType.DATE),
+                    field("Required date", "required_date", FieldType.DATE), field("Description", "description"),
+                    field("Status", "status"), field("Approved", "approved", FieldType.BOOLEAN)),
+            spec("Requisition items", "purchase_requisition_items",
+                    field("Requisition UUID", "requisition_id"), field("Description", "description"),
+                    field("Quantity", "quantity", FieldType.NUMBER), field("Unit", "unit"),
+                    field("Estimated unit price", "estimated_unit_price", FieldType.NUMBER),
+                    field("BOQ item UUID", "boq_item_id")),
+            spec("Purchase orders", "purchase_orders",
+                    field("Project UUID", "project_id"), field("Requisition UUID", "requisition_id"),
+                    field("Supplier UUID", "supplier_id"), field("PO number", "po_number"),
+                    field("Order date", "order_date", FieldType.DATE), field("Expected date", "expected_date", FieldType.DATE),
+                    field("Subtotal", "subtotal", FieldType.NUMBER), field("Discount", "discount", FieldType.NUMBER),
+                    field("Tax", "tax", FieldType.NUMBER), field("Freight", "freight", FieldType.NUMBER),
+                    field("Total amount", "total_amount", FieldType.NUMBER),
+                    field("Received amount", "received_amount", FieldType.NUMBER),
+                    field("Status", "status"), field("Approved", "approved", FieldType.BOOLEAN)),
+            spec("PO items", "purchase_order_items",
+                    field("PO UUID", "po_id"), field("Requisition item UUID", "requisition_item_id"),
+                    field("Description", "description"), field("Quantity", "quantity", FieldType.NUMBER),
+                    field("Received quantity", "received_quantity", FieldType.NUMBER), field("Unit", "unit"),
+                    field("Unit price", "unit_price", FieldType.NUMBER), field("Amount", "amount", FieldType.NUMBER)),
+            spec("Goods receipts", "goods_receipts",
+                    field("PO UUID", "po_id"), field("Project UUID", "project_id"),
+                    field("Receipt number", "receipt_number"), field("Receipt date", "receipt_date", FieldType.DATE),
+                    field("Received by UUID", "received_by"), field("Status", "status"),
+                    field("Approved", "approved", FieldType.BOOLEAN)),
+            spec("Goods receipt items", "goods_receipt_items",
+                    field("Receipt UUID", "receipt_id"), field("PO item UUID", "po_item_id"),
+                    field("Quantity received", "quantity_received", FieldType.NUMBER),
+                    field("Accepted quantity", "accepted_quantity", FieldType.NUMBER),
+                    field("Rejected quantity", "rejected_quantity", FieldType.NUMBER),
+                    field("Unit", "unit"), field("Unit cost", "unit_cost", FieldType.NUMBER),
+                    field("Remarks", "remarks")),
+            spec("Material stock", "material_stock",
+                    field("Project UUID", "project_id"), field("Material code", "material_code"),
+                    field("Description", "description"), field("Unit", "unit"),
+                    field("Quantity", "quantity", FieldType.NUMBER),
+                    field("Weighted cost", "weighted_cost", FieldType.NUMBER),
+                    field("Warehouse", "warehouse"), field("Status", "status")),
+            spec("Stock movements", "material_stock_movements",
+                    field("Stock UUID", "stock_id"), field("Project UUID", "project_id"),
+                    field("Movement date", "movement_date", FieldType.DATE),
+                    field("Movement type", "movement_type"), field("Quantity", "quantity", FieldType.NUMBER),
+                    field("Unit cost", "unit_cost", FieldType.NUMBER),
+                    field("Reference number", "reference_number"), field("From location", "from_location"),
+                    field("To location", "to_location"), field("Receipt UUID", "receipt_id"),
+                    field("Remarks", "remarks"), field("Approved", "approved", FieldType.BOOLEAN)),
             spec("Inspections", "project_inspections",
                     field("Project UUID", "project_id"), field("Request date", "request_date", FieldType.DATE),
                     field("Result", "result"), field("Deficiency notice", "deficiency_notice"),
@@ -262,6 +390,55 @@ public final class ConstructionPanel extends JPanel implements RefreshablePanel 
                     field("Project UUID", "project_id"), field("Category", "category"),
                     field("Document name", "document_name"), field("Version", "version"),
                     field("Document date", "document_date", FieldType.DATE)),
+            spec("Project map", "project_map_markers",
+                    field("Project UUID", "project_id"), field("Marker name", "marker_name"),
+                    field("Latitude", "latitude", FieldType.NUMBER), field("Longitude", "longitude", FieldType.NUMBER),
+                    field("Marker type", "marker_type"), field("Status", "status"),
+                    field("Description", "description")),
+            spec("Quality NCR", "project_quality_ncr",
+                    field("Project UUID", "project_id"), field("NCR number", "ncr_number"),
+                    field("Inspection UUID", "inspection_id"), field("BOQ item UUID", "boq_item_id"),
+                    field("Description", "description"), field("Raised date", "raised_date", FieldType.DATE),
+                    field("Severity", "severity"), field("Status", "status"),
+                    field("Responsible party", "responsible_party"), field("Due date", "due_date", FieldType.DATE),
+                    field("Closure date", "closure_date", FieldType.DATE)),
+            spec("Corrective actions", "project_corrective_actions",
+                    field("Project UUID", "project_id"), field("NCR UUID", "ncr_id"),
+                    field("Safety UUID", "safety_id"), field("Action description", "action_description"),
+                    field("Assigned to", "assigned_to"), field("Target date", "target_date", FieldType.DATE),
+                    field("Completed date", "completed_date", FieldType.DATE),
+                    field("Verification result", "verification_result"), field("Status", "status")),
+            spec("Closeout checklist", "project_closeout_checklist",
+                    field("Project UUID", "project_id"), field("Item name", "item_name"),
+                    field("Category", "category"), field("Required", "required", FieldType.BOOLEAN),
+                    field("Completed", "completed", FieldType.BOOLEAN),
+                    field("Completed date", "completed_date", FieldType.DATE), field("Remarks", "remarks")),
+            spec("Punch items", "project_punch_items",
+                    field("Project UUID", "project_id"), field("Punch number", "punch_number"),
+                    field("Location", "location"), field("Description", "description"),
+                    field("Responsible party", "responsible_party"),
+                    field("Identified date", "identified_date", FieldType.DATE),
+                    field("Target date", "target_date", FieldType.DATE),
+                    field("Closed date", "closed_date", FieldType.DATE), field("Status", "status")),
+            spec("Handover", "project_handover_records",
+                    field("Project UUID", "project_id"), field("Handover type", "handover_type"),
+                    field("Handover date", "handover_date", FieldType.DATE),
+                    field("Handed over by", "handed_over_by"), field("Accepted by", "accepted_by"),
+                    field("Certificate number", "certificate_number"),
+                    field("Final retention release", "final_retention_release_requested", FieldType.BOOLEAN),
+                    field("Status", "status"), field("Remarks", "remarks")),
+            spec("Project risks", "project_risks",
+                    field("Project UUID", "project_id"), field("Risk reference", "risk_reference"),
+                    field("Title", "title"), field("Category", "category"), field("Description", "description"),
+                    field("Probability", "probability", FieldType.NUMBER), field("Impact", "impact", FieldType.NUMBER),
+                    field("Score", "score", FieldType.NUMBER), field("Level", "level"),
+                    field("Owner UUID", "owner"), field("Target date", "target_date", FieldType.DATE),
+                    field("Status", "status"), field("Mitigation", "mitigation"),
+                    field("Contingency", "contingency")),
+            spec("Risk updates", "project_risk_updates",
+                    field("Risk UUID", "risk_id"), field("Update date", "update_date", FieldType.DATE),
+                    field("Probability", "probability", FieldType.NUMBER), field("Impact", "impact", FieldType.NUMBER),
+                    field("Status", "status"), field("Notes", "notes")),
             spec("Closeout", "project_closeout_records",
                     field("Project UUID", "project_id"), field("Certificate type", "certificate_type"),
                     field("Certificate date", "certificate_date", FieldType.DATE),
@@ -302,11 +479,18 @@ public final class ConstructionPanel extends JPanel implements RefreshablePanel 
                     field("Idempotency key", "idempotency_key"), field("Entity type", "entity_type"),
                     field("Payload JSON", "payload", FieldType.JSON), field("Status", "status"),
                     field("Queued at", "queued_at", FieldType.DATE),
-                    field("Synced at", "synced_at", FieldType.DATE))
+                    field("Synced at", "synced_at", FieldType.DATE),
+                    field("Sync attempts", "sync_attempts", FieldType.NUMBER),
+                    field("Last error", "last_error"), field("Server record ID", "server_record_id"))
     );
 
     private final AppContext ctx;
-    private final JTabbedPane tabs = new JTabbedPane();
+    private final CardLayout workspaceCards = new CardLayout();
+    private final JPanel workspace = new JPanel(workspaceCards);
+    private final Map<String, CrudTab> tabs = new LinkedHashMap<>();
+    private final JPanel categoryGrid = new JPanel(new GridLayout(0, 3, 10, 10));
+    private final JTextField moduleSearch = new JTextField(24);
+    private final List<CategorySection> categorySections = new ArrayList<>();
     private static final Set<String> REQUIRED_FIELDS = Set.of(
             "license_type", "license_number", "valid_to", "permit_type", "reference_number",
             "bid_reference", "agency_or_client", "project_id", "security_type", "insurance_type",
@@ -323,15 +507,125 @@ public final class ConstructionPanel extends JPanel implements RefreshablePanel 
     public ConstructionPanel(AppContext ctx) {
         super(new BorderLayout());
         this.ctx = ctx;
-        for (TabSpec spec : TABS) tabs.addTab(spec.title(), new CrudTab(ctx, spec));
-        add(tabs, BorderLayout.CENTER);
+        JPanel header = new JPanel(new BorderLayout(12, 8));
+        header.setOpaque(false);
+        JLabel title = new JLabel("Construction Management");
+        title.setFont(title.getFont().deriveFont(Font.BOLD, 20f));
+        title.setForeground(RmsColors.text());
+        JLabel subtitle = new JLabel("Projects, finance, procurement, workforce, equipment, quality and closeout.");
+        subtitle.setForeground(RmsColors.SECONDARY_TEXT);
+        JPanel heading = new JPanel();
+        heading.setOpaque(false);
+        heading.setLayout(new BoxLayout(heading, BoxLayout.Y_AXIS));
+        heading.add(title);
+        heading.add(subtitle);
+        header.add(heading, BorderLayout.WEST);
+        moduleSearch.putClientProperty("JTextField.placeholderText", "Search construction modules");
+        moduleSearch.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
+            @Override public void insertUpdate(javax.swing.event.DocumentEvent e) { filterModules(); }
+            @Override public void removeUpdate(javax.swing.event.DocumentEvent e) { filterModules(); }
+            @Override public void changedUpdate(javax.swing.event.DocumentEvent e) { filterModules(); }
+        });
+        header.add(moduleSearch, BorderLayout.EAST);
+
+        categoryGrid.setOpaque(false);
+        workspace.setOpaque(false);
+        for (TabSpec spec : TABS) {
+            CrudTab panel = new CrudTab(ctx, spec, this::showCategories);
+            tabs.put(spec.title(), panel);
+            workspace.add(panel, spec.title());
+        }
+        addCategory("Projects and Planning", "Contracts", "BOQ items", "Cost estimates",
+                "Estimate items", "Contract amendments", "Variation orders", "Variation items",
+                "Price adjustments", "Activities", "Accomplishments", "Milestones",
+                "Schedule snapshots", "Time extensions", "Project documents", "Offline queue");
+        addCategory("Billing and Finance", "Billings", "Billing lines", "Billing attachments",
+                "Billing deductions", "Retentions", "Advance recoveries", "Collections",
+                "Cash advances", "Project expenses", "Payables", "Payments",
+                "Cash movements", "P&L snapshots", "Tax calendar", "CWT received", "CWT issued");
+        addCategory("Procurement and Materials", "Purchase requisitions", "Requisition items",
+                "Purchase orders", "PO items", "Goods receipts", "Goods receipt items",
+                "Material stock", "Stock movements", "Suppliers", "Material tests");
+        addCategory("Workforce and Equipment", "Wage configurations", "Workers", "Attendance",
+                "Labor costs", "Equipment", "Equipment usage", "Equipment allocations",
+                "Equipment fuel", "Equipment cost postings", "Equipment downtime",
+                "Equipment maintenance");
+        addCategory("Safety and Quality", "Safety programs", "Safety", "Toolbox meetings",
+                "Inspections", "Quality NCR", "Corrective actions", "Project risks", "Risk updates");
+        addCategory("Documents and Closeout", "Project map", "Closeout", "Closeout checklist",
+                "Punch items", "Handover", "Licenses", "Permits", "Bids", "Securities",
+                "Insurance", "Warranties", "Subcontracts");
+
+        JScrollPane categoryScroll = new StyledScrollPane(categoryGrid);
+        categoryScroll.setBorder(BorderFactory.createEmptyBorder());
+        categoryScroll.getVerticalScrollBar().setUnitIncrement(32);
+
+        workspace.setOpaque(false);
+        workspace.add(categoryScroll, "CATEGORIES");
+
+        JPanel root = new JPanel(new BorderLayout(12, 12));
+        root.setOpaque(false);
+        root.add(header, BorderLayout.NORTH);
+        root.add(workspace, BorderLayout.CENTER);
+        add(root, BorderLayout.CENTER);
+        workspaceCards.show(workspace, "CATEGORIES");
     }
 
     @Override
     public void refreshData() {
-        for (int i = 0; i < tabs.getTabCount(); i++) {
-            if (tabs.getComponentAt(i) instanceof RefreshablePanel panel) panel.refreshData();
+        for (CrudTab panel : tabs.values()) panel.refreshData();
+    }
+
+    private void showCategories() {
+        workspaceCards.show(workspace, "CATEGORIES");
+    }
+
+    private record CategorySection(String title, JPanel panel,
+                                   Map<String, JButton> moduleButtons) {}
+
+    private void addCategory(String title, String... modules) {
+        GlassPanel panel = new GlassPanel(new BorderLayout(8, 8));
+        panel.setArc(14);
+        JLabel heading = new JLabel(title);
+        heading.setFont(heading.getFont().deriveFont(Font.BOLD, 14f));
+        heading.setForeground(RmsColors.text());
+        panel.add(heading, BorderLayout.NORTH);
+        JPanel moduleGrid = new JPanel(new GridLayout(0, 1, 4, 4));
+        moduleGrid.setOpaque(false);
+        Map<String, JButton> buttons = new LinkedHashMap<>();
+        for (String module : modules) {
+            if (!tabs.containsKey(module)) continue;
+            JButton button = new JButton(module);
+            button.setHorizontalAlignment(JButton.LEFT);
+            button.setFocusPainted(false);
+            button.setMargin(new Insets(7, 10, 7, 10));
+            button.addActionListener(e -> {
+                workspaceCards.show(workspace, module);
+                tabs.get(module).refreshData();
+            });
+            buttons.put(module, button);
+            moduleGrid.add(button);
         }
+        if (buttons.isEmpty()) return;
+        panel.add(moduleGrid, BorderLayout.CENTER);
+        categoryGrid.add(panel);
+        categorySections.add(new CategorySection(title, panel, buttons));
+    }
+
+    private void filterModules() {
+        String query = moduleSearch.getText().trim().toLowerCase();
+        for (CategorySection section : categorySections) {
+            boolean visibleSection = false;
+            for (var entry : section.moduleButtons().entrySet()) {
+                boolean visible = query.isEmpty()
+                        || entry.getKey().toLowerCase().contains(query);
+                entry.getValue().setVisible(visible);
+                visibleSection |= visible;
+            }
+            section.panel().setVisible(visibleSection);
+        }
+        categoryGrid.revalidate();
+        categoryGrid.repaint();
     }
 
     private static TabSpec spec(String title, String table, Field... fields) {
@@ -355,11 +649,13 @@ public final class ConstructionPanel extends JPanel implements RefreshablePanel 
         private final JButton edit = new JButton("Edit");
         private final JButton delete = new JButton("Delete");
         private final List<JsonNode> rows = new ArrayList<>();
+        private final Runnable onBack;
 
-        CrudTab(AppContext ctx, TabSpec spec) {
+        CrudTab(AppContext ctx, TabSpec spec, Runnable onBack) {
             super(new BorderLayout(0, 8));
             this.ctx = ctx;
             this.spec = spec;
+            this.onBack = onBack;
             List<String> columns = new ArrayList<>();
             columns.add("ID");
             for (Field field : spec.fields()) columns.add(field.label());
@@ -381,7 +677,10 @@ public final class ConstructionPanel extends JPanel implements RefreshablePanel 
                 JsonNode row = selected();
                 if (row != null) confirmDelete(row);
             });
+            JButton back = new JButton("Back to categories");
+            back.addActionListener(e -> onBack.run());
             JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
+            bar.add(back);
             bar.add(add);
             bar.add(edit);
             User user = ctx.currentUser.get();

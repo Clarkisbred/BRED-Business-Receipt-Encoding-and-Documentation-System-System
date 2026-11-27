@@ -127,8 +127,47 @@ public final class DuckyToolRegistry {
             case "getCurrentCompany" -> currentCompany(arguments);
             case "getApplicationVersion" -> applicationVersion(arguments);
             case "getConstructionAlerts" -> constructionAlerts(arguments);
+            case "getConstructionReport" -> constructionReport(arguments);
             default -> throw new IllegalArgumentException("This BRED tool is not authorized or available.");
         };
+    }
+
+    private static final java.util.Set<String> CONSTRUCTION_REPORT_NAMES = java.util.Set.of(
+            "Compliance expiry", "Failed tests", "Open safety", "Bid summary",
+            "Subcontract balances", "Equipment costs", "Cash advances", "Tax calendar",
+            "Progress and accomplishments", "Milestones", "Billing position",
+            "Collections", "Overdue billings", "Project P&L", "Payables", "Cash flow",
+            "Procurement", "Inventory stock", "Equipment usage", "Project risks",
+            "Project map", "Quality NCR", "Punch items", "Closeout");
+
+    private ToolResult constructionReport(JsonNode args) {
+        only(args, "reportName");
+        requireAuthorizedUser();
+        if (context == null || context.constructionData == null) {
+            throw new IllegalStateException("Construction data is unavailable.");
+        }
+        String reportName = text(args, "reportName", 1, 60);
+        if (!CONSTRUCTION_REPORT_NAMES.contains(reportName)) {
+            throw new IllegalArgumentException("That construction report is not authorized.");
+        }
+        java.util.List<com.bred.rms.services.ConstructionDataService.ConstructionReportRow> rows =
+                context.constructionData.constructionReport(reportName);
+        if (rows.isEmpty()) {
+            return new ToolResult("No authorized " + reportName + " records are currently available.",
+                    "", false);
+        }
+        StringBuilder details = new StringBuilder("Authorized construction report: ")
+                .append(reportName).append(".\n");
+        for (var row : rows.stream().limit(10).toList()) {
+            details.append("- ").append(row.label())
+                    .append("; status: ").append(row.status());
+            if (row.amount().signum() != 0) {
+                details.append("; amount: ").append(row.amount().toPlainString());
+            }
+            details.append('\n');
+        }
+        String content = details.toString();
+        return new ToolResult(content, content, true);
     }
 
     private ToolResult constructionAlerts(JsonNode args) {
@@ -554,6 +593,15 @@ public final class DuckyToolRegistry {
         tools.add(tool("getConstructionAlerts",
                 "Read authorized construction compliance, test and safety alert counts. Read-only.",
                 fields()));
+        tools.add(tool("getConstructionReport",
+                "Read one authorized construction report. Read-only; never changes records or approvals.",
+                fields("reportName", "string", true,
+                        "One of: Compliance expiry, Failed tests, Open safety, Bid summary, "
+                                + "Subcontract balances, Equipment costs, Cash advances, Tax calendar, "
+                                + "Progress and accomplishments, Milestones, Billing position, Collections, "
+                                + "Overdue billings, Project P&L, Payables, Cash flow, Procurement, "
+                                + "Inventory stock, Equipment usage, Project risks, Project map, "
+                                + "Quality NCR, Punch items, Closeout")));
         return List.copyOf(tools);
     }
 

@@ -55,6 +55,7 @@ class ShellSmokeTest {
         assertTrue(shell.visibleModules().contains(Module.RECEIPTS));
         assertTrue(shell.visibleModules().contains(Module.DUCKY));
         assertTrue(shell.visibleModules().contains(Module.CONSTRUCTION));
+        assertTrue(shell.visibleModules().contains(Module.LIVE_MAP));
         assertDoesNotThrow(() -> shell.show(Module.SETTINGS));
         assertDoesNotThrow(() -> shell.show(Module.REPORTS));
         assertDoesNotThrow(() -> shell.show(Module.DASHBOARD));
@@ -719,7 +720,7 @@ class ShellSmokeTest {
                 .orElseThrow();
 
         assertEquals(ThemeManager.Appearance.values().length, appearances.getItemCount());
-        assertEquals(ThemeManager.Appearance.BREDUCK_SIGNATURE, appearances.getItemAt(1));
+        assertEquals(ThemeManager.Appearance.MODERN_GLASS, appearances.getItemAt(1));
         assertEquals(appearances.getPreferredSize(), appearances.getMaximumSize());
         assertEquals("Installed version: " + AppVersion.current(),
                 fieldLabel(settings, "releaseVersion").getText());

@@ -51,6 +51,15 @@ public final class ReportsPanel extends JPanel implements RefreshablePanel {
     private static final String PROJECT_PL = "Project P&L";
     private static final String PAYABLES_REPORT = "Payables";
     private static final String CASH_FLOW_REPORT = "Cash flow";
+    private static final String PROCUREMENT_REPORT = "Procurement";
+    private static final String INVENTORY_REPORT = "Inventory stock";
+    private static final String EQUIPMENT_USAGE_REPORT = "Equipment usage";
+    private static final String EQUIPMENT_COST_REPORT = "Equipment costs";
+    private static final String PROJECT_RISK_REPORT = "Project risks";
+    private static final String PROJECT_MAP_REPORT = "Project map";
+    private static final String QUALITY_NCR_REPORT = "Quality NCR";
+    private static final String PUNCH_ITEMS_REPORT = "Punch items";
+    private static final String CLOSEOUT_REPORT = "Closeout";
 
     private final AppContext ctx;
     private final DateField from = new DateField();
@@ -59,7 +68,10 @@ public final class ReportsPanel extends JPanel implements RefreshablePanel {
             BY_PROJECT, BY_SUPPLIER, BY_MONTH, COMPLIANCE_EXPIRY, FAILED_TESTS, OPEN_SAFETY,
             BID_SUMMARY, SUBCONTRACT_BALANCES, EQUIPMENT_COSTS, CASH_ADVANCES, TAX_CALENDAR,
             PROGRESS, MILESTONES, BILLING_POSITION, COLLECTIONS_REPORT, OVERDUE_BILLINGS,
-            PROJECT_PL, PAYABLES_REPORT, CASH_FLOW_REPORT});
+            PROJECT_PL, PAYABLES_REPORT, CASH_FLOW_REPORT, PROCUREMENT_REPORT, INVENTORY_REPORT,
+            EQUIPMENT_USAGE_REPORT, EQUIPMENT_COST_REPORT,
+            PROJECT_RISK_REPORT, PROJECT_MAP_REPORT,
+            QUALITY_NCR_REPORT, PUNCH_ITEMS_REPORT, CLOSEOUT_REPORT});
     private final DefaultTableModel model = new DefaultTableModel(new String[]{"Group", "Receipts", "Total"}, 0) {
         @Override public boolean isCellEditable(int row, int column) { return false; }
     };
@@ -67,6 +79,9 @@ public final class ReportsPanel extends JPanel implements RefreshablePanel {
     private final JLabel status = new JLabel(" ");
     private final JButton export = new JButton("Export CSV");
     private final JButton exportExcel = new JButton("Export Excel");
+    private final JButton exportPdf = new JButton("Export PDF");
+    private final JComboBox<String> reportStatus =
+            new JComboBox<>(new String[]{"Draft", "Approved", "Finalized"});
     private int requestId;
 
     /** Builds the panel and runs the default report. */
@@ -77,6 +92,7 @@ public final class ReportsPanel extends JPanel implements RefreshablePanel {
         run.addActionListener(e -> refreshData());
         export.addActionListener(e -> exportReceipts(false));
         exportExcel.addActionListener(e -> exportReceipts(true));
+        exportPdf.addActionListener(e -> exportConstructionPdf());
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
         bar.add(new JLabel("From"));
         bar.add(from);
@@ -86,6 +102,9 @@ public final class ReportsPanel extends JPanel implements RefreshablePanel {
         bar.add(run);
         bar.add(export);
         bar.add(exportExcel);
+        bar.add(exportPdf);
+        bar.add(new JLabel("Status"));
+        bar.add(reportStatus);
         add(bar, BorderLayout.NORTH);
         table.setRowHeight(28);
         table.setFillsViewportHeight(true);
@@ -150,7 +169,10 @@ public final class ReportsPanel extends JPanel implements RefreshablePanel {
         return List.of(COMPLIANCE_EXPIRY, FAILED_TESTS, OPEN_SAFETY, BID_SUMMARY,
                 SUBCONTRACT_BALANCES, EQUIPMENT_COSTS, CASH_ADVANCES, TAX_CALENDAR,
                 PROGRESS, MILESTONES, BILLING_POSITION, COLLECTIONS_REPORT, OVERDUE_BILLINGS,
-                PROJECT_PL, PAYABLES_REPORT, CASH_FLOW_REPORT).contains(kind);
+                PROJECT_PL, PAYABLES_REPORT, CASH_FLOW_REPORT,
+                PROCUREMENT_REPORT, INVENTORY_REPORT, EQUIPMENT_USAGE_REPORT,
+                EQUIPMENT_COST_REPORT, PROJECT_RISK_REPORT, PROJECT_MAP_REPORT,
+                QUALITY_NCR_REPORT, PUNCH_ITEMS_REPORT, CLOSEOUT_REPORT).contains(kind);
     }
 
     private void fillConstruction(List<ConstructionReportRow> rows) {
@@ -165,19 +187,63 @@ public final class ReportsPanel extends JPanel implements RefreshablePanel {
                 (total.signum() == 0 ? "." : ", amount " + ReceiptMath.format(total)));
     }
 
+    private void exportConstructionPdf() {
+        LocalDate[] r = range();
+        if (r == null) return;
+        String kind = (String) groupBy.getSelectedItem();
+        if (!isConstructionReport(kind)) {
+            status.setText("Choose a construction report before exporting PDF.");
+            return;
+        }
+        JFileChooser chooser = new JFileChooser();
+        chooser.setSelectedFile(new File(("construction-" + kind).replaceAll("[^A-Za-z0-9]+", "-")
+                .toLowerCase() + "-" + reportStatus.getSelectedItem() + ".pdf"));
+        if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
+        File chosen = chooser.getSelectedFile();
+        File target = chosen.getName().toLowerCase().endsWith(".pdf")
+                ? chosen : new File(chosen.getParentFile(), chosen.getName() + ".pdf");
+        exportPdf.setEnabled(false);
+        BackgroundTask.run(() -> {
+            List<ConstructionReportRow> rows = ctx.constructionData.constructionReport(kind);
+            ctx.reports.exportConstructionPdf(kind + " - " + reportStatus.getSelectedItem(),
+                    rows, target.toPath());
+            return rows.size();
+        }, n -> {
+            exportPdf.setEnabled(true);
+            JOptionPane.showMessageDialog(SwingUtilities.getWindowAncestor(this),
+                    n + " construction row(s) exported to\n" + target.getAbsolutePath(),
+                    "PDF export complete", JOptionPane.INFORMATION_MESSAGE);
+        }, e -> {
+            exportPdf.setEnabled(true);
+            status.setText(e instanceof java.io.IOException
+                    ? "Could not write the PDF: " + e.getMessage() : UiErrors.friendly(e));
+        });
+    }
+
     private void exportReceipts(boolean excel) {
         LocalDate[] r = range();
         if (r == null) return;
         JFileChooser chooser = new JFileChooser();
         String ext = excel ? ".xlsx" : ".csv";
-        chooser.setSelectedFile(new File("receipts" + ext));
+        String kind = (String) groupBy.getSelectedItem();
+        boolean construction = isConstructionReport(kind);
+        chooser.setSelectedFile(new File((construction ? "construction-" + kind : "receipts")
+                .replaceAll("[^A-Za-z0-9]+", "-").toLowerCase() + "-" + reportStatus.getSelectedItem() + ext));
         if (chooser.showSaveDialog(this) != JFileChooser.APPROVE_OPTION) return;
         File chosen = chooser.getSelectedFile();
         File target = chosen.getName().toLowerCase().endsWith(ext)
                 ? chosen : new File(chosen.getParentFile(), chosen.getName() + ext);
         export.setEnabled(false);
         exportExcel.setEnabled(false);
+        exportPdf.setEnabled(false);
         BackgroundTask.run(() -> {
+            if (construction) {
+                List<ConstructionReportRow> rows =
+                        ctx.constructionData.constructionReport(kind);
+                if (excel) ctx.reports.exportConstructionXlsx(kind, rows, target.toPath());
+                else ctx.reports.exportConstructionCsv(kind, rows, target.toPath());
+                return rows.size();
+            }
             List<Receipt> receipts = ctx.reports.receipts(r[0], r[1]);
             if (excel) ctx.reports.exportXlsx(receipts, target.toPath());
             else ctx.reports.exportCsv(receipts, target.toPath());
@@ -185,11 +251,13 @@ public final class ReportsPanel extends JPanel implements RefreshablePanel {
         }, n -> {
             export.setEnabled(true);
             exportExcel.setEnabled(true);
+            exportPdf.setEnabled(true);
             JOptionPane.showMessageDialog(SwingUtilities.getWindowAncestor(this), n + " receipt(s) exported to\n" + target.getAbsolutePath(),
                     "Export complete", JOptionPane.INFORMATION_MESSAGE);
         }, e -> {
             export.setEnabled(true);
             exportExcel.setEnabled(true);
+            exportPdf.setEnabled(true);
             status.setText(e instanceof java.io.IOException ? "Could not write the file: " + e.getMessage() : UiErrors.friendly(e));
         });
     }

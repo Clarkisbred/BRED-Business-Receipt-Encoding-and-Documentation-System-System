@@ -7,6 +7,7 @@ public enum Module {
     DASHBOARD("Dashboard", false, false), MESSAGES("Custom Messages", false, false), DUCKY("Ducky", false, false),
     RECEIPTS("Receipts", false, false),
     SUPPLIERS("Suppliers", false, false), PROJECTS("Projects", false, false),
+    LIVE_MAP("Live Project Map", false, false),
     CONSTRUCTION("Construction", false, false),
     REPORTS("Reports", false, false), USERS("Users", true, false), ACTIVITY_LOG("Activity Log", true, false),
     COMPANIES("Companies", false, true), HISTORY("History", false, true), SETTINGS("Settings", false, false);

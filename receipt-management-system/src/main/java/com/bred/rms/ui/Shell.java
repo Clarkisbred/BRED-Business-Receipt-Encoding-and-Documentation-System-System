@@ -14,6 +14,7 @@ import com.bred.rms.ui.components.StatusBadge;
 import com.bred.rms.ui.components.SurfacePanel;
 import com.bred.rms.ui.components.StyledScrollPane;
 import com.bred.rms.ui.components.UserAvatar;
+import com.bred.rms.ui.components.UiConstants;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.ui.admin.ActivityLogPanel;
 import com.bred.rms.ui.admin.UserManagementPanel;
@@ -22,6 +23,7 @@ import com.bred.rms.ui.HistoryPanel;
 import com.bred.rms.ui.lookups.ProjectPanel;
 import com.bred.rms.ui.lookups.SupplierPanel;
 import com.bred.rms.ui.construction.ConstructionPanel;
+import com.bred.rms.ui.map.LiveProjectMapPanel;
 import com.bred.rms.ui.receipts.ReceiptDetailPanel;
 import com.bred.rms.ui.reports.ReportsPanel;
 import com.bred.rms.ui.receipts.ReceiptDirectoryPanel;
@@ -62,6 +64,7 @@ import java.awt.RenderingHints;
 import java.awt.geom.RoundRectangle2D;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.HashSet;
@@ -83,6 +86,7 @@ public final class Shell extends JPanel {
     private final Map<Module, JComponent> built = new EnumMap<>(Module.class);
     private final Map<Module, JToggleButton> navButtons = new EnumMap<>(Module.class);
     private final JLabel title = new JLabel();
+    private final JLabel breadcrumb = new JLabel("Workspace");
     private final JLabel brand = new JLabel("BRED");
     private final Consumer<Boolean> themeListener = dark -> brand.setForeground(RmsColors.primary());
     private static final String DETAIL_CARD = "RECEIPT_DETAIL";
@@ -153,6 +157,9 @@ public final class Shell extends JPanel {
         if (existed && built.get(m) instanceof RefreshablePanel p) p.refreshData();
         cards.show(content, m.name());
         title.setText(m.title());
+        breadcrumb.setText(navigationGroup(m).equals("WORKSPACE")
+                ? "Workspace / " + m.title()
+                : navigationGroup(m) + " / " + m.title());
         JToggleButton b = navButtons.get(m);
         if (b != null) {
             b.setSelected(true);
@@ -198,6 +205,7 @@ public final class Shell extends JPanel {
             }
             case SUPPLIERS -> new SupplierPanel(ctx);
             case PROJECTS -> new ProjectPanel(ctx);
+            case LIVE_MAP -> new LiveProjectMapPanel(ctx);
             case CONSTRUCTION -> new ConstructionPanel(ctx);
         };
     }
@@ -212,6 +220,7 @@ public final class Shell extends JPanel {
         content.add(detail, DETAIL_CARD);
         cards.show(content, DETAIL_CARD);
         title.setText("Receipt");
+        breadcrumb.setText("Workspace / Receipts / Receipt");
         JToggleButton b = navButtons.get(Module.RECEIPTS);
         if (b != null) {
             b.setSelected(true);
@@ -311,7 +320,7 @@ public final class Shell extends JPanel {
         };
         side.setLayout(new BoxLayout(side, BoxLayout.Y_AXIS));
         side.setBorder(BorderFactory.createEmptyBorder(24, 18, 18, 18));
-        side.setPreferredSize(new Dimension(252, 0));
+        side.setPreferredSize(new Dimension(UiConstants.SIDEBAR_WIDTH, 0));
         brand.setFont(brand.getFont().deriveFont(Font.BOLD, 24f));
         brand.setForeground(RmsColors.primary());
         String companyName = user == null ? "" : user.companyName();
@@ -328,18 +337,15 @@ public final class Shell extends JPanel {
         side.add(sub);
         side.add(Box.createVerticalStrut(30));
 
-        JLabel section = new JLabel("WORKSPACE");
-        section.setFont(section.getFont().deriveFont(Font.BOLD, 10f));
-        section.setForeground(RmsColors.SECONDARY_TEXT);
-        section.setAlignmentX(LEFT_ALIGNMENT);
-        side.add(section);
-        side.add(Box.createVerticalStrut(10));
-
         ButtonGroup group = new ButtonGroup();
         navList = new NavListPanel();
-        navList.setPreferredSize(new Dimension(216, modules.size() * 56));
-        navList.setMaximumSize(new Dimension(Integer.MAX_VALUE, modules.size() * 56));
+        String activeGroup = null;
         for (Module m : modules) {
+            String groupName = navigationGroup(m);
+            if (!groupName.equals(activeGroup)) {
+                activeGroup = groupName;
+                navList.addSection(groupName);
+            }
             JToggleButton b = new NavButton(m.title());
             b.setHorizontalAlignment(JToggleButton.LEFT);
             b.setMargin(new Insets(0, 16, 0, 12));
@@ -349,6 +355,9 @@ public final class Shell extends JPanel {
             navButtons.put(m, b);
             navList.addButton(b);
         }
+        int navHeight = navList.preferredHeight();
+        navList.setPreferredSize(new Dimension(216, navHeight));
+        navList.setMaximumSize(new Dimension(Integer.MAX_VALUE, navHeight));
         navList.setAlignmentX(LEFT_ALIGNMENT);
         JScrollPane navScroll = new StyledScrollPane(navList);
         navScroll.setName("sidebarNavigationScroll");
@@ -361,6 +370,7 @@ public final class Shell extends JPanel {
         navScroll.setMinimumSize(new Dimension(216, 72));
         navScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
         navScroll.setAlignmentX(LEFT_ALIGNMENT);
+        navScroll.setViewportBorder(BorderFactory.createEmptyBorder());
 
         JScrollBar navBar = navScroll.getVerticalScrollBar();
         navBar.setUnitIncrement(42);
@@ -386,6 +396,19 @@ public final class Shell extends JPanel {
         protected void paintComponent(Graphics graphics) {
             Graphics2D g = (Graphics2D) graphics.create();
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            if (isSelected()) {
+                RoundRectangle2D shape = new RoundRectangle2D.Float(
+                        1, 1, getWidth() - 3, getHeight() - 3, 14, 14);
+                g.setColor(ThemeManager.isDark()
+                        ? new Color(RmsColors.primaryAccent().getRed(),
+                                RmsColors.primaryAccent().getGreen(),
+                                RmsColors.primaryAccent().getBlue(), 38)
+                        : RmsColors.primaryLight());
+                g.fill(shape);
+                g.setColor(RmsColors.primaryAccent());
+                g.setStroke(new BasicStroke(1.2f));
+                g.draw(shape);
+            }
             if (getModel().isRollover() && !isSelected()) {
                 RoundRectangle2D shape = new RoundRectangle2D.Float(1, 1, getWidth() - 3, getHeight() - 3, 14, 14);
                 g.setColor(ThemeManager.isDark()
@@ -402,30 +425,41 @@ public final class Shell extends JPanel {
     private static final class NavListPanel extends JPanel {
         private static final int ROW_HEIGHT = 50;
         private static final int ROW_GAP = 6;
+        private static final int SECTION_HEIGHT = 24;
         private static final int ARC = 14;
         private final List<JToggleButton> buttons = new ArrayList<>();
-        private final Timer animation;
+        private int contentHeight;
         private int selectionTrailingInset;
-        private double y = -1;
-        private double targetY = -1;
 
         private NavListPanel() {
-            setLayout(null);
+            setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
             setOpaque(false);
-            animation = new Timer(16, null);
-            animation.addActionListener(event -> {
-                y += (targetY - y) * 0.24;
-                if (Math.abs(targetY - y) < 0.6) {
-                    y = targetY;
-                    animation.stop();
-                }
-                repaint();
-            });
         }
 
         private void addButton(JToggleButton button) {
             buttons.add(button);
+            button.setAlignmentX(LEFT_ALIGNMENT);
+            button.setMaximumSize(new Dimension(Integer.MAX_VALUE, ROW_HEIGHT));
+            button.setPreferredSize(new Dimension(216, ROW_HEIGHT));
             add(button);
+            add(Box.createVerticalStrut(ROW_GAP));
+            contentHeight += ROW_HEIGHT + ROW_GAP;
+        }
+
+        private void addSection(String title) {
+            JLabel section = new JLabel(title);
+            section.setFont(section.getFont().deriveFont(Font.BOLD, 10f));
+            section.setForeground(RmsColors.SECONDARY_TEXT);
+            section.setAlignmentX(LEFT_ALIGNMENT);
+            section.setBorder(BorderFactory.createEmptyBorder(8, 2, 4, 2));
+            section.setMaximumSize(new Dimension(Integer.MAX_VALUE, SECTION_HEIGHT));
+            section.setPreferredSize(new Dimension(216, SECTION_HEIGHT));
+            add(section);
+            contentHeight += SECTION_HEIGHT;
+        }
+
+        private int preferredHeight() {
+            return Math.max(ROW_HEIGHT, contentHeight);
         }
 
         private void setSelectionTrailingInset(int inset) {
@@ -435,46 +469,17 @@ public final class Shell extends JPanel {
 
         private void select(int index) {
             if (index < 0 || index >= buttons.size()) return;
-            targetY = index * (ROW_HEIGHT + ROW_GAP);
-            scrollRectToVisible(new java.awt.Rectangle(0, (int) targetY, getWidth(), ROW_HEIGHT));
-            if (y < 0) {
-                y = targetY;
-                repaint();
-            } else if (Math.abs(targetY - y) > 0.6) {
-                animation.start();
-            }
-        }
-
-        @Override
-        public void doLayout() {
-            for (int i = 0; i < buttons.size(); i++) {
-                buttons.get(i).setBounds(0, i * (ROW_HEIGHT + ROW_GAP), getWidth(), ROW_HEIGHT);
-            }
+            JToggleButton selected = buttons.get(index);
+            selected.setSelected(true);
+            scrollRectToVisible(new java.awt.Rectangle(
+                    0, selected.getY(), getWidth(), selected.getHeight()));
+            revalidate();
+            repaint();
         }
 
         @Override
         protected void paintComponent(Graphics graphics) {
             super.paintComponent(graphics);
-            if (y < 0 || getWidth() <= 2) return;
-            Graphics2D g = (Graphics2D) graphics.create();
-            g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            int selectionWidth = Math.max(0, getWidth() - 3 - selectionTrailingInset);
-            RoundRectangle2D outline = new RoundRectangle2D.Float(1, (float) y + 1,
-                    selectionWidth, ROW_HEIGHT - 3, ARC, ARC);
-            g.setColor(ThemeManager.isDark()
-                    ? new Color(RmsColors.primaryAccent().getRed(), RmsColors.primaryAccent().getGreen(), RmsColors.primaryAccent().getBlue(), 38)
-                    : RmsColors.primaryLight());
-            g.fill(outline);
-            g.setColor(RmsColors.primaryAccent());
-            g.setStroke(new BasicStroke(1.2f));
-            g.draw(outline);
-            g.dispose();
-        }
-
-        @Override
-        public void removeNotify() {
-            animation.stop();
-            super.removeNotify();
         }
     }
 
@@ -484,11 +489,29 @@ public final class Shell extends JPanel {
                 .replace(">", "&gt;");
     }
 
+    private static String navigationGroup(Module module) {
+        return switch (module) {
+            case DASHBOARD, MESSAGES, DUCKY, RECEIPTS -> "WORKSPACE";
+            case PROJECTS, LIVE_MAP, CONSTRUCTION -> "PROJECT MANAGEMENT";
+            case SUPPLIERS, REPORTS -> "FINANCIAL & OPERATIONS";
+            case USERS, ACTIVITY_LOG, COMPANIES, HISTORY, SETTINGS -> "SYSTEM";
+        };
+    }
+
     private JComponent buildHeader(User user, Runnable onSignOut) {
         SurfacePanel header = new SurfacePanel(new BorderLayout(), RmsColors::surface);
         header.setBorder(BorderFactory.createEmptyBorder(10, 18, 10, 18));
+        header.setPreferredSize(new Dimension(0, UiConstants.HEADER_HEIGHT));
         title.setFont(title.getFont().deriveFont(Font.BOLD, 18f));
-        header.add(title, BorderLayout.WEST);
+        breadcrumb.setFont(breadcrumb.getFont().deriveFont(Font.PLAIN, 11f));
+        breadcrumb.setForeground(RmsColors.SECONDARY_TEXT);
+        JPanel heading = new JPanel();
+        heading.setOpaque(false);
+        heading.setLayout(new BoxLayout(heading, BoxLayout.Y_AXIS));
+        heading.add(breadcrumb);
+        heading.add(Box.createVerticalStrut(2));
+        heading.add(title);
+        header.add(heading, BorderLayout.WEST);
 
         JPanel tools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         tools.setOpaque(false);

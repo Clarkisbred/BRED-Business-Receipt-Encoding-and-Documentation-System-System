@@ -13,6 +13,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 
 /** Pure, unit-tested rules for construction financial controls. */
@@ -286,6 +287,82 @@ public final class ConstructionCalculations {
         if (o.signum() < 0 || r.signum() < 0)
             throw new IllegalArgumentException("PO amounts cannot be negative.");
         return r.compareTo(o) >= 0 ? BigDecimal.ZERO.setScale(2) : o.subtract(r);
+    }
+
+    public static com.bred.rms.models.ConstructionModels.LaborCost laborCost(
+            BigDecimal regularHours, BigDecimal overtimeHours, BigDecimal holidayHours,
+            BigDecimal hourlyRate, BigDecimal overtimeMultiplier, BigDecimal holidayMultiplier) {
+        BigDecimal rh = hours(regularHours), oh = hours(overtimeHours), hh = hours(holidayHours);
+        BigDecimal rate = nonNegative(hourlyRate, "Hourly rate");
+        BigDecimal om = multiplier(overtimeMultiplier);
+        BigDecimal hm = multiplier(holidayMultiplier);
+        BigDecimal regular = money(rh.multiply(rate));
+        BigDecimal overtime = money(oh.multiply(rate).multiply(om));
+        BigDecimal holiday = money(hh.multiply(rate).multiply(hm));
+        return new com.bred.rms.models.ConstructionModels.LaborCost(
+                regular, overtime, holiday, money(regular.add(overtime).add(holiday)));
+    }
+
+    public static com.bred.rms.models.ConstructionModels.RiskScore riskScore(
+            int probability, int impact) {
+        if (probability < 1 || probability > 5 || impact < 1 || impact > 5)
+            throw new IllegalArgumentException("Risk probability and impact must be from 1 to 5.");
+        int score = probability * impact;
+        String level = score >= 20 ? "Critical"
+                : score >= 12 ? "High"
+                : score >= 6 ? "Medium" : "Low";
+        return new com.bred.rms.models.ConstructionModels.RiskScore(
+                probability, impact, score, level);
+    }
+
+    public static void validateCoordinates(BigDecimal latitude, BigDecimal longitude) {
+        if (latitude != null && (latitude.compareTo(new BigDecimal("-90")) < 0
+                || latitude.compareTo(new BigDecimal("90")) > 0))
+            throw new IllegalArgumentException("Latitude must be from -90 to 90.");
+        if (longitude != null && (longitude.compareTo(new BigDecimal("-180")) < 0
+                || longitude.compareTo(new BigDecimal("180")) > 0))
+            throw new IllegalArgumentException("Longitude must be from -180 to 180.");
+    }
+
+    public static com.bred.rms.models.ConstructionModels.CloseoutStatus closeoutStatus(
+            int requiredItems, int completedItems, int openDeficiencies) {
+        if (requiredItems < 0 || completedItems < 0 || openDeficiencies < 0)
+            throw new IllegalArgumentException("Closeout counts cannot be negative.");
+        int completed = Math.min(completedItems, requiredItems);
+        boolean canClose = requiredItems == completed && openDeficiencies == 0;
+        String status = canClose ? "Ready for closeout"
+                : openDeficiencies > 0 ? "Open deficiencies"
+                : "Incomplete closeout";
+        return new com.bred.rms.models.ConstructionModels.CloseoutStatus(
+                requiredItems, completed, openDeficiencies, canClose, status);
+    }
+
+    private static BigDecimal hours(BigDecimal value) {
+        return nonNegative(value, "Hours");
+    }
+
+    private static BigDecimal multiplier(BigDecimal value) {
+        if (value == null) return BigDecimal.ONE;
+        if (value.signum() < 0) throw new IllegalArgumentException("Multiplier cannot be negative.");
+        return value;
+    }
+
+    private static BigDecimal nonNegative(BigDecimal value, String label) {
+        BigDecimal v = value == null ? BigDecimal.ZERO : value;
+        if (v.signum() < 0) throw new IllegalArgumentException(label + " cannot be negative.");
+        return v;
+    }
+
+    public static boolean canSyncOfflineEntry(boolean online, boolean authenticated,
+                                               boolean authorized, String status) {
+        if (!online) return false;
+        if (!authenticated || !authorized) return false;
+        return "Queued".equals(status) || "Failed".equals(status);
+    }
+
+    public static String nextOfflineStatus(String current, boolean success) {
+        if ("Synced".equals(current) || "Cancelled".equals(current)) return current;
+        return success ? "Synced" : "Failed";
     }
 
     private static BigDecimal money(BigDecimal value) {

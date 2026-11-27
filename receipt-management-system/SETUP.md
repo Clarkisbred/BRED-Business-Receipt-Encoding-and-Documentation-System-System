@@ -34,6 +34,15 @@ and Maven on the computer that runs the app.
    22. `022_progress_milestones.sql`: approved accomplishments, milestones and schedule snapshots
    23. `023_construction_billing.sql`: billing, deduction, collection and attachment foundations
    24. `024_payables_cashflow_pnl.sql`: project expenses, payables, cash flow and P&L foundations
+   25. `025_procurement_inventory.sql`: requisitions, purchase orders, goods receipts and stock movements
+   26. `026_workforce_labor.sql`: wage configuration, attendance and approved labor costs
+   27. `027_equipment_operations.sql`: allocations, usage, fuel, maintenance, downtime and approved cost postings
+   28. `028_project_map_risk.sql`: project map markers and risk register monitoring
+   29. `029_quality_safety_closeout.sql`: NCR, corrective actions, punch list, handover and closeout checklist
+   30. `030_report_documents.sql`: report run and generated-document metadata
+   31. `031_construction_audit_offline.sql`: construction audit trail and offline queue safeguards
+   27. `027_equipment_operations.sql`: allocations, usage, fuel, maintenance, downtime and approved cost postings
+   25. `025_procurement_inventory.sql`: requisitions, purchase orders, goods receipts and stock movements
 
    Migration 008 creates a `Legacy Company` only when needed and assigns previously unscoped records and profiles to it.
    Existing companies are retained. The Creator can see all companies; Admins and Encoders are restricted to their own.
@@ -298,5 +307,20 @@ environment.
   the duplicate.
 - [ ] Confirm no financial construction record can be approved while offline or through an unauthenticated request.
 - [ ] Test backup and restore in an isolated Supabase project before using live backups for production recovery.
+
+## Final ERP release checklist
+
+- [ ] Apply migrations `018` through `031` in numeric order in a staging Supabase project.
+- [ ] Run `database/validate.sh` from a Linux environment with PostgreSQL server binaries and passwordless `postgres`
+  access, then confirm all migration assertions pass.
+- [ ] Verify company A cannot read or change company B construction, billing, accounting, inventory, labor,
+  equipment, risk, quality, closeout, report, or audit records.
+- [ ] Verify Encoders cannot insert or update construction financial records; Admin write access works.
+- [ ] Verify duplicate offline queue idempotency keys are rejected within each company.
+- [ ] Verify an offline or unauthenticated request cannot sync or approve financial records.
+- [ ] Verify construction reports export correctly as CSV, XLSX, and PDF.
+- [ ] Verify Ducky can answer construction reports read-only and never executes a mutation tool.
+- [ ] Back up the staging database, restore it in an isolated project, and run a smoke login/read test.
+- [ ] Keep live migration and live cross-company testing separate from the completed local Maven suite.
 
 If something fails, note the message shown on screen and which step it happened on.

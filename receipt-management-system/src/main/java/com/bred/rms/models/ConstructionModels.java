@@ -49,4 +49,13 @@ public final class ConstructionModels {
 
     public record StockPosition(BigDecimal quantity, BigDecimal weightedCost,
                                 BigDecimal inventoryValue) {}
+
+    public record LaborCost(BigDecimal regularPay, BigDecimal overtimePay,
+                            BigDecimal holidayPay, BigDecimal totalPay) {}
+
+    public record RiskScore(int probability, int impact, int score, String level) {}
+
+    public record CloseoutStatus(int requiredItems, int completedItems,
+                                 int openDeficiencies, boolean canClose,
+                                 String status) {}
 }

@@ -114,4 +114,19 @@ class ReportServiceTest {
         assertEquals(2, s.projectsWithSpend());
         assertEquals(new BigDecimal("116.00"), s.totalSpend());
     }
+
+    @Test
+    void exportsConstructionCsvAndWorkbook() throws java.io.IOException {
+        java.util.List<com.bred.rms.services.ConstructionDataService.ConstructionReportRow> rows =
+                java.util.List.of(new com.bred.rms.services.ConstructionDataService.ConstructionReportRow(
+                        "Project Alpha", 2, "Approved", new BigDecimal("12500.00")));
+        java.nio.file.Path csv = java.nio.file.Files.createTempFile("bred-construction", ".csv");
+        java.nio.file.Path xlsx = java.nio.file.Files.createTempFile("bred-construction", ".xlsx");
+        reports.exportConstructionCsv("Billing position", rows, csv);
+        reports.exportConstructionXlsx("Billing position", rows, xlsx);
+        String text = java.nio.file.Files.readString(csv);
+        assertTrue(text.contains("Billing position"));
+        assertTrue(text.contains("12500.00"));
+        assertTrue(java.nio.file.Files.size(xlsx) > 100);
+    }
 }
