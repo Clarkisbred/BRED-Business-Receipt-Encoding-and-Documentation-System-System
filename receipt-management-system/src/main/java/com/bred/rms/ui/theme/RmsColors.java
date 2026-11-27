@@ -23,11 +23,14 @@ public final class RmsColors {
     public static final Color LIGHT_BACKGROUND = Color.decode("#F5F6F8");
     public static final Color LIGHT_SURFACE = Color.decode("#FFFFFF");
     public static final Color LIGHT_TEXT = Color.decode("#202124");
-    public static final Color GLASS_BACKGROUND = Color.decode("#141625");
-    public static final Color GLASS_SIDEBAR = Color.decode("#191D32");
-    public static final Color GLASS_HEADER = Color.decode("#20243A");
-    public static final Color GLASS_CARD = Color.decode("#252A43");
-    public static final Color GLASS_ELEVATED = Color.decode("#2D3350");
+    public static final Color GLASS_BACKGROUND = Color.decode("#060435");
+    public static final Color GLASS_SECONDARY_BACKGROUND = Color.decode("#0F0E38");
+    public static final Color GLASS_SIDEBAR = Color.decode("#1A1C2B");
+    public static final Color GLASS_HEADER = Color.decode("#1D2033");
+    public static final Color GLASS_CARD = Color.decode("#272C42");
+    public static final Color GLASS_ELEVATED = Color.decode("#12203B");
+    public static final Color GLASS_NAV_SELECTED = Color.decode("#1E2870");
+    public static final Color GLASS_ALT_PANEL = Color.decode("#0C2D4E");
     public static final Color GLASS_BORDER = Color.decode("#3A405D");
     public static final Color GLASS_ACCENT_PURPLE = Color.decode("#8B7CF6");
     public static final Color GLASS_ACCENT_BLUE = Color.decode("#5B9CFF");
@@ -36,7 +39,7 @@ public final class RmsColors {
     /** Returns the readable primary accent for the selected appearance and mode. */
     public static Color primary() {
         if (ThemeManager.customAccent() != null) return ThemeManager.customAccent();
-        if (ThemeManager.appearance() == ThemeManager.Appearance.MODERN_GLASS) return GLASS_ACCENT_PURPLE;
+        if (ThemeManager.appearance() == ThemeManager.Appearance.MODERN_GLASS) return GLASS_ACCENT_BLUE;
         if (ThemeManager.appearance() == ThemeManager.Appearance.MIDNIGHT_BLUE) return Color.decode("#5B9CFF");
         if (ThemeManager.appearance() == ThemeManager.Appearance.CLEAN_LIGHT) return Color.decode("#2563EB");
         if (ThemeManager.appearance() == ThemeManager.Appearance.GRAPHITE) return GLASS_ACCENT_GOLD;
@@ -71,7 +74,7 @@ public final class RmsColors {
     public static Color primaryAccent() {
         if (ThemeManager.customAccent() != null) return ThemeManager.customAccent();
         return switch (ThemeManager.appearance()) {
-            case MODERN_GLASS -> GLASS_ACCENT_PURPLE;
+            case MODERN_GLASS -> GLASS_ACCENT_BLUE;
             case MIDNIGHT_BLUE -> Color.decode("#5B9CFF");
             case CLEAN_LIGHT -> Color.decode("#2563EB");
             case GRAPHITE -> GLASS_ACCENT_GOLD;
@@ -134,7 +137,7 @@ public final class RmsColors {
     /** Returns the selected-item highlight for the active appearance and mode. */
     public static Color primaryLight() {
         if (ThemeManager.appearance() == ThemeManager.Appearance.MODERN_GLASS)
-            return ThemeManager.isDark() ? Color.decode("#302A50") : Color.decode("#EDE9FE");
+            return ThemeManager.isDark() ? GLASS_NAV_SELECTED : Color.decode("#DBEAFE");
         if (ThemeManager.appearance() == ThemeManager.Appearance.MIDNIGHT_BLUE)
             return ThemeManager.isDark() ? Color.decode("#1E3A5F") : Color.decode("#DBEAFE");
         if (ThemeManager.appearance() == ThemeManager.Appearance.CLEAN_LIGHT)
@@ -240,6 +243,18 @@ public final class RmsColors {
             case SILVER_LINING -> Color.decode("#FFFFFF");
             case DEFAULT -> LIGHT_SURFACE;
         };
+    }
+
+    /** Returns the sidebar surface for the active appearance. */
+    public static Color sidebar() {
+        return ThemeManager.appearance() == ThemeManager.Appearance.MODERN_GLASS
+                ? GLASS_SIDEBAR : surface();
+    }
+
+    /** Returns the header surface for the active appearance. */
+    public static Color headerSurface() {
+        return ThemeManager.appearance() == ThemeManager.Appearance.MODERN_GLASS
+                ? GLASS_HEADER : surface();
     }
     /** Returns the primary text color for the active theme. */
     public static Color text() { return ThemeManager.isDark() ? DARK_TEXT : LIGHT_TEXT; }

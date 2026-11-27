@@ -6,6 +6,7 @@ import com.bred.rms.ui.RefreshablePanel;
 import com.bred.rms.ui.UiErrors;
 import com.bred.rms.ui.components.SectionHeader;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.LucideIcon;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.utils.BackgroundTask;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -23,9 +24,11 @@ import java.awt.BorderLayout;
 import java.awt.FlowLayout;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.Point;
 import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.geom.Point2D;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
@@ -70,8 +73,28 @@ public final class LiveProjectMapPanel extends JPanel implements RefreshablePane
         JPanel controls = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         controls.setOpaque(false);
         search.putClientProperty("JTextField.placeholderText", "Search project or marker");
+        search.getAccessibleContext().setAccessibleName("Search project or marker");
+        JLabel searchIcon = new JLabel(new LucideIcon("search", 15, () -> RmsColors.SECONDARY_TEXT));
+        controls.add(searchIcon);
+        statusFilter.setRenderer((list, value, index, selected, focused) -> {
+            javax.swing.JLabel label = new javax.swing.JLabel(value == null ? "" : value.toString());
+            label.setBorder(BorderFactory.createEmptyBorder(3, 5, 3, 5));
+            if (selected) {
+                label.setOpaque(true);
+                label.setBackground(RmsColors.primaryLight());
+                label.setForeground(RmsColors.text());
+            }
+            return label;
+        });
+        statusFilter.getAccessibleContext().setAccessibleName("Filter project markers by status");
+        statusFilter.setToolTipText("Filter project markers by status");
+        controls.add(new JLabel(new LucideIcon("filter", 15, () -> RmsColors.SECONDARY_TEXT)));
         JButton refresh = new JButton("Refresh");
-        refresh.addActionListener(e -> refreshData());
+        refresh.setIcon(new LucideIcon("refresh-cw", 15, RmsColors::primary));
+        refresh.addActionListener(e -> {
+            map.retryFailedTiles();
+            refreshData();
+        });
         controls.add(search);
         controls.add(statusFilter);
         controls.add(refresh);
@@ -146,7 +169,6 @@ public final class LiveProjectMapPanel extends JPanel implements RefreshablePane
     }
 
     private void fill(Loaded loaded) {
-        map.setProjects(loaded.projects());
         map.setMarkers(loaded.markers());
         map.clearSelection();
         applyFilter(loaded.markers(), loaded.projects());
@@ -214,27 +236,65 @@ public final class LiveProjectMapPanel extends JPanel implements RefreshablePane
     }
 
     private static final class MapPanel extends JPanel {
-        private List<Project> projects = new ArrayList<>();
+        private final OpenStreetMapTileLoader tiles = OpenStreetMapTileLoader.shared();
         private List<Marker> markers = new ArrayList<>();
         private Marker selected;
+        private Point dragPoint;
+        private int panX;
+        private int panY;
+        private int zoomOffset;
+        private boolean tileLoadFailed;
 
         private MapPanel() {
-            setBackground(RmsColors.GLASS_BACKGROUND);
+            setBackground(RmsColors.background());
+            setOpaque(true);
             setBorder(BorderFactory.createLineBorder(RmsColors.border()));
-            setToolTipText("Verified project locations");
+            setToolTipText("Verified coordinates load visible tiles from OpenStreetMap. Drag to pan; use the mouse wheel to zoom.");
+            MouseAdapter navigation = new MouseAdapter() {
+                @Override public void mousePressed(MouseEvent event) {
+                    if (event.getButton() == MouseEvent.BUTTON1) dragPoint = event.getPoint();
+                }
+
+                @Override public void mouseReleased(MouseEvent event) {
+                    dragPoint = null;
+                }
+
+                @Override public void mouseDragged(MouseEvent event) {
+                    if (dragPoint == null) return;
+                    panX += event.getX() - dragPoint.x;
+                    panY += event.getY() - dragPoint.y;
+                    dragPoint = event.getPoint();
+                    repaint();
+                }
+
+                @Override public void mouseWheelMoved(java.awt.event.MouseWheelEvent event) {
+                    zoomOffset = Math.max(-12, Math.min(12, zoomOffset - event.getWheelRotation()));
+                    repaint();
+                }
+            };
+            addMouseListener(navigation);
+            addMouseMotionListener(navigation);
+            addMouseWheelListener(navigation);
         }
 
-        private void setProjects(List<Project> projects) {
-            this.projects = projects;
+        @Override public void updateUI() {
+            super.updateUI();
+            setBackground(RmsColors.background());
         }
 
         private List<Marker> markers() {
             return markers;
         }
 
+        private void retryFailedTiles() {
+            tiles.retryFailed();
+            tileLoadFailed = false;
+        }
+
         private void setMarkers(List<Marker> markers) {
             this.markers = new ArrayList<>(markers);
             if (selected != null && !this.markers.contains(selected)) selected = null;
+            tileLoadFailed = false;
             repaint();
         }
 
@@ -252,67 +312,115 @@ public final class LiveProjectMapPanel extends JPanel implements RefreshablePane
             super.paintComponent(graphics);
             Graphics2D g = (Graphics2D) graphics.create();
             g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-
-            g.setColor(RmsColors.GLASS_SIDEBAR);
+            g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+            g.setColor(RmsColors.background());
             g.fillRect(0, 0, getWidth(), getHeight());
 
-            g.setColor(new java.awt.Color(90, 110, 150, 55));
-            for (int x = 0; x < getWidth(); x += 40) g.drawLine(x, 0, x, getHeight());
-            for (int y = 0; y < getHeight(); y += 40) g.drawLine(0, y, getWidth(), y);
-
-            g.setColor(RmsColors.SECONDARY_TEXT);
-            g.drawString(markers.isEmpty()
-                    ? "No verified project coordinates"
-                    : "Verified project coordinates • " + markers.size() + " marker(s)",
-                    18, 28);
-
             if (markers.isEmpty()) {
-                g.setColor(RmsColors.text());
-                g.drawString("Add latitude and longitude through Project map.",
-                        18, 52);
+                drawLabel(g, "No verified project coordinates", 18, 28);
+                drawLabel(g, "Add latitude and longitude through Project map.", 18, 54);
+                drawAttribution(g);
                 g.dispose();
                 return;
             }
 
-            BigDecimal minLat = markers.stream().map(Marker::latitude)
-                    .min(BigDecimal::compareTo).orElse(BigDecimal.ZERO);
-            BigDecimal maxLat = markers.stream().map(Marker::latitude)
-                    .max(BigDecimal::compareTo).orElse(BigDecimal.ZERO);
-            BigDecimal minLon = markers.stream().map(Marker::longitude)
-                    .min(BigDecimal::compareTo).orElse(BigDecimal.ZERO);
-            BigDecimal maxLon = markers.stream().map(Marker::longitude)
-                    .max(BigDecimal::compareTo).orElse(BigDecimal.ZERO);
+            List<Point2D.Double> locations = markers.stream()
+                    .map(marker -> new Point2D.Double(marker.longitude.doubleValue(), marker.latitude.doubleValue()))
+                    .toList();
+            int fitZoom = WebMercator.zoomToFit(locations, getWidth(), getHeight());
+            int zoom = Math.max(2, Math.min(18, fitZoom + zoomOffset));
+            Point2D.Double center = WebMercator.center(locations, zoom);
+            center.x -= panX;
+            center.y -= panY;
+            double left = center.x - getWidth() / 2.0;
+            double top = center.y - getHeight() / 2.0;
+
+            int loadedTiles = 0;
+            List<WebMercator.Placement> visibleTiles =
+                    WebMercator.visibleTiles(center, zoom, getWidth(), getHeight());
+            tileLoadFailed = false;
+            for (WebMercator.Placement placement : visibleTiles) {
+                WebMercator.Tile tile = placement.tile();
+                var image = tiles.cached(tile);
+                if (image != null) {
+                    g.drawImage(image, placement.screenX(), placement.screenY(), null);
+                    loadedTiles++;
+                } else if (isShowing() && !tiles.failedRecently(tile)) {
+                    tiles.load(tile, result -> {
+                        if (result.image() == null) tileLoadFailed = true;
+                        repaint();
+                    });
+                } else if (tiles.failedRecently(tile)) {
+                    tileLoadFailed = true;
+                }
+            }
+
+            if (visibleTiles.isEmpty()) {
+                drawLabel(g, "No map tiles at this latitude", 18, 28);
+            } else if (loadedTiles == 0) {
+                drawLabel(g, tileLoadFailed
+                        ? "Map tiles unavailable. Check your connection and refresh."
+                        : "Loading OpenStreetMap tiles…", 18, 28);
+            } else {
+                drawLabel(g, tileLoadFailed ? "Some map tiles could not load."
+                        : "Verified project locations · " + markers.size() + " marker(s)", 18, 28);
+            }
+
             for (Marker marker : markers) {
-                int x = relative(marker.longitude, minLon, maxLon, 40, getWidth() - 40);
-                int y = relative(marker.latitude, minLat, maxLat, getHeight() - 40, 70);
+                Point2D.Double world = WebMercator.project(marker.latitude.doubleValue(),
+                        marker.longitude.doubleValue(), zoom);
+                int x = (int) Math.round(world.x - left);
+                int y = (int) Math.round(world.y - top);
                 boolean current = marker.equals(selected);
+                int diameter = current ? 18 : 14;
+                g.setColor(new java.awt.Color(0, 0, 0, 100));
+                g.fillOval(x - diameter / 2 + 1, y - diameter / 2 + 2, diameter, diameter);
                 g.setColor(statusColor(marker.status));
                 g.fillOval(x - (current ? 10 : 7), y - (current ? 10 : 7),
                         current ? 20 : 14, current ? 20 : 14);
-                g.setColor(RmsColors.text());
-                g.drawString(marker.name, x + 12, y + 4);
+                g.setColor(java.awt.Color.WHITE);
+                g.drawOval(x - diameter / 2, y - diameter / 2, diameter, diameter);
+                drawLabel(g, marker.name, x + 13, y + 4);
             }
 
             if (selected != null) {
+                int panelY = Math.max(48, getHeight() - 92);
                 g.setColor(RmsColors.surface());
-                g.fillRoundRect(18, getHeight() - 94, 270, 74, 12, 12);
+                g.fillRoundRect(18, panelY, Math.min(340, getWidth() - 36), 72, 12, 12);
                 g.setColor(RmsColors.border());
-                g.drawRoundRect(18, getHeight() - 94, 270, 74, 12, 12);
-                g.setColor(RmsColors.text());
-                g.drawString(selected.name, 30, getHeight() - 66);
-                g.setColor(RmsColors.SECONDARY_TEXT);
-                g.drawString(selected.status + " • " + selected.latitude + ", " + selected.longitude,
-                        30, getHeight() - 44);
+                g.drawRoundRect(18, panelY, Math.min(340, getWidth() - 36), 72, 12, 12);
+                drawLabel(g, selected.name, 30, panelY + 25);
+                drawLabel(g, selected.status + " · " + selected.latitude + ", " + selected.longitude,
+                        30, panelY + 49);
             }
+            drawAttribution(g);
             g.dispose();
         }
 
-        private static int relative(BigDecimal value, BigDecimal min, BigDecimal max,
-                                   int low, int high) {
-            if (min.compareTo(max) == 0) return (low + high) / 2;
-            BigDecimal ratio = value.subtract(min).divide(max.subtract(min), 6,
-                    java.math.RoundingMode.HALF_UP);
-            return low + ratio.multiply(BigDecimal.valueOf(high - low)).intValue();
+        private void drawAttribution(Graphics2D g) {
+            String attribution = "© OpenStreetMap contributors";
+            int width = g.getFontMetrics().stringWidth(attribution) + 16;
+            int x = Math.max(8, getWidth() - width - 8);
+            int y = Math.max(20, getHeight() - 10);
+            g.setColor(new java.awt.Color(6, 4, 53, 225));
+            g.fillRoundRect(x, y - 17, width, 22, 8, 8);
+            g.setColor(java.awt.Color.WHITE);
+            g.drawString(attribution, x + 8, y - 2);
+        }
+
+        private void drawLabel(Graphics2D g, String text, int x, int baseline) {
+            String label = text == null ? "" : text;
+            java.awt.FontMetrics metrics = g.getFontMetrics();
+            int width = Math.min(metrics.stringWidth(label), Math.max(0, getWidth() - x - 8));
+            if (width <= 0) return;
+            int height = metrics.getHeight();
+            g.setColor(new java.awt.Color(6, 4, 53, 210));
+            g.fillRoundRect(x - 5, baseline - metrics.getAscent() - 3,
+                    width + 10, height + 5, 8, 8);
+            g.setColor(java.awt.Color.WHITE);
+            g.drawString(metrics.stringWidth(label) > width
+                    ? label.substring(0, Math.min(label.length(), Math.max(1, width / 7))) + "…" : label,
+                    x, baseline);
         }
 
         private static java.awt.Color statusColor(String status) {

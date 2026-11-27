@@ -63,6 +63,19 @@ and Maven on the computer that runs the app.
    SHA-256 digest in release metadata, BRED verifies it; this is an integrity check, not a Windows publisher signature.
    The Windows MSI build script is documented below. Creating an MSI does not install or publish it.
 
+## Live Project Map tiles
+
+The map uses OpenStreetMap raster tiles over HTTPS only after verified project markers are available and the map is
+opened. It requests only tiles inside the current viewport, shows `© OpenStreetMap contributors` on the map, identifies
+itself with a BRED User-Agent, and honors tile cache headers and validators. When a tile response provides no usable
+cache lifetime, BRED keeps it locally for seven days. The local cache is stored under
+`%LOCALAPPDATA%\BRED\map-tiles`; this is a normal web cache, not an offline-map download or prefetch feature.
+
+Tile requests disclose the requesting network address and the viewed map area to the tile service. OpenStreetMap's
+tile server is best-effort and may limit service; review its
+[tile usage policy](https://operations.osmfoundation.org/policies/tiles/). To use a different HTTPS-compatible tile
+provider, set the JVM property `bred.map.tileUrl` to a URL template containing `{z}`, `{x}`, and `{y}`.
+
 ## Windows MSI update handoff prerequisites
 
 The current development machine has a registered BRED 1.0.5 installation at `D:\BRED\`. Windows records it under

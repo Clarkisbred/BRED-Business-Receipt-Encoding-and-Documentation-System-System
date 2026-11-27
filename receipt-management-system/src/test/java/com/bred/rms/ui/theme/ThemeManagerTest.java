@@ -21,6 +21,10 @@ class ThemeManagerTest {
                     RmsColors.background());
             assertEquals(com.bred.rms.ui.theme.RmsColors.GLASS_CARD,
                     RmsColors.surface());
+            assertEquals(Color.decode("#5B9CFF"), RmsColors.primaryAccent());
+            assertEquals(Color.decode("#1A1C2B"), RmsColors.sidebar());
+            assertEquals(Color.decode("#1D2033"), RmsColors.headerSurface());
+            assertEquals(Color.decode("#1E2870"), RmsColors.primaryLight());
             ThemeManager.setCustomAccent(java.awt.Color.decode("#22C55E"));
             assertEquals(java.awt.Color.decode("#22C55E"), RmsColors.primaryAccent());
             ThemeManager.installSaved();

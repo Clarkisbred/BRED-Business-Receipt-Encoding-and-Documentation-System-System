@@ -175,10 +175,19 @@ public final class ThemeManager {
                 Map.entry("Component.focusColor", toHex(accent)),
                 Map.entry("Button.arc", "10"),
                 Map.entry("Component.arc", "10"),
-                Map.entry("TextComponent.arc", "10"),
+                Map.entry("TextComponent.arc", "8"),
                 Map.entry("ScrollBar.showButtons", "false"),
-                Map.entry("Table.rowHeight", "28"),
-                Map.entry("TableHeader.height", "32"),
+                Map.entry("Component.borderColor", toHex(RmsColors.border())),
+                Map.entry("Table.background", toHex(RmsColors.surface())),
+                Map.entry("Table.foreground", toHex(RmsColors.text())),
+                Map.entry("Table.gridColor", toHex(RmsColors.border())),
+                Map.entry("Table.selectionBackground", toHex(RmsColors.primaryLight())),
+                Map.entry("Table.selectionForeground", toHex(RmsColors.text())),
+                Map.entry("Table.alternateRowColor", toHex(RmsColors.background())),
+                Map.entry("Table.rowHeight", "32"),
+                Map.entry("TableHeader.background", toHex(RmsColors.headerSurface())),
+                Map.entry("TableHeader.foreground", toHex(RmsColors.text())),
+                Map.entry("TableHeader.height", "36"),
                 Map.entry("TabbedPane.tabHeight", "34")));
         if (appearance != Appearance.DEFAULT) {
             defaults.put("List.selectionBackground", toHex(RmsColors.primaryLight()));

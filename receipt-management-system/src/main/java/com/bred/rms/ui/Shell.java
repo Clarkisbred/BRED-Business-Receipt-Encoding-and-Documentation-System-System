@@ -13,6 +13,7 @@ import com.bred.rms.security.Module;
 import com.bred.rms.ui.components.StatusBadge;
 import com.bred.rms.ui.components.SurfacePanel;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.LucideIcon;
 import com.bred.rms.ui.components.UserAvatar;
 import com.bred.rms.ui.components.UiConstants;
 import com.bred.rms.ui.theme.RmsColors;
@@ -44,12 +45,18 @@ import javax.swing.ButtonGroup;
 import javax.swing.JButton;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
+import javax.swing.JMenuItem;
 import javax.swing.JPanel;
+import javax.swing.JPopupMenu;
 import javax.swing.JScrollBar;
 import javax.swing.JScrollPane;
+import javax.swing.Scrollable;
+import javax.swing.JTextField;
 import javax.swing.JToggleButton;
 import javax.swing.SwingUtilities;
 import javax.swing.Timer;
+import javax.swing.event.DocumentEvent;
+import javax.swing.event.DocumentListener;
 import java.awt.BorderLayout;
 import java.awt.BasicStroke;
 import java.awt.CardLayout;
@@ -59,9 +66,16 @@ import java.awt.FlowLayout;
 import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.GridBagConstraints;
+import java.awt.GridBagLayout;
 import java.awt.Insets;
 import java.awt.RenderingHints;
+import java.awt.Rectangle;
 import java.awt.geom.RoundRectangle2D;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
+import java.awt.event.FocusAdapter;
+import java.awt.event.FocusEvent;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashMap;
@@ -88,9 +102,21 @@ public final class Shell extends JPanel {
     private final JLabel title = new JLabel();
     private final JLabel breadcrumb = new JLabel("Workspace");
     private final JLabel brand = new JLabel("BRED");
-    private final Consumer<Boolean> themeListener = dark -> brand.setForeground(RmsColors.primary());
+    private final Consumer<Boolean> themeListener = dark -> {
+        brand.setForeground(RmsColors.primary());
+        updateThemeControls();
+    };
     private static final String DETAIL_CARD = "RECEIPT_DETAIL";
     private NavListPanel navList;
+    private JTextField moduleSearch;
+    private JPopupMenu moduleSuggestions;
+    private JButton themeToggle;
+    private JMenuItem profileThemeItem;
+    private SurfacePanel moduleSearchSurface;
+    private SurfacePanel sidebarProfileSurface;
+    private JLabel sidebarSubtitle;
+    private JLabel sidebarProfileName;
+    private JLabel sidebarProfileRole;
     private ReceiptDirectoryPanel directory;
     private ReceiptDetailPanel detail;
     private Module activeModule;
@@ -116,11 +142,13 @@ public final class Shell extends JPanel {
         Role role = user == null ? Role.ENCODER : user.role();
         this.modules = AccessPolicy.modulesFor(role);
         broadcastPollTimer.setCoalesce(true);
+        setBackground(RmsColors.background());
 
         add(buildSidebar(user), BorderLayout.WEST);
-        JPanel right = new JPanel(new BorderLayout());
+        SurfacePanel right = new SurfacePanel(new BorderLayout(), RmsColors::background);
         right.add(buildHeader(user, onSignOut), BorderLayout.NORTH);
         content.setBorder(BorderFactory.createEmptyBorder(16, 18, 16, 18));
+        content.setOpaque(false);
         right.add(content, BorderLayout.CENTER);
         add(right, BorderLayout.CENTER);
         show(modules.get(0));
@@ -165,6 +193,7 @@ public final class Shell extends JPanel {
             b.setSelected(true);
             navList.select(modules.indexOf(m));
         }
+        if (moduleSearch != null) moduleSearch.setText("");
     }
 
     Module activeModule() { return activeModule; }
@@ -308,7 +337,8 @@ public final class Shell extends JPanel {
     }
 
     private JComponent buildSidebar(User user) {
-        SurfacePanel side = new SurfacePanel(null, RmsColors::surface) {
+        int sidebarContentWidth = UiConstants.SIDEBAR_WIDTH - 36;
+        SurfacePanel side = new SurfacePanel(new BorderLayout(), RmsColors::sidebar) {
             @Override
             protected void paintComponent(Graphics graphics) {
                 super.paintComponent(graphics);
@@ -318,24 +348,32 @@ public final class Shell extends JPanel {
                 g.dispose();
             }
         };
-        side.setLayout(new BoxLayout(side, BoxLayout.Y_AXIS));
         side.setBorder(BorderFactory.createEmptyBorder(24, 18, 18, 18));
         side.setPreferredSize(new Dimension(UiConstants.SIDEBAR_WIDTH, 0));
+        brand.setName("sidebarBrand");
         brand.setFont(brand.getFont().deriveFont(Font.BOLD, 24f));
         brand.setForeground(RmsColors.primary());
         String companyName = user == null ? "" : user.companyName();
         String companyText = companyName.isBlank()
                 ? (user != null && user.role() == Role.CREATOR ? "All companies" : "No company")
                 : companyName;
-        JLabel sub = new JLabel("<html><b>" + escapeHtml(companyText) + "</b><br>"
+        sidebarSubtitle = new JLabel("<html><b>" + escapeHtml(companyText) + "</b><br>"
                 + "Business Receipt<br>Encoding and<br>Documentation System</html>");
-        sub.setForeground(RmsColors.SECONDARY_TEXT);
-        sub.setFont(sub.getFont().deriveFont(Font.PLAIN, 11f));
-        brand.setAlignmentX(LEFT_ALIGNMENT);
-        sub.setAlignmentX(LEFT_ALIGNMENT);
-        side.add(brand);
-        side.add(sub);
-        side.add(Box.createVerticalStrut(30));
+        sidebarSubtitle.setForeground(RmsColors.SECONDARY_TEXT);
+        sidebarSubtitle.setFont(sidebarSubtitle.getFont().deriveFont(Font.PLAIN, 11f));
+        JPanel sidebarBrandBlock = new JPanel(new GridBagLayout());
+        sidebarBrandBlock.setOpaque(false);
+        sidebarBrandBlock.setBorder(BorderFactory.createEmptyBorder(0, 0, 30, 0));
+        GridBagConstraints brandConstraints = new GridBagConstraints();
+        brandConstraints.gridx = 0;
+        brandConstraints.gridy = 0;
+        brandConstraints.weightx = 1;
+        brandConstraints.fill = GridBagConstraints.HORIZONTAL;
+        brandConstraints.anchor = GridBagConstraints.LINE_START;
+        sidebarBrandBlock.add(brand, brandConstraints);
+        brandConstraints.gridy = 1;
+        sidebarBrandBlock.add(sidebarSubtitle, brandConstraints);
+        side.add(sidebarBrandBlock, BorderLayout.NORTH);
 
         ButtonGroup group = new ButtonGroup();
         navList = new NavListPanel();
@@ -346,17 +384,18 @@ public final class Shell extends JPanel {
                 activeGroup = groupName;
                 navList.addSection(groupName);
             }
-            JToggleButton b = new NavButton(m.title());
+            JToggleButton b = new NavButton(m);
             b.setHorizontalAlignment(JToggleButton.LEFT);
             b.setMargin(new Insets(0, 16, 0, 12));
-            b.setFocusable(false);
+            b.setFocusable(true);
             b.addActionListener(e -> show(m));
             group.add(b);
             navButtons.put(m, b);
             navList.addButton(b);
         }
         int navHeight = navList.preferredHeight();
-        navList.setPreferredSize(new Dimension(216, navHeight));
+        int navigationContentWidth = sidebarContentWidth - 12;
+        navList.setPreferredSize(new Dimension(navigationContentWidth, navHeight));
         navList.setMaximumSize(new Dimension(Integer.MAX_VALUE, navHeight));
         navList.setAlignmentX(LEFT_ALIGNMENT);
         JScrollPane navScroll = new StyledScrollPane(navList);
@@ -366,26 +405,26 @@ public final class Shell extends JPanel {
         navScroll.setHorizontalScrollBarPolicy(JScrollPane.HORIZONTAL_SCROLLBAR_NEVER);
         navScroll.setVerticalScrollBarPolicy(JScrollPane.VERTICAL_SCROLLBAR_AS_NEEDED);
         navScroll.getViewport().setOpaque(false);
-        navScroll.setPreferredSize(new Dimension(216, Math.min(modules.size() * 56, 440)));
-        navScroll.setMinimumSize(new Dimension(216, 72));
-        navScroll.setMaximumSize(new Dimension(Integer.MAX_VALUE, Integer.MAX_VALUE));
-        navScroll.setAlignmentX(LEFT_ALIGNMENT);
+        navScroll.setPreferredSize(
+                new Dimension(sidebarContentWidth, Math.min(modules.size() * 56, 440)));
+        navScroll.setMinimumSize(new Dimension(sidebarContentWidth, 72));
+        navScroll.setMaximumSize(new Dimension(sidebarContentWidth, Integer.MAX_VALUE));
         navScroll.setViewportBorder(BorderFactory.createEmptyBorder());
 
         JScrollBar navBar = navScroll.getVerticalScrollBar();
         navBar.setUnitIncrement(42);
         navBar.setBlockIncrement(168);
-        if (user != null && user.role() == Role.CREATOR) {
-            navList.setSelectionTrailingInset(navBar.getPreferredSize().width);
-        }
-        side.add(navScroll);
-        side.add(Box.createVerticalGlue());
+        side.add(navScroll, BorderLayout.CENTER);
+        side.add(buildSidebarProfile(user), BorderLayout.SOUTH);
         return side;
     }
 
     private static final class NavButton extends JToggleButton {
-        private NavButton(String text) {
-            super(text);
+        private NavButton(Module module) {
+            super(module.title());
+            setIcon(new LucideIcon(moduleIcon(module), 18,
+                    () -> isSelected() ? RmsColors.primaryAccent() : RmsColors.SECONDARY_TEXT));
+            setIconTextGap(12);
             setContentAreaFilled(false);
             setOpaque(false);
             setBorderPainted(false);
@@ -406,8 +445,13 @@ public final class Shell extends JPanel {
                         : RmsColors.primaryLight());
                 g.fill(shape);
                 g.setColor(RmsColors.primaryAccent());
-                g.setStroke(new BasicStroke(1.2f));
+                g.setStroke(new BasicStroke(hasFocus() ? 1.8f : 1.2f));
                 g.draw(shape);
+            }
+            if (hasFocus() && !isSelected()) {
+                g.setColor(RmsColors.primaryAccent());
+                g.setStroke(new BasicStroke(1.4f));
+                g.draw(new RoundRectangle2D.Float(1, 1, getWidth() - 3, getHeight() - 3, 14, 14));
             }
             if (getModel().isRollover() && !isSelected()) {
                 RoundRectangle2D shape = new RoundRectangle2D.Float(1, 1, getWidth() - 3, getHeight() - 3, 14, 14);
@@ -422,14 +466,12 @@ public final class Shell extends JPanel {
         }
     }
 
-    private static final class NavListPanel extends JPanel {
+    private static final class NavListPanel extends JPanel implements Scrollable {
         private static final int ROW_HEIGHT = 50;
         private static final int ROW_GAP = 6;
         private static final int SECTION_HEIGHT = 24;
-        private static final int ARC = 14;
         private final List<JToggleButton> buttons = new ArrayList<>();
         private int contentHeight;
-        private int selectionTrailingInset;
 
         private NavListPanel() {
             setLayout(new BoxLayout(this, BoxLayout.Y_AXIS));
@@ -440,7 +482,7 @@ public final class Shell extends JPanel {
             buttons.add(button);
             button.setAlignmentX(LEFT_ALIGNMENT);
             button.setMaximumSize(new Dimension(Integer.MAX_VALUE, ROW_HEIGHT));
-            button.setPreferredSize(new Dimension(216, ROW_HEIGHT));
+            button.setPreferredSize(new Dimension(UiConstants.SIDEBAR_WIDTH - 36 - 12, ROW_HEIGHT));
             add(button);
             add(Box.createVerticalStrut(ROW_GAP));
             contentHeight += ROW_HEIGHT + ROW_GAP;
@@ -453,7 +495,7 @@ public final class Shell extends JPanel {
             section.setAlignmentX(LEFT_ALIGNMENT);
             section.setBorder(BorderFactory.createEmptyBorder(8, 2, 4, 2));
             section.setMaximumSize(new Dimension(Integer.MAX_VALUE, SECTION_HEIGHT));
-            section.setPreferredSize(new Dimension(216, SECTION_HEIGHT));
+            section.setPreferredSize(new Dimension(UiConstants.SIDEBAR_WIDTH - 36 - 12, SECTION_HEIGHT));
             add(section);
             contentHeight += SECTION_HEIGHT;
         }
@@ -462,10 +504,16 @@ public final class Shell extends JPanel {
             return Math.max(ROW_HEIGHT, contentHeight);
         }
 
-        private void setSelectionTrailingInset(int inset) {
-            selectionTrailingInset = Math.max(0, inset);
-            repaint();
+        @Override public Dimension getPreferredScrollableViewportSize() { return getPreferredSize(); }
+        @Override public int getScrollableUnitIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return orientation == javax.swing.SwingConstants.VERTICAL ? ROW_HEIGHT + ROW_GAP : 16;
         }
+        @Override public int getScrollableBlockIncrement(Rectangle visibleRect, int orientation, int direction) {
+            return orientation == javax.swing.SwingConstants.VERTICAL
+                    ? Math.max(ROW_HEIGHT, visibleRect.height - ROW_HEIGHT) : visibleRect.width - 16;
+        }
+        @Override public boolean getScrollableTracksViewportWidth() { return true; }
+        @Override public boolean getScrollableTracksViewportHeight() { return false; }
 
         private void select(int index) {
             if (index < 0 || index >= buttons.size()) return;
@@ -499,7 +547,7 @@ public final class Shell extends JPanel {
     }
 
     private JComponent buildHeader(User user, Runnable onSignOut) {
-        SurfacePanel header = new SurfacePanel(new BorderLayout(), RmsColors::surface);
+        SurfacePanel header = new SurfacePanel(new BorderLayout(16, 0), RmsColors::headerSurface);
         header.setBorder(BorderFactory.createEmptyBorder(10, 18, 10, 18));
         header.setPreferredSize(new Dimension(0, UiConstants.HEADER_HEIGHT));
         title.setFont(title.getFont().deriveFont(Font.BOLD, 18f));
@@ -513,6 +561,7 @@ public final class Shell extends JPanel {
         heading.add(title);
         header.add(heading, BorderLayout.WEST);
 
+        header.add(buildModuleSearch(), BorderLayout.CENTER);
         JPanel tools = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         tools.setOpaque(false);
         boolean sharedCloud = ctx.storageLabel.startsWith("Supabase project ");
@@ -522,26 +571,211 @@ public final class Shell extends JPanel {
                 ? "Receipts are stored in the shared Supabase project."
                 : "Receipts are stored only on this computer.");
         tools.add(storage);
-        if (user != null) {
-            if (user.role() == Role.CREATOR || UserAvatar.isDuckProfile(user.email())) {
-                UserAvatar avatar = new UserAvatar(44, 40, false);
-                avatar.setProfile(user.fullName(), user.email());
-                tools.add(avatar);
-            }
-            tools.add(new JLabel(user.fullName()));
-            tools.add(StatusBadge.of(user.role().label(), user.role().canManageCompany() ? RmsColors.primary() : RmsColors.INFO));
-        }
-        JButton theme = new JButton(ThemeManager.isDark() ? "Light mode" : "Dark mode");
-        theme.addActionListener(e -> {
-            ThemeManager.toggle();
-            theme.setText(ThemeManager.isDark() ? "Light mode" : "Dark mode");
-        });
-        JButton out = new JButton("Sign out");
-        out.addActionListener(e -> onSignOut.run());
-        tools.add(theme);
-        tools.add(out);
+        themeToggle = new JButton(new LucideIcon(ThemeManager.isDark() ? "sun" : "moon", 17,
+                RmsColors::text));
+        themeToggle.setName("themeToggle");
+        themeToggle.setToolTipText(ThemeManager.isDark() ? "Switch to light theme" : "Switch to dark theme");
+        themeToggle.getAccessibleContext().setAccessibleName("Toggle color theme");
+        themeToggle.addActionListener(e -> ThemeManager.toggle());
+        tools.add(themeToggle);
+        JButton messages = new JButton(new LucideIcon("bell", 17, RmsColors::text));
+        messages.setName("messageNotificationsButton");
+        messages.setToolTipText("Open messages and broadcasts");
+        messages.getAccessibleContext().setAccessibleName("Open messages and broadcasts");
+        messages.addActionListener(event -> show(Module.MESSAGES));
+        tools.add(messages);
+        if (user != null) tools.add(buildProfileMenu(user, onSignOut));
         header.add(tools, BorderLayout.EAST);
         return header;
+    }
+
+    private JComponent buildModuleSearch() {
+        moduleSearch = new JTextField();
+        moduleSearch.setName("shellModuleSearch");
+        moduleSearch.setOpaque(false);
+        moduleSearch.setBorder(BorderFactory.createEmptyBorder(0, 2, 0, 2));
+        moduleSearch.putClientProperty("JTextField.placeholderText", "Search modules");
+        moduleSearch.getAccessibleContext().setAccessibleName("Search available modules");
+        moduleSearch.setToolTipText("Find an available module");
+        moduleSuggestions = new JPopupMenu();
+
+        SurfacePanel searchField = new SurfacePanel(new BorderLayout(8, 0), RmsColors::surface);
+        moduleSearchSurface = searchField;
+        searchField.setName("shellModuleSearchField");
+        searchField.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(RmsColors.border()),
+                BorderFactory.createEmptyBorder(0, 10, 0, 10)));
+        searchField.add(new JLabel(new LucideIcon("search", 16, () -> RmsColors.SECONDARY_TEXT)),
+                BorderLayout.WEST);
+        searchField.add(moduleSearch, BorderLayout.CENTER);
+        searchField.setPreferredSize(new Dimension(220, 36));
+
+        DocumentListener listener = new DocumentListener() {
+            @Override public void insertUpdate(DocumentEvent event) { updateModuleSuggestions(); }
+            @Override public void removeUpdate(DocumentEvent event) { updateModuleSuggestions(); }
+            @Override public void changedUpdate(DocumentEvent event) { updateModuleSuggestions(); }
+        };
+        moduleSearch.getDocument().addDocumentListener(listener);
+        moduleSearch.addActionListener(event -> openFirstModuleMatch());
+        moduleSearch.addKeyListener(new KeyAdapter() {
+            @Override public void keyPressed(KeyEvent event) {
+                if (event.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                    moduleSuggestions.setVisible(false);
+                    moduleSearch.setText("");
+                }
+            }
+        });
+        moduleSearch.addFocusListener(new FocusAdapter() {
+            @Override public void focusLost(FocusEvent event) {
+                SwingUtilities.invokeLater(() -> {
+                    if (!moduleSuggestions.isFocusOwner()) moduleSuggestions.setVisible(false);
+                });
+            }
+        });
+        return searchField;
+    }
+
+    private void updateModuleSuggestions() {
+        if (moduleSuggestions == null || moduleSearch == null) return;
+        moduleSuggestions.removeAll();
+        String query = moduleSearch.getText().trim().toLowerCase(java.util.Locale.ROOT);
+        if (query.isEmpty()) {
+            moduleSuggestions.setVisible(false);
+            return;
+        }
+        for (Module module : modules) {
+            if (!module.title().toLowerCase(java.util.Locale.ROOT).contains(query)) continue;
+            JMenuItem suggestion = new JMenuItem(module.title(),
+                    new LucideIcon(moduleIcon(module), 16, RmsColors::primary));
+            suggestion.addActionListener(event -> show(module));
+            moduleSuggestions.add(suggestion);
+        }
+        if (moduleSuggestions.getComponentCount() == 0) {
+            moduleSuggestions.setVisible(false);
+        } else if (moduleSearch.isShowing()) {
+            moduleSuggestions.show(moduleSearch, 0, moduleSearch.getHeight());
+        }
+    }
+
+    private void openFirstModuleMatch() {
+        String query = moduleSearch.getText().trim().toLowerCase(java.util.Locale.ROOT);
+        modules.stream()
+                .filter(module -> module.title().toLowerCase(java.util.Locale.ROOT).contains(query))
+                .findFirst()
+                .ifPresent(this::show);
+    }
+
+    private JComponent buildSidebarProfile(User user) {
+        SurfacePanel profile = new SurfacePanel(new BorderLayout(10, 0), RmsColors::headerSurface);
+        sidebarProfileSurface = profile;
+        profile.setName("sidebarProfile");
+        profile.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(RmsColors.border()),
+                BorderFactory.createEmptyBorder(9, 8, 9, 8)));
+        if (user == null) return profile;
+
+        String name = user.fullName() == null || user.fullName().isBlank() ? user.email() : user.fullName();
+        String email = user.email() == null ? "" : user.email();
+        UserAvatar avatar = new UserAvatar(38, 34, false);
+        avatar.setProfile(name, email);
+        profile.add(avatar, BorderLayout.WEST);
+        JPanel identity = new JPanel();
+        identity.setOpaque(false);
+        identity.setLayout(new BoxLayout(identity, BoxLayout.Y_AXIS));
+        sidebarProfileName = new JLabel(name);
+        sidebarProfileName.setFont(sidebarProfileName.getFont().deriveFont(Font.BOLD, 12f));
+        sidebarProfileName.setForeground(RmsColors.text());
+        sidebarProfileName.setToolTipText(name);
+        sidebarProfileRole = new JLabel(user.role().label());
+        sidebarProfileRole.setFont(sidebarProfileRole.getFont().deriveFont(Font.PLAIN, 11f));
+        sidebarProfileRole.setForeground(RmsColors.SECONDARY_TEXT);
+        identity.add(sidebarProfileName);
+        identity.add(Box.createVerticalStrut(3));
+        identity.add(sidebarProfileRole);
+        profile.add(identity, BorderLayout.CENTER);
+        return profile;
+    }
+
+    private JButton buildProfileMenu(User user, Runnable onSignOut) {
+        String name = user.fullName() == null || user.fullName().isBlank() ? user.email() : user.fullName();
+        JButton account = new JButton(name, new LucideIcon("user-round", 16, RmsColors::primary));
+        account.setName("profileMenuButton");
+        account.setToolTipText("Account options");
+        account.getAccessibleContext().setAccessibleName("Account options for " + name);
+        JPopupMenu menu = new JPopupMenu();
+        JMenuItem identity = new JMenuItem(name);
+        identity.setEnabled(false);
+        menu.add(identity);
+        JMenuItem role = new JMenuItem(user.role().label());
+        role.setEnabled(false);
+        menu.add(role);
+        menu.addSeparator();
+        JMenuItem settings = new JMenuItem("Settings",
+                new LucideIcon("settings", 16, () -> RmsColors.SECONDARY_TEXT));
+        settings.addActionListener(event -> show(Module.SETTINGS));
+        menu.add(settings);
+        profileThemeItem = new JMenuItem();
+        profileThemeItem.addActionListener(event -> ThemeManager.toggle());
+        menu.add(profileThemeItem);
+        JMenuItem signOut = new JMenuItem("Sign out",
+                new LucideIcon("log-out", 16, () -> RmsColors.SECONDARY_TEXT));
+        signOut.addActionListener(event -> onSignOut.run());
+        menu.add(signOut);
+        account.addActionListener(event -> menu.show(account, 0, account.getHeight()));
+        updateThemeControls();
+        return account;
+    }
+
+    private void updateThemeControls() {
+        breadcrumb.setForeground(RmsColors.SECONDARY_TEXT);
+        if (sidebarSubtitle != null) sidebarSubtitle.setForeground(RmsColors.SECONDARY_TEXT);
+        if (sidebarProfileName != null) sidebarProfileName.setForeground(RmsColors.text());
+        if (sidebarProfileRole != null) sidebarProfileRole.setForeground(RmsColors.SECONDARY_TEXT);
+        if (navList != null) {
+            for (java.awt.Component component : navList.getComponents()) {
+                if (component instanceof JLabel section) section.setForeground(RmsColors.SECONDARY_TEXT);
+            }
+        }
+        if (moduleSearchSurface != null) {
+            moduleSearchSurface.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(RmsColors.border()),
+                    BorderFactory.createEmptyBorder(0, 10, 0, 10)));
+        }
+        if (sidebarProfileSurface != null) {
+            sidebarProfileSurface.setBorder(BorderFactory.createCompoundBorder(
+                    BorderFactory.createLineBorder(RmsColors.border()),
+                    BorderFactory.createEmptyBorder(9, 8, 9, 8)));
+        }
+        if (themeToggle != null) {
+            themeToggle.setIcon(new LucideIcon(ThemeManager.isDark() ? "sun" : "moon", 17,
+                    RmsColors::text));
+            themeToggle.setToolTipText(ThemeManager.isDark() ? "Switch to light theme" : "Switch to dark theme");
+        }
+        if (profileThemeItem != null) {
+            boolean dark = ThemeManager.isDark();
+            profileThemeItem.setText(dark ? "Switch to light theme" : "Switch to dark theme");
+            profileThemeItem.setIcon(new LucideIcon(dark ? "sun" : "moon", 16,
+                    () -> RmsColors.SECONDARY_TEXT));
+        }
+    }
+
+    private static String moduleIcon(Module module) {
+        return switch (module) {
+            case DASHBOARD -> "layout-dashboard";
+            case MESSAGES -> "message-square";
+            case DUCKY -> "sparkles";
+            case RECEIPTS -> "receipt";
+            case SUPPLIERS -> "truck";
+            case PROJECTS -> "folder-kanban";
+            case LIVE_MAP -> "map-pin";
+            case CONSTRUCTION -> "hard-hat";
+            case REPORTS -> "chart-column";
+            case USERS -> "users";
+            case ACTIVITY_LOG -> "activity";
+            case COMPANIES -> "building-2";
+            case HISTORY -> "history";
+            case SETTINGS -> "settings";
+        };
     }
 
 }

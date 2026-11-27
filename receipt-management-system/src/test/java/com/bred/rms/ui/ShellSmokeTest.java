@@ -21,6 +21,7 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.JTextField;
 import javax.swing.JTextPane;
 import javax.swing.SwingUtilities;
 import javax.swing.JToggleButton;
@@ -56,9 +57,79 @@ class ShellSmokeTest {
         assertTrue(shell.visibleModules().contains(Module.DUCKY));
         assertTrue(shell.visibleModules().contains(Module.CONSTRUCTION));
         assertTrue(shell.visibleModules().contains(Module.LIVE_MAP));
+        assertNotNull(findComponentNamed(shell, "shellModuleSearch"));
+        assertNotNull(findComponentNamed(shell, "sidebarProfile"));
+        assertNotNull(findComponentNamed(shell, "profileMenuButton"));
+        assertNotNull(findComponentNamed(shell, "messageNotificationsButton"));
         assertDoesNotThrow(() -> shell.show(Module.SETTINGS));
         assertDoesNotThrow(() -> shell.show(Module.REPORTS));
         assertDoesNotThrow(() -> shell.show(Module.DASHBOARD));
+    }
+
+    @Test
+    void sidebarContentUsesTheProfileCardLeftInset() throws Exception {
+        Shell shell = new Shell(TestContexts.withUser(Role.ADMIN), () -> { });
+        shell.setSize(960, 709);
+        shell.show(Module.SETTINGS);
+        layoutRecursively(shell);
+
+        Container sidebar = (Container) shell.getComponent(0);
+        assertEquals(0, sidebar.getX());
+
+        Component profile = findComponentNamed(sidebar, "sidebarProfile");
+        JLabel brand = (JLabel) findComponentNamed(sidebar, "sidebarBrand");
+        JScrollPane navigation = (JScrollPane) findComponentNamed(sidebar, "sidebarNavigationScroll");
+        Container navigationContent = (Container) navigation.getViewport().getView();
+        JLabel firstSection = java.util.Arrays.stream(navigationContent.getComponents())
+                .filter(JLabel.class::isInstance)
+                .map(JLabel.class::cast)
+                .filter(section -> "PROJECT MANAGEMENT".equals(section.getText()))
+                .findFirst()
+                .orElseThrow();
+        JToggleButton selected = navigationButton(shell, Module.SETTINGS);
+
+        int profileLeft = javax.swing.SwingUtilities.convertPoint(profile, 0, 0, sidebar).x;
+        int brandLeft = javax.swing.SwingUtilities.convertPoint(brand, 0, 0, sidebar).x;
+        int sectionTextLeft = javax.swing.SwingUtilities.convertPoint(firstSection, 0, 0, sidebar).x
+                + firstSection.getInsets().left;
+        int selectedOutlineLeft = javax.swing.SwingUtilities.convertPoint(selected, 0, 0, sidebar).x + 1;
+        assertEquals(18, profileLeft);
+        assertEquals(profileLeft, brandLeft, "brand should align to the profile card's left inset");
+        assertEquals(profileLeft + 2, sectionTextLeft, "section title should use its existing 2px text inset");
+        assertEquals(profileLeft + 1, selectedOutlineLeft, "selected nav outline should align to the card border");
+    }
+
+    @Test
+    void shellCanRenderAtMinimumAndDesktopWindowSizes() {
+        Shell shell = new Shell(TestContexts.withUser(Role.ENCODER), () -> { });
+        for (java.awt.Dimension size : new java.awt.Dimension[] {
+                new java.awt.Dimension(960, 620), new java.awt.Dimension(1440, 900)}) {
+            shell.setSize(size);
+            layoutRecursively(shell);
+            java.awt.image.BufferedImage image = new java.awt.image.BufferedImage(
+                    size.width, size.height, java.awt.image.BufferedImage.TYPE_INT_ARGB);
+            java.awt.Graphics2D graphics = image.createGraphics();
+            shell.paint(graphics);
+            graphics.dispose();
+            assertTrue(image.getRGB(size.width / 2, size.height / 2) != 0,
+                    "Expected the shell to paint at " + size.width + "x" + size.height);
+        }
+    }
+
+    @Test
+    void moduleSearchNavigatesOnlyToModulesVisibleForTheSignedInRole() throws Exception {
+        Shell shell = new Shell(TestContexts.withUser(Role.ENCODER), () -> { });
+        var field = Shell.class.getDeclaredField("moduleSearch");
+        field.setAccessible(true);
+        JTextField search = (JTextField) field.get(shell);
+
+        search.setText("project");
+        search.postActionEvent();
+        assertEquals(Module.PROJECTS, shell.activeModule());
+
+        search.setText("users");
+        search.postActionEvent();
+        assertEquals(Module.PROJECTS, shell.activeModule());
     }
 
     @Test
@@ -702,12 +773,25 @@ class ShellSmokeTest {
     }
 
     @Test
-    void selectedNavigationOutlineIsInsetOnlyForCreatorSidebar() throws Exception {
+    void selectedNavigationRemainsInsideItsViewportBesideTheScrollbar() throws Exception {
         Shell creatorShell = new Shell(TestContexts.withUser(Role.CREATOR), () -> { });
-        Shell encoderShell = new Shell(TestContexts.withUser(Role.ENCODER), () -> { });
+        creatorShell.setSize(960, 620);
+        layoutRecursively(creatorShell);
 
-        assertEquals(12, selectionTrailingInset(creatorShell));
-        assertEquals(0, selectionTrailingInset(encoderShell));
+        JPanel sidebar = (JPanel) creatorShell.getComponent(0);
+        JScrollPane navigation = java.util.Arrays.stream(sidebar.getComponents())
+                .filter(JScrollPane.class::isInstance)
+                .map(JScrollPane.class::cast)
+                .findFirst()
+                .orElseThrow();
+        JToggleButton selected = navigationButton(creatorShell, Module.DASHBOARD);
+        assertTrue(selected.isSelected());
+        assertEquals(navigation.getViewport().getView(), selected.getParent());
+        assertTrue(selected.getX() >= 0);
+        assertTrue(selected.getX() + selected.getWidth() <= navigation.getViewport().getWidth(),
+                "button bounds " + selected.getBounds() + " exceed viewport width "
+                        + navigation.getViewport().getWidth());
+        assertTrue(navigation.getVerticalScrollBar().getPreferredSize().width > 0);
     }
 
     @Test
@@ -998,15 +1082,6 @@ class ShellSmokeTest {
         var field = Shell.class.getDeclaredField("title");
         field.setAccessible(true);
         return (JLabel) field.get(shell);
-    }
-
-    private static int selectionTrailingInset(Shell shell) throws ReflectiveOperationException {
-        var navField = Shell.class.getDeclaredField("navList");
-        navField.setAccessible(true);
-        Object navList = navField.get(shell);
-        var insetField = navList.getClass().getDeclaredField("selectionTrailingInset");
-        insetField.setAccessible(true);
-        return insetField.getInt(navList);
     }
 
     private static JButton directoryImportButton(ReceiptDirectoryPanel panel) throws ReflectiveOperationException {

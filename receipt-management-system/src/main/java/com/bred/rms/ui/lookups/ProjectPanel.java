@@ -10,6 +10,7 @@ import com.bred.rms.services.ReceiptQuery;
 import com.bred.rms.ui.RefreshablePanel;
 import com.bred.rms.ui.UiErrors;
 import com.bred.rms.ui.components.StyledScrollPane;
+import com.bred.rms.ui.components.LucideIcon;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.utils.BackgroundTask;
 
@@ -55,7 +56,10 @@ public final class ProjectPanel extends JPanel implements RefreshablePanel {
         super(new BorderLayout(0, 10));
         this.ctx = ctx;
         JButton add = new JButton("Add project");
+        add.setIcon(new LucideIcon("plus", 16, RmsColors::primary));
         add.addActionListener(e -> openForm(null));
+        edit.setIcon(new LucideIcon("pencil", 15, RmsColors::primary));
+        delete.setIcon(new LucideIcon("trash-2", 15, () -> RmsColors.DANGER));
         edit.addActionListener(e -> selected().ifPresent(this::openForm));
         delete.addActionListener(e -> selected().ifPresent(this::confirmDelete));
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
