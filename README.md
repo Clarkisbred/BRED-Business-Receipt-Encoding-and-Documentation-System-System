@@ -57,7 +57,7 @@ BRED aims to improve receipt documentation, supplier record management, project 
 
   ## AI chat
 
-## [⬇ Download BRED for Windows](https://github.com/Clarkisbred/<your-repo-name>/releases/latest)
+## [⬇ Download BRED for Windows](https://github.com/Clarkisbred/BRED-Business-Receipt-Encoding-and-Documentation-System-System/releases/latest)
 ---
 
 **BRED — Business Receipt Encoding and Documentation**
