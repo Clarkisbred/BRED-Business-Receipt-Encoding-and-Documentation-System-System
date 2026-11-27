@@ -21,8 +21,12 @@ import javax.swing.JLabel;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTextArea;
+import javax.swing.JTextPane;
 import javax.swing.SwingUtilities;
 import javax.swing.JToggleButton;
+import javax.swing.text.StyleConstants;
+import javax.swing.text.StyledDocument;
+import javax.swing.text.JTextComponent;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -50,6 +54,7 @@ class ShellSmokeTest {
         assertFalse(shell.visibleModules().contains(Module.ACTIVITY_LOG));
         assertTrue(shell.visibleModules().contains(Module.RECEIPTS));
         assertTrue(shell.visibleModules().contains(Module.DUCKY));
+        assertTrue(shell.visibleModules().contains(Module.CONSTRUCTION));
         assertDoesNotThrow(() -> shell.show(Module.SETTINGS));
         assertDoesNotThrow(() -> shell.show(Module.REPORTS));
         assertDoesNotThrow(() -> shell.show(Module.DASHBOARD));
@@ -97,8 +102,14 @@ class ShellSmokeTest {
             applyTheme.setAccessible(true);
             for (boolean dark : new boolean[] {false, true}) {
                 ThemeManager.apply(dark);
-                SwingUtilities.updateComponentTreeUI(panel);
-                applyTheme.invoke(panel);
+                SwingUtilities.invokeAndWait(() -> {
+                    SwingUtilities.updateComponentTreeUI(panel);
+                    try {
+                        applyTheme.invoke(panel);
+                    } catch (ReflectiveOperationException error) {
+                        throw new AssertionError(error);
+                    }
+                });
 
                 for (String fieldName : new String[] {"contactsScroll", "messageScroll", "composerScroll"}) {
                     var field = MessagesPanel.class.getDeclaredField(fieldName);
@@ -155,7 +166,7 @@ class ShellSmokeTest {
 
         JPanel row = DuckyPanel.createMessage(new DuckyPanel.ChatEntry(
                 DuckyPanel.Sender.ASSISTANT, text, java.time.Instant.EPOCH, java.util.List.of()), 420);
-        JTextArea body = (JTextArea) findComponentNamed(row, "duckyMessageText");
+        JTextPane body = (JTextPane) findComponentNamed(row, "duckyMessageText");
         assertEquals(-1, body.getFont().canDisplayUpTo(text));
 
         DuckyPanel panel = DuckyPanel.unavailable("test configuration");
@@ -201,11 +212,10 @@ class ShellSmokeTest {
         JPanel wideRow = DuckyPanel.createMessage(new DuckyPanel.ChatEntry(DuckyPanel.Sender.USER,
                 "Long text ".repeat(30),
                 java.time.Instant.EPOCH, java.util.List.of()), 900);
-        JTextArea message = (JTextArea) findComponentNamed(narrowRow, "duckyMessageText");
+        JTextPane message = (JTextPane) findComponentNamed(narrowRow, "duckyMessageText");
         JPanel bubble = (JPanel) findComponentNamed(narrowRow, "duckyMessageBubble");
         JPanel wideBubble = (JPanel) findComponentNamed(wideRow, "duckyMessageBubble");
-        assertTrue(message.getLineWrap());
-        assertTrue(message.getWrapStyleWord());
+        assertTrue(DuckyPanel.wrappedLineCount(longUrl, message.getFont(), message.getWidth()) > 1);
         assertTrue(message.getPreferredSize().height > message.getFontMetrics(message.getFont()).getHeight());
         assertTrue(bubble.getPreferredSize().width <= 320);
         assertTrue(bubble.getPreferredSize().width + 42 + 24 <= 320);
@@ -282,9 +292,94 @@ class ShellSmokeTest {
         row.setSize(320, row.getPreferredSize().height);
         layoutRecursively(row);
 
-        JTextArea body = (JTextArea) findComponentNamed(row, "duckyMessageText");
+        JTextPane body = (JTextPane) findComponentNamed(row, "duckyMessageText");
         assertEquals(1, DuckyPanel.wrappedLineCount("testing", body.getFont(), body.getWidth()));
         assertTrue(body.getWidth() >= body.getFontMetrics(body.getFont()).stringWidth("testing") + 20);
+    }
+
+    @Test
+    void rendersAssistantBoldAndItalicMarkdownWithoutShowingMarkers() throws Exception {
+        JPanel row = DuckyPanel.createMessage(new DuckyPanel.ChatEntry(DuckyPanel.Sender.ASSISTANT,
+                "Meet **Ducky** and *Ducky*.", java.time.Instant.EPOCH, java.util.List.of()), 420);
+        JTextPane body = (JTextPane) findComponentNamed(row, "duckyMessageText");
+        StyledDocument document = body.getStyledDocument();
+        String rendered = document.getText(0, document.getLength());
+
+        assertEquals("Meet Ducky and Ducky.", rendered.stripTrailing());
+        assertTrue(StyleConstants.isBold(document.getCharacterElement(rendered.indexOf("Ducky")).getAttributes()));
+        int italicDucky = rendered.lastIndexOf("Ducky");
+        assertTrue(StyleConstants.isItalic(document.getCharacterElement(italicDucky).getAttributes()));
+    }
+
+    @Test
+    void rendersMarkdownHeadingsCombinedEmphasisCodeStrikeAndCodeBlocks() throws Exception {
+        String markdown = """
+                # Heading 1
+                ## Heading 2
+                ### Heading 3
+                ***Bold + Italic***
+                `Inline code`
+                ~~StrikeThrough~~
+                ```
+                Block code
+                with multiple lines
+                ```
+                """;
+        JPanel row = DuckyPanel.createMessage(new DuckyPanel.ChatEntry(DuckyPanel.Sender.ASSISTANT,
+                markdown, java.time.Instant.EPOCH, java.util.List.of()), 520);
+        JTextPane body = (JTextPane) findComponentNamed(row, "duckyMessageText");
+        StyledDocument document = body.getStyledDocument();
+        String rendered = document.getText(0, document.getLength());
+
+        assertTrue(rendered.contains("Heading 1"));
+        assertTrue(rendered.contains("Heading 2"));
+        assertTrue(rendered.contains("Heading 3"));
+        assertTrue(rendered.contains("Bold + Italic"));
+        assertTrue(rendered.contains("Inline code"));
+        assertTrue(rendered.contains("StrikeThrough"));
+        assertTrue(rendered.contains("Block code\nwith multiple lines"));
+        assertFalse(rendered.contains("```"));
+        assertFalse(rendered.contains("**"));
+        assertFalse(rendered.contains("~~"));
+        assertTrue(StyleConstants.getFontSize(document.getCharacterElement(rendered.indexOf("Heading 1"))
+                .getAttributes()) > body.getFont().getSize());
+        int combined = rendered.indexOf("Bold + Italic");
+        assertTrue(StyleConstants.isBold(document.getCharacterElement(combined).getAttributes()));
+        assertTrue(StyleConstants.isItalic(document.getCharacterElement(combined).getAttributes()));
+        int inlineCode = rendered.indexOf("Inline code");
+        assertEquals(java.awt.Font.MONOSPACED,
+                StyleConstants.getFontFamily(document.getCharacterElement(inlineCode).getAttributes()));
+        int struck = rendered.indexOf("StrikeThrough");
+        assertTrue(StyleConstants.isStrikeThrough(document.getCharacterElement(struck).getAttributes()));
+        int blockCode = rendered.indexOf("Block code");
+        assertEquals(java.awt.Font.MONOSPACED,
+                StyleConstants.getFontFamily(document.getCharacterElement(blockCode).getAttributes()));
+    }
+
+    @Test
+    void rendersMarkdownBlockquotesListsAndTablesAsReadableText() throws Exception {
+        String markdown = """
+                > Blockquote
+                - Unordered list item
+                  - Nested item
+                1. Ordered list item
+
+                | Table | Header |
+                |-------|--------|
+                | Cell 1 | Cell 2 |
+                """;
+        JPanel row = DuckyPanel.createMessage(new DuckyPanel.ChatEntry(DuckyPanel.Sender.ASSISTANT,
+                markdown, java.time.Instant.EPOCH, java.util.List.of()), 520);
+        JTextPane body = (JTextPane) findComponentNamed(row, "duckyMessageText");
+        String rendered = body.getDocument().getText(0, body.getDocument().getLength());
+
+        assertTrue(rendered.contains("> Blockquote"));
+        assertTrue(rendered.contains("- Unordered list item"));
+        assertTrue(rendered.contains("  - Nested item"));
+        assertTrue(rendered.contains("1. Ordered list item"));
+        assertTrue(rendered.contains("Table | Header"));
+        assertTrue(rendered.contains("Cell 1 | Cell 2"));
+        assertFalse(rendered.contains("|-------|"));
     }
 
     @Test
@@ -330,22 +425,22 @@ class ShellSmokeTest {
         layoutRecursively(list);
 
         Component avatar = findComponentNamed(list, "duckyMessageAvatar");
-        java.util.List<JTextArea> textAreas = new java.util.ArrayList<>();
+        java.util.List<JTextComponent> textAreas = new java.util.ArrayList<>();
         collectMessageTextAreas(list, textAreas);
-        JTextArea assistantBody = textAreas.stream()
-                .filter(area -> assistantText.equals(area.getText()))
+        JTextComponent assistantBody = textAreas.stream()
+                .filter(area -> assistantText.equals(area.getText().stripTrailing()))
                 .findFirst()
                 .orElseThrow();
         Container assistantRow = (Container) ancestorNamed(assistantBody, "duckyMessageRow");
         JPanel assistantBubble = (JPanel) findComponentNamed(assistantRow, "duckyMessageBubble");
-        JTextArea userBody = textAreas.stream()
+        JTextComponent userBody = textAreas.stream()
                 .filter(area -> "testing".equals(area.getText()))
                 .findFirst()
                 .orElseThrow();
         Container userRow = (Container) ancestorNamed(userBody, "duckyMessageRow");
         JPanel userBubble = (JPanel) findComponentNamed(userRow, "duckyMessageBubble");
-        JTextArea longBody = textAreas.stream()
-                .filter(area -> longText.equals(area.getText()))
+        JTextComponent longBody = textAreas.stream()
+                .filter(area -> longText.equals(area.getText().stripTrailing()))
                 .findFirst()
                 .orElseThrow();
         java.awt.Point avatarPoint = javax.swing.SwingUtilities.convertPoint(
@@ -452,18 +547,19 @@ class ShellSmokeTest {
 
             Thread.sleep(120);
             SwingUtilities.invokeAndWait(() -> { });
-            String beforeTheme = lastMessageTextArea(messageList(panel)).getText();
+            String beforeTheme = lastMessageTextComponent(messageList(panel)).getText();
             assertTrue(!beforeTheme.isEmpty());
             assertTrue(beforeTheme.length() < answer.length());
 
             ThemeManager.apply(!previousDark);
             Thread.sleep(100);
             SwingUtilities.invokeAndWait(() -> { });
-            String afterTheme = lastMessageTextArea(messageList(panel)).getText();
+            String afterTheme = lastMessageTextComponent(messageList(panel)).getText();
             assertTrue(afterTheme.length() > beforeTheme.length());
 
             SwingUtilities.invokeAndWait(panel::removeNotify);
-            assertEquals(answer, lastMessageTextArea(messageList(panel)).getText());
+            assertEquals(answer.stripTrailing(),
+                    lastMessageTextComponent(messageList(panel)).getText().stripTrailing());
         } finally {
             if (panel.isDisplayable()) {
                 SwingUtilities.invokeAndWait(panel::removeNotify);
@@ -811,18 +907,18 @@ class ShellSmokeTest {
         render.invoke(panel, false);
     }
 
-    private static JTextArea lastMessageTextArea(Container parent) {
-        java.util.List<JTextArea> areas = new java.util.ArrayList<>();
+    private static JTextComponent lastMessageTextComponent(Container parent) {
+        java.util.List<JTextComponent> areas = new java.util.ArrayList<>();
         collectMessageTextAreas(parent, areas);
         if (areas.isEmpty()) throw new AssertionError("Ducky message text not found.");
         return areas.get(areas.size() - 1);
     }
 
-    private static void collectMessageTextAreas(Container parent, java.util.List<JTextArea> areas) {
+    private static void collectMessageTextAreas(Container parent, java.util.List<JTextComponent> areas) {
         for (Component component : parent.getComponents()) {
-            if (component instanceof JTextArea area
-                    && "duckyMessageText".equals(area.getName())) {
-                areas.add(area);
+            if (component instanceof JTextComponent text
+                    && "duckyMessageText".equals(text.getName())) {
+                areas.add(text);
             }
             if (component instanceof Container child) collectMessageTextAreas(child, areas);
         }

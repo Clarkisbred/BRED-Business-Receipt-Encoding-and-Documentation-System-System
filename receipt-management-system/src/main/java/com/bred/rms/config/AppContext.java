@@ -35,6 +35,7 @@ import com.bred.rms.services.ReceiptService;
 import com.bred.rms.services.ReportService;
 import com.bred.rms.services.UserService;
 import com.bred.rms.services.SupplierService;
+import com.bred.rms.services.ConstructionDataService;
 import com.bred.rms.supabase.AuthClient;
 import com.bred.rms.supabase.RestClient;
 import com.bred.rms.supabase.SessionManager;
@@ -67,6 +68,7 @@ public final class AppContext {
     public final String loginHint;
     /** Supabase REST and Edge Function client for authenticated shared services; null in local/test mode. */
     public final RestClient supabaseRest;
+    public final ConstructionDataService constructionData;
 
     private AppContext(AuthApi auth, CurrentUser currentUser, ReceiptService receipts, SupplierService suppliers,
                        ProjectService projects, AttachmentStore attachments, UserRepository userRepository,
@@ -89,6 +91,7 @@ public final class AppContext {
         this.storageLabel = storageLabel;
         this.loginHint = loginHint;
         this.supabaseRest = supabaseRest;
+        this.constructionData = new ConstructionDataService(supabaseRest);
         this.localDataImporter = localDataImporter;
         this.currentUser = currentUser;
         this.receipts = receipts;

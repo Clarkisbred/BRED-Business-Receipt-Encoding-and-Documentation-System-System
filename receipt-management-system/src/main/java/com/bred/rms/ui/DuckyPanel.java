@@ -27,6 +27,7 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.SwingUtilities;
 import javax.swing.JTextArea;
+import javax.swing.JTextPane;
 import javax.swing.Timer;
 import javax.swing.KeyStroke;
 import javax.swing.SwingConstants;
@@ -69,6 +70,7 @@ import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.concurrent.atomic.AtomicBoolean;
+import javax.swing.text.StyledDocument;
 
 /** Groq-backed Ducky chat with local OCR and explicitly approved, read-only BRED tools. */
 public final class DuckyPanel extends JPanel {
@@ -88,7 +90,7 @@ public final class DuckyPanel extends JPanel {
             JPanel row,
             JPanel bubble,
             JPanel contents,
-            JTextArea body,
+            JTextPane body,
             int viewportWidth
     ) { }
 
@@ -1181,7 +1183,7 @@ public final class DuckyPanel extends JPanel {
 
         String visibleText = animation.entry.text().substring(
                 0, animation.revealedCharacters);
-        animation.view.body().setText(visibleText);
+        setMessageText(animation.view.body(), visibleText, animation.entry.sender() == Sender.ASSISTANT);
         updateMessageView(animation.view, animation.entry, visibleText);
         messageList.revalidate();
         messageList.repaint();
@@ -1217,7 +1219,8 @@ public final class DuckyPanel extends JPanel {
         }
         if (revealRemaining && animation.view != null) {
             animation.revealedCharacters = animation.entry.text().length();
-            animation.view.body().setText(animation.entry.text());
+            setMessageText(animation.view.body(), animation.entry.text(),
+                    animation.entry.sender() == Sender.ASSISTANT);
             updateMessageView(animation.view, animation.entry, animation.entry.text());
             messageList.revalidate();
             messageList.repaint();
@@ -1678,7 +1681,6 @@ public final class DuckyPanel extends JPanel {
         );
 
         // Attachment names
-        List<JTextArea> textAreas = new ArrayList<>();
         if (hasFiles) {
             JTextArea attachments = messageText(
                     "Local attachments: "
@@ -1686,23 +1688,22 @@ public final class DuckyPanel extends JPanel {
                     textWidth
             );
 
+            attachments.setName("duckyAttachmentText");
             attachments.setForeground(RmsColors.text());
             attachments.setFont(attachments.getFont().deriveFont(10f));
 
             contents.add(attachments);
             contents.add(Box.createVerticalStrut(4));
-            textAreas.add(attachments);
         }
 
         // Message body
-        JTextArea body = null;
+        JTextPane body = null;
         if (hasText) {
-            body = messageText(displayedText, textWidth);
+            body = messageText(displayedText, textWidth, assistant);
             body.setFont(UnicodeFontSupport.forText(entry.text(), body.getFont()));
             sizeMessageText(body, textWidth);
             body.setForeground(assistant ? RmsColors.text() : userBubbleTextColor());
             contents.add(body);
-            textAreas.add(body);
         }
 
         // Timestamp
@@ -1811,11 +1812,12 @@ public final class DuckyPanel extends JPanel {
         int textWidth = Math.max(1, bubbleWidth - 26);
         for (Component component : view.contents().getComponents()) {
             if (component instanceof JTextArea area) {
-                if (area == view.body()) {
-                    area.setText(displayedText);
-                }
                 sizeMessageText(area, textWidth);
             }
+        }
+        if (view.body() != null) {
+            setMessageText(view.body(), displayedText, entry.sender() == Sender.ASSISTANT);
+            sizeMessageText(view.body(), textWidth);
         }
 
         int bubbleHeight = view.contents().getPreferredSize().height + 16;
@@ -1831,28 +1833,56 @@ public final class DuckyPanel extends JPanel {
         view.row().setMaximumSize(new Dimension(Integer.MAX_VALUE, bubbleHeight));
     }
 
-    private static JTextArea messageText(
+    private static JTextPane messageText(
             String text,
-            int width
+            int width,
+            boolean markdown
     ) {
-        JTextArea area = new JTextArea(text);
+        JTextPane pane = new JTextPane();
+        pane.setEditable(false);
+        pane.setFocusable(false);
+        pane.setOpaque(false);
+        pane.setBorder(BorderFactory.createEmptyBorder());
+        pane.setMargin(new Insets(0, 0, 0, 0));
+        pane.setForeground(RmsColors.text());
+        pane.setFont(pane.getFont().deriveFont(13f));
+        pane.setName("duckyMessageText");
+        setMessageText(pane, text, markdown);
+        sizeMessageText(pane, width);
+        return pane;
+    }
 
+    private static JTextArea messageText(String text, int width) {
+        JTextArea area = new JTextArea(text);
         area.setEditable(false);
         area.setFocusable(false);
         area.setLineWrap(true);
         area.setWrapStyleWord(true);
         area.setOpaque(false);
         area.setForeground(RmsColors.text());
-
-        area.setFont(
-                area.getFont().deriveFont(13f)
-        );
-
+        area.setFont(area.getFont().deriveFont(13f));
         area.setColumns(0);
-
         area.setName("duckyMessageText");
         sizeMessageText(area, width);
         return area;
+    }
+
+    private static void setMessageText(JTextPane pane, String text, boolean markdown) {
+        StyledDocument document = pane.getStyledDocument();
+
+        try {
+            if (markdown) {
+                DuckyMarkdownRenderer.render(document, text, pane.getFont(), pane.getForeground());
+            } else {
+                document.remove(0, document.getLength());
+                document.insertString(0, text == null ? "" : text, null);
+            }
+        } catch (javax.swing.text.BadLocationException error) {
+            throw new IllegalStateException(
+                    "Could not render Ducky message text.",
+                    error
+            );
+        }
     }
 
     private static void sizeMessageText(JTextArea area, int width) {
@@ -1890,6 +1920,38 @@ public final class DuckyPanel extends JPanel {
         area.setMinimumSize(new Dimension(safeWidth, height));
         area.setMaximumSize(new Dimension(safeWidth, Integer.MAX_VALUE));
         area.setAlignmentX(Component.LEFT_ALIGNMENT);
+    }
+
+    private static void sizeMessageText(JTextPane pane, int width) {
+        int safeWidth = Math.max(1, width);
+        String text;
+        try {
+            text = pane.getDocument().getText(0, pane.getDocument().getLength());
+        } catch (javax.swing.text.BadLocationException error) {
+            throw new IllegalStateException("Could not measure Ducky message text.", error);
+        }
+        int rows = wrappedLineCount(text, pane.getFont(), safeWidth);
+        int lineHeight = pane.getFontMetrics(pane.getFont()).getHeight();
+        int height = rows * lineHeight + 6;
+        int textLength = pane.getDocument().getLength();
+        int measurementHeight = (int) Math.min(
+                Integer.MAX_VALUE,
+                ((long) textLength + 1) * lineHeight + 6
+        );
+        pane.setSize(safeWidth, Math.max(height, measurementHeight));
+        try {
+            java.awt.geom.Rectangle2D lastCharacter =
+                    pane.modelToView2D(pane.getDocument().getLength());
+            if (lastCharacter != null) {
+                height = Math.max(height, (int) Math.ceil(lastCharacter.getMaxY()) + 6);
+            }
+        } catch (javax.swing.text.BadLocationException error) {
+            throw new IllegalStateException("Could not measure Ducky message text.", error);
+        }
+        pane.setPreferredSize(new Dimension(safeWidth, height));
+        pane.setMinimumSize(new Dimension(safeWidth, height));
+        pane.setMaximumSize(new Dimension(safeWidth, Integer.MAX_VALUE));
+        pane.setAlignmentX(Component.LEFT_ALIGNMENT);
     }
 
     static int wrappedLineCount(

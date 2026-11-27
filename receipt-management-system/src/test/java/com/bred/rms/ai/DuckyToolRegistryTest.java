@@ -49,7 +49,7 @@ class DuckyToolRegistryTest {
         assertTrue(result.content().contains("RCPT-SECRET-7"));
         assertFalse(result.content().contains("TIN-PRIVATE-123"));
         assertFalse(result.content().contains("Private address"));
-        assertEquals(14, registry.definitions().size());
+        assertEquals(15, registry.definitions().size());
     }
 
     @Test
