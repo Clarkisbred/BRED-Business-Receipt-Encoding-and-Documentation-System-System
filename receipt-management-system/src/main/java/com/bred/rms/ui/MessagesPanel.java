@@ -77,11 +77,13 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
     private final Timer pollTimer = new Timer(POLL_MS, e -> refreshData());
     private final DefaultListModel<User> contactModel = new DefaultListModel<>();
     private final JList<User> contactList = new JList<>(contactModel);
+    private final JScrollPane contactsScroll = new StyledScrollPane(contactList);
     private final JTextField search = new JTextField();
     private final JButton companyChatButton = new RoundedMessageButton("Company chat");
     private final JPanel messageList = new JPanel();
     private final JScrollPane messageScroll = new StyledScrollPane(messageList);
     private final JTextArea composer = new JTextArea(1, 24);
+    private final JScrollPane composerScroll = new StyledScrollPane(composer);
     private final Font composerPreferredFont = composer.getFont().deriveFont(13f);
     private final JButton sendButton = new JButton("Send");
     private final JCheckBox urgentMessage = new JCheckBox("Urgent");
@@ -235,7 +237,6 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
         peopleTop.add(search, BorderLayout.CENTER);
         if (companyChatButton.isVisible()) peopleTop.add(companyChatButton, BorderLayout.SOUTH);
         people.add(peopleTop, BorderLayout.NORTH);
-        JScrollPane contactsScroll = new StyledScrollPane(contactList);
         contactsScroll.setBorder(null);
         contactsScroll.setOpaque(false);
         contactsScroll.getViewport().setOpaque(false);
@@ -283,7 +284,6 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
         composer.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 0));
         composer.setFont(composerPreferredFont);
         composer.setToolTipText("Write a message. Press Enter to send; Shift+Enter for a new line.");
-        JScrollPane composerScroll = new StyledScrollPane(composer);
         composerScroll.setBorder(null);
         composerScroll.setOpaque(false);
         composerScroll.getViewport().setOpaque(false);
@@ -692,6 +692,9 @@ public final class MessagesPanel extends JPanel implements RefreshablePanel {
         search.setBorder(BorderFactory.createCompoundBorder(
                 new RoundedOutlineBorder(12),
                 BorderFactory.createEmptyBorder(8, 10, 8, 10)));
+        contactsScroll.setBorder(null);
+        messageScroll.setBorder(null);
+        composerScroll.setBorder(null);
         companyChatButton.setBorder(BorderFactory.createEmptyBorder(9, 10, 9, 10));
         composer.setForeground(RmsColors.text());
         sendButton.setBackground(RmsColors.primaryAccent());

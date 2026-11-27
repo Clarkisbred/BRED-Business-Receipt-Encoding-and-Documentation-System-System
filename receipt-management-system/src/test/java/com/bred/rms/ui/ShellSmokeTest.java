@@ -89,6 +89,29 @@ class ShellSmokeTest {
     }
 
     @Test
+    void chatScrollPanesRemainBorderlessAfterThemeChanges() throws Exception {
+        boolean previousDark = ThemeManager.isDark();
+        MessagesPanel panel = new MessagesPanel(TestContexts.withUser(Role.ENCODER));
+        try {
+            var applyTheme = MessagesPanel.class.getDeclaredMethod("applyTheme");
+            applyTheme.setAccessible(true);
+            for (boolean dark : new boolean[] {false, true}) {
+                ThemeManager.apply(dark);
+                SwingUtilities.updateComponentTreeUI(panel);
+                applyTheme.invoke(panel);
+
+                for (String fieldName : new String[] {"contactsScroll", "messageScroll", "composerScroll"}) {
+                    var field = MessagesPanel.class.getDeclaredField(fieldName);
+                    field.setAccessible(true);
+                    assertNull(((JScrollPane) field.get(panel)).getBorder(), fieldName);
+                }
+            }
+        } finally {
+            ThemeManager.apply(previousDark);
+        }
+    }
+
+    @Test
     void customMessageBubblesPreserveUiSymbolsAndEmoji() throws Exception {
         var context = TestContexts.withUser(Role.ENCODER);
         var user = context.currentUser.get();
