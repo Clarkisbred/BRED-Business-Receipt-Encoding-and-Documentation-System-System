@@ -21,6 +21,7 @@ import com.bred.rms.ui.CompanyPanel;
 import com.bred.rms.ui.HistoryPanel;
 import com.bred.rms.ui.lookups.ProjectPanel;
 import com.bred.rms.ui.lookups.SupplierPanel;
+import com.bred.rms.ui.construction.ConstructionPanel;
 import com.bred.rms.ui.receipts.ReceiptDetailPanel;
 import com.bred.rms.ui.reports.ReportsPanel;
 import com.bred.rms.ui.receipts.ReceiptDirectoryPanel;
@@ -197,6 +198,7 @@ public final class Shell extends JPanel {
             }
             case SUPPLIERS -> new SupplierPanel(ctx);
             case PROJECTS -> new ProjectPanel(ctx);
+            case CONSTRUCTION -> new ConstructionPanel(ctx);
         };
     }
 
