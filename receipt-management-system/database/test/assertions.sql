@@ -53,7 +53,121 @@ insert into suppliers(id, business_name, tin, company_id) values
   ('11111111-0000-0000-0000-000000000002', 'Beta Supplies', '987-654-321-000', '11111111-0000-0000-0000-000000000001'),
   ('33333333-0000-0000-0000-000000000003', 'Cross Company Supplies', '555-555-555-555', '33333333-0000-0000-0000-000000000003');
 insert into projects(id, name, code, company_id)
-values ('22222222-0000-0000-0000-000000000001', 'Bridge', 'BR-01', '11111111-0000-0000-0000-000000000001');
+values ('22222222-0000-0000-0000-000000000001', 'Bridge', 'BR-01', '11111111-0000-0000-0000-000000000001'),
+       ('22222222-0000-0000-0000-000000000002', 'Beta Bridge', 'BB-01', '33333333-0000-0000-0000-000000000003');
+insert into bids(id, company_id, bid_reference, agency_or_client, project_id)
+values ('a3000000-0000-0000-0000-000000000001',
+        '11111111-0000-0000-0000-000000000001', 'ACME-BASE', 'Acme Client',
+        '22222222-0000-0000-0000-000000000001');
+insert into cost_estimates(id, company_id, bid_id, project_id, name)
+values ('a3000000-0000-0000-0000-000000000002',
+        '11111111-0000-0000-0000-000000000001',
+        'a3000000-0000-0000-0000-000000000001',
+        '22222222-0000-0000-0000-000000000001', 'Acme Base Estimate');
+insert into cost_estimate_items(company_id, estimate_id, description)
+values ('11111111-0000-0000-0000-000000000001',
+        'a3000000-0000-0000-0000-000000000002', 'Base Item');
+insert into bids(id, company_id, bid_reference, agency_or_client, project_id)
+values ('33333333-0000-0000-0000-000000000010',
+        '33333333-0000-0000-0000-000000000003', 'BETA-01', 'Beta Client',
+        '22222222-0000-0000-0000-000000000002');
+insert into cost_estimates(id, company_id, bid_id, project_id, name)
+values ('33333333-0000-0000-0000-000000000011',
+        '33333333-0000-0000-0000-000000000003',
+        '33333333-0000-0000-0000-000000000010',
+        '22222222-0000-0000-0000-000000000002', 'Beta Estimate');
+insert into project_activities(company_id, project_id, activity_name) values
+  ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'Acme Activity'),
+  ('33333333-0000-0000-0000-000000000003', '22222222-0000-0000-0000-000000000002', 'Beta Activity');
+insert into project_accomplishments(company_id, project_id, accomplishment_date) values
+  ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', '2026-11-01'),
+  ('33333333-0000-0000-0000-000000000003', '22222222-0000-0000-0000-000000000002', '2026-11-01');
+insert into project_milestones(company_id, project_id, milestone_name, due_date) values
+  ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'Acme Milestone', '2026-12-01'),
+  ('33333333-0000-0000-0000-000000000003', '22222222-0000-0000-0000-000000000002', 'Beta Milestone', '2026-12-01');
+insert into project_schedule_snapshots(company_id, project_id, snapshot_date) values
+  ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', '2026-11-01'),
+  ('33333333-0000-0000-0000-000000000003', '22222222-0000-0000-0000-000000000002', '2026-11-01');
+insert into project_inspections(company_id, project_id, request_date) values
+  ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', '2026-11-01'),
+  ('33333333-0000-0000-0000-000000000003', '22222222-0000-0000-0000-000000000002', '2026-11-01');
+insert into project_documents(company_id, project_id, category, document_name) values
+  ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'Plan', 'Acme Plan'),
+  ('33333333-0000-0000-0000-000000000003', '22222222-0000-0000-0000-000000000002', 'Plan', 'Beta Plan');
+insert into project_closeout_records(company_id, project_id, certificate_type) values
+  ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'Completion'),
+  ('33333333-0000-0000-0000-000000000003', '22222222-0000-0000-0000-000000000002', 'Completion');
+insert into project_quality_ncr(company_id, project_id, ncr_number, description, raised_date) values
+  ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'ACME-NCR-1', 'Acme issue', '2026-11-01'),
+  ('33333333-0000-0000-0000-000000000003', '22222222-0000-0000-0000-000000000002', 'BETA-NCR-1', 'Beta issue', '2026-11-01');
+insert into project_corrective_actions(company_id, project_id, action_description) values
+  ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'Acme correction'),
+  ('33333333-0000-0000-0000-000000000003', '22222222-0000-0000-0000-000000000002', 'Beta correction');
+insert into project_closeout_checklist(company_id, project_id, item_name, category) values
+  ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'Acme checklist', 'Documents'),
+  ('33333333-0000-0000-0000-000000000003', '22222222-0000-0000-0000-000000000002', 'Beta checklist', 'Documents');
+insert into project_punch_items(company_id, project_id, punch_number, description, identified_date) values
+  ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'ACME-P-1', 'Acme punch item', '2026-11-01'),
+  ('33333333-0000-0000-0000-000000000003', '22222222-0000-0000-0000-000000000002', 'BETA-P-1', 'Beta punch item', '2026-11-01');
+insert into project_handover_records(company_id, project_id, handover_type) values
+  ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'Final'),
+  ('33333333-0000-0000-0000-000000000003', '22222222-0000-0000-0000-000000000002', 'Final');
+insert into project_contracts(
+  id, company_id, project_id, contract_number, contract_name, client_name
+) values (
+  'a4000000-0000-0000-0000-000000000001',
+  '11111111-0000-0000-0000-000000000001',
+  '22222222-0000-0000-0000-000000000001',
+  'ACME-CONTRACT-1', 'Acme Contract', 'Acme Client'
+), (
+  'a4000000-0000-0000-0000-000000000002',
+  '33333333-0000-0000-0000-000000000003',
+  '22222222-0000-0000-0000-000000000002',
+  'BETA-CONTRACT-1', 'Beta Contract', 'Beta Client'
+);
+insert into project_billings(
+  id, company_id, project_id, contract_id, billing_number, billing_date,
+  gross_amount, net_amount, collected_amount, vat_rate, vat_amount
+) values (
+  'a4000000-0000-0000-0000-000000000011',
+  '11111111-0000-0000-0000-000000000001',
+  '22222222-0000-0000-0000-000000000001',
+  'a4000000-0000-0000-0000-000000000001',
+  'ACME-BILL-1', '2026-11-15',
+  112000, 112000, 25000, 12, 12000
+), (
+  'a4000000-0000-0000-0000-000000000012',
+  '33333333-0000-0000-0000-000000000003',
+  '22222222-0000-0000-0000-000000000002',
+  'a4000000-0000-0000-0000-000000000002',
+  'BETA-BILL-1', '2026-11-15',
+  100000, 100000, 10000, 12, 10714.29
+);
+insert into project_billing_collections(
+  company_id, billing_id, collection_date, amount
+) values (
+  '11111111-0000-0000-0000-000000000001',
+  'a4000000-0000-0000-0000-000000000011',
+  '2026-11-20', 25000
+), (
+  '33333333-0000-0000-0000-000000000003',
+  'a4000000-0000-0000-0000-000000000012',
+  '2026-11-20', 10000
+);
+insert into project_billing_attachments(
+  company_id, billing_id, attachment_name, document_path, is_required
+) values (
+  '11111111-0000-0000-0000-000000000001',
+  'a4000000-0000-0000-0000-000000000011',
+  'Progress Billing', 'billing/acme-progress.pdf', true
+), (
+  '33333333-0000-0000-0000-000000000003',
+  'a4000000-0000-0000-0000-000000000012',
+  'Beta Progress Billing', 'billing/beta-progress.pdf', true
+);
+insert into billing_attachment_requirements(company_id, contract_type, requirement_name) values
+  ('11111111-0000-0000-0000-000000000001', 'Design-Build', 'Acme Progress Report'),
+  ('33333333-0000-0000-0000-000000000003', 'Lump Sum', 'Beta Progress Report');
 
 create function tests.payload(no text, supplier uuid, price text default '100.00', discount text default '0') returns jsonb
 language sql as $$
@@ -71,6 +185,51 @@ set role authenticated;
 -- ===== encoder =====
 select tests.login('e0000000-0000-0000-0000-000000000002');
 select tests.expect_true((select count(*) from profiles) = 1, 'encoder can read only their own profile');
+select tests.expect_true((select count(*) from bids) = 1
+  and (select count(*) from cost_estimates) = 1
+  and (select count(*) from cost_estimate_items) = 1,
+  'encoder reads only their company bid and estimate records');
+select tests.expect_true(
+  (select count(*) from project_activities) = 1
+  and (select count(*) from project_accomplishments) = 1
+  and (select count(*) from project_milestones) = 1
+  and (select count(*) from project_schedule_snapshots) = 1
+  and (select count(*) from project_inspections) = 1
+  and (select count(*) from project_documents) = 1
+  and (select count(*) from project_closeout_records) = 1
+  and (select count(*) from project_quality_ncr) = 1
+  and (select count(*) from project_corrective_actions) = 1
+  and (select count(*) from project_closeout_checklist) = 1
+  and (select count(*) from project_punch_items) = 1
+  and (select count(*) from project_handover_records) = 1,
+  'encoder reads only same-company schedule, inspection, document and closeout records');
+select tests.expect_error($$insert into bids(company_id, bid_reference, agency_or_client)
+  values ('11111111-0000-0000-0000-000000000001', 'ENCODER-BID', 'Acme Client')$$,
+  'row-level security');
+select tests.expect_error($$insert into project_activities(company_id, project_id, activity_name)
+  values ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'Encoder Activity')$$,
+  'row-level security');
+select tests.expect_error($$insert into project_inspections(company_id, project_id, request_date)
+  values ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', '2026-11-02')$$,
+  'row-level security');
+select tests.expect_error($$insert into project_documents(company_id, project_id, category, document_name)
+  values ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'Plan', 'Encoder Plan')$$,
+  'row-level security');
+select tests.expect_error($$insert into project_closeout_records(company_id, project_id, certificate_type)
+  values ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'Encoder Certificate')$$,
+  'row-level security');
+select tests.expect_true(
+  (select count(*) from project_billings) = 1
+  and (select count(*) from project_billing_collections) = 1
+  and (select count(*) from project_billing_attachments) = 1
+  and (select count(*) from billing_attachment_requirements) = 1,
+  'encoder reads only same-company billing, receivable and attachment records');
+select tests.expect_error($$insert into project_billings(company_id, project_id, billing_number, billing_date)
+  values ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'ENC-BILL', '2026-11-21')$$,
+  'row-level security');
+select tests.expect_error($$insert into project_billing_collections(company_id, billing_id, collection_date, amount)
+  values ('11111111-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000011', '2026-11-21', 999)$$,
+  'row-level security');
 select tests.expect_true((select save_receipt(tests.payload('OR-001', '11111111-0000-0000-0000-000000000001'))) is not null, 'encoder can save a receipt');
 select tests.expect_error($$select approve_ai_import_receipt(tests.payload('AI-ENC', '11111111-0000-0000-0000-000000000001'))$$,
   'administrator role required');
@@ -150,6 +309,74 @@ select tests.expect_true((select count(*) from receipts) = 0, 'rejected user see
 select tests.login('a0000000-0000-0000-0000-000000000001');
 select tests.expect_true((select count(*) from profiles) = 6, 'approved admin can list company account statuses');
 select tests.expect_true((select count(*) from companies) = 1, 'admin can see only their own company');
+select tests.expect_error($$insert into project_billings(
+  company_id, project_id, contract_id, billing_number, billing_date, net_amount
+) values (
+  '11111111-0000-0000-0000-000000000001',
+  '22222222-0000-0000-0000-000000000001',
+  'a4000000-0000-0000-0000-000000000002',
+  'CROSS-BILL', '2026-11-21', 100
+)$$, 'foreign key constraint');
+select tests.expect_error($$insert into project_billing_collections(company_id, billing_id, collection_date, amount)
+  values ('11111111-0000-0000-0000-000000000001',
+          'a4000000-0000-0000-0000-000000000012',
+          '2026-11-21', 10)$$, 'foreign key constraint');
+select tests.expect_error($$insert into billing_attachment_overrides(company_id, billing_id, reason)
+  values ('11111111-0000-0000-0000-000000000001',
+          'a4000000-0000-0000-0000-000000000012',
+          'Cross-company override')$$, 'foreign key constraint');
+select tests.expect_true((select outstanding_amount = 87000
+  from project_billings
+  where id = 'a4000000-0000-0000-0000-000000000011'),
+  'billing outstanding receivable is net amount minus collections');
+select tests.expect_error($$update project_billings
+  set collected_amount = 112001
+  where id = 'a4000000-0000-0000-0000-000000000011'$$, 'receivable');
+select tests.expect_error($$update project_billings
+  set vat_rate = 101
+  where id = 'a4000000-0000-0000-0000-000000000011'$$, 'VAT');
+select tests.expect_error($$insert into project_documents(company_id, project_id, category, document_name)
+  values ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000002', 'Plan', 'Cross-company Plan')$$,
+  'same company');
+select tests.expect_error($$insert into project_closeout_records(company_id, project_id, certificate_type)
+  values ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000002', 'Cross-company')$$,
+  'same company');
+insert into bids(id, company_id, bid_reference, agency_or_client, project_id)
+values ('a2000000-0000-0000-0000-000000000001',
+        '11111111-0000-0000-0000-000000000001', 'ACME-01', 'Acme Client',
+        '22222222-0000-0000-0000-000000000001');
+insert into cost_estimates(id, company_id, bid_id, project_id, name)
+values ('a2000000-0000-0000-0000-000000000002',
+        '11111111-0000-0000-0000-000000000001',
+        'a2000000-0000-0000-0000-000000000001',
+        '22222222-0000-0000-0000-000000000001', 'Acme Estimate');
+insert into cost_estimate_items(company_id, estimate_id, description)
+values ('11111111-0000-0000-0000-000000000001',
+        'a2000000-0000-0000-0000-000000000002', 'Foundation');
+select tests.expect_true((select count(*) = 1 from cost_estimate_items
+  where estimate_id = 'a2000000-0000-0000-0000-000000000002'),
+  'same-company bid and estimate relationships are allowed');
+select tests.expect_error($$insert into cost_estimates(company_id, bid_id, name)
+  values ('11111111-0000-0000-0000-000000000001',
+          '33333333-0000-0000-0000-000000000010', 'Cross-company Estimate')$$,
+  'foreign key constraint');
+select tests.expect_error($$insert into cost_estimate_items(company_id, estimate_id, description)
+  values ('11111111-0000-0000-0000-000000000001',
+          '33333333-0000-0000-0000-000000000011', 'Cross-company item')$$,
+  'foreign key constraint');
+select tests.expect_error($$update cost_estimates set bid_id = '33333333-0000-0000-0000-000000000010'
+  where id = 'a2000000-0000-0000-0000-000000000002'$$, 'foreign key constraint');
+select tests.expect_error($$update cost_estimate_items
+  set estimate_id = '33333333-0000-0000-0000-000000000011'
+  where estimate_id = 'a2000000-0000-0000-0000-000000000002'$$, 'foreign key constraint');
+delete from bids where id = 'a2000000-0000-0000-0000-000000000001';
+select tests.expect_true((select bid_id is null from cost_estimates
+  where id = 'a2000000-0000-0000-0000-000000000002'),
+  'deleting a bid preserves its estimate and clears the optional bid reference');
+delete from cost_estimates where id = 'a2000000-0000-0000-0000-000000000002';
+select tests.expect_true((select count(*) = 0 from cost_estimate_items
+  where estimate_id = 'a2000000-0000-0000-0000-000000000002'),
+  'deleting an estimate cascades its items');
 select tests.expect_true((select count(*) from activity_log where action = 'receipt.create') = 2, 'admin sees receipt.create log rows');
 select tests.expect_true((select count(*) from activity_log where action like 'suppliers.%') >= 1, 'supplier changes are logged by trigger');
 select tests.expect_error($$delete from suppliers where id = '11111111-0000-0000-0000-000000000001'$$, 'violates foreign key');
@@ -166,7 +393,7 @@ select tests.expect_true((select count(*) from activity_log where action = 'rece
 select tests.expect_true((select approve_ai_import_receipt(jsonb_set(
   jsonb_set(tests.payload('AI-001', '11111111-0000-0000-0000-000000000001'),
     '{company_id}', to_jsonb('33333333-0000-0000-0000-000000000003'::text), true),
-  '{attachments}', '[]'::jsonb)) is not null, 'administrator can approve an AI import through the secured RPC');
+  '{attachments}', '[]'::jsonb))) is not null, 'administrator can approve an AI import through the secured RPC');
 select tests.expect_true((select company_id = '11111111-0000-0000-0000-000000000001'
   from receipts where receipt_no = 'AI-001'), 'AI import company comes from authenticated supplier scope, not the payload');
 select tests.expect_true((select count(*) from receipt_attachments
