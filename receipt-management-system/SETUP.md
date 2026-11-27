@@ -27,6 +27,13 @@ and Maven on the computer that runs the app.
    15. `015_ducky_shared_ai.sql`: shared Ducky model configuration
    16. `016_ducky_groq_supported_model.sql`: updates the original shared default to a supported Groq model
    17. `017_ducky_memory.sql`: private per-user, per-company Ducky memory summaries
+   18. `018_construction_priority_features.sql`: company compliance, billing, subcontract, equipment and safety foundations
+   19. `019_construction_remaining_features.sql`: bids, contract administration, closeout, tax calendar and offline queue foundations
+   20. `020_construction_hardening.sql`: financial constraints, expiry indexes, company-scope triggers and admin-only construction writes
+   21. `021_projects_contracts_boq.sql`: project contract, BOQ and variation-order foundations
+   22. `022_progress_milestones.sql`: approved accomplishments, milestones and schedule snapshots
+   23. `023_construction_billing.sql`: billing, deduction, collection and attachment foundations
+   24. `024_payables_cashflow_pnl.sql`: project expenses, payables, cash flow and P&L foundations
 
    Migration 008 creates a `Legacy Company` only when needed and assigns previously unscoped records and profiles to it.
    Existing companies are retained. The Creator can see all companies; Admins and Encoders are restricted to their own.
@@ -256,6 +263,40 @@ This app was built and tested without access to a live Supabase project (unit te
 - [ ] Approving enables sign-in; rejecting keeps the account blocked.
 - [ ] Sign in as the Encoder: no Users or Activity Log in the menu, no Delete button on receipts, Add/Edit works.
 - [ ] Back as Admin: deleting a receipt works, and the Activity Log shows the actions.
+
+## Construction offline operation and backup
+
+The construction foundations use the shared Supabase database. Offline entry is a queued operation, not a local
+financial approval workflow:
+
+- Every queued record requires a unique idempotency key. Repeated synchronization must not create a duplicate row.
+- Queued statuses are `Queued`, `Syncing`, `Synced`, or `Failed`.
+- Offline entry can collect receipts, daily reports, attendance and photos, but it cannot approve financial records.
+- Approval, submission, payment, tax certificate issuance and compliance changes require an online authenticated
+  session with the appropriate company role.
+- The offline queue is company-scoped and protected by the same RLS rules as normal construction data.
+- Draft daily records remain local until connectivity returns. No automatic retry should approve or post them.
+
+For backup and restore, use the Supabase Dashboard's **Database Backups** feature on a paid plan or schedule an
+authorised `pg_dump`/restore process for your organisation. Restrict backup credentials to administrators, encrypt
+backup files, test restoration in an isolated project, and never restore a backup to another company without
+confirming the company identifiers. Test restores must not expose live employee or tax data outside the authorised
+environment.
 - [ ] **Reports → Export CSV** opens correctly in Excel.
+
+## Construction release live-run checklist
+
+- [ ] Apply migrations `018`, `019`, and `020` in numeric order and confirm all tables enable RLS.
+- [ ] Sign in as a company Admin, open **Construction**, and create one test record in Licenses.
+- [ ] Confirm the record appears only for the active company; a second company cannot read or update it.
+- [ ] Create an expired license and confirm the Dashboard shows it with an explicit `EXPIRED` text label.
+- [ ] Create a record due within 60 days and confirm the Dashboard shows `EXPIRING SOON`.
+- [ ] Open **Reports** and select each construction report: compliance expiry, failed tests, open safety, bid
+  summary, subcontract balances, equipment costs, cash advances, and tax calendar.
+- [ ] Attempt an Encoder construction write; confirm RLS blocks it.
+- [ ] Insert a duplicate offline queue idempotency key within the same company; confirm the unique constraint rejects
+  the duplicate.
+- [ ] Confirm no financial construction record can be approved while offline or through an unauthenticated request.
+- [ ] Test backup and restore in an isolated Supabase project before using live backups for production recovery.
 
 If something fails, note the message shown on screen and which step it happened on.

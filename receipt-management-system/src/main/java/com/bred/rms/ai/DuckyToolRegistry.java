@@ -126,8 +126,24 @@ public final class DuckyToolRegistry {
             case "getCurrentUser" -> currentUser(arguments);
             case "getCurrentCompany" -> currentCompany(arguments);
             case "getApplicationVersion" -> applicationVersion(arguments);
+            case "getConstructionAlerts" -> constructionAlerts(arguments);
             default -> throw new IllegalArgumentException("This BRED tool is not authorized or available.");
         };
+    }
+
+    private ToolResult constructionAlerts(JsonNode args) {
+        only(args);
+        requireAuthorizedUser();
+        if (context == null || context.constructionData == null) {
+            throw new IllegalStateException("Construction data is unavailable.");
+        }
+        var alerts = context.constructionData.expiryAlerts();
+        int failedTests = context.constructionData.failedTestCount();
+        int openSafety = context.constructionData.openSafetyCount();
+        String details = "Construction alerts: " + alerts.size()
+                + " compliance expiry alerts, " + failedTests
+                + " failed tests, " + openSafety + " open safety records.";
+        return new ToolResult(details, details, true);
     }
 
     private ToolResult searchReceipts(JsonNode args) {
@@ -535,6 +551,9 @@ public final class DuckyToolRegistry {
         tools.add(tool("getCurrentCompany", "Return the company associated with the current account.",
                 fields()));
         tools.add(tool("getApplicationVersion", "Return the BRED application version.", fields()));
+        tools.add(tool("getConstructionAlerts",
+                "Read authorized construction compliance, test and safety alert counts. Read-only.",
+                fields()));
         return List.copyOf(tools);
     }
 
