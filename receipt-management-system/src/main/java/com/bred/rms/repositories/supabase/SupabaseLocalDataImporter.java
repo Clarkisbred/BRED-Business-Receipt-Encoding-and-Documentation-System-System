@@ -456,14 +456,18 @@ public final class SupabaseLocalDataImporter {
             List<ReceiptItem> items = new ArrayList<>();
             for (JsonNode node : row.path("items")) {
                 items.add(new ReceiptItem(text(node, "description"),
-                        new BigDecimal(text(node, "quantity")), new BigDecimal(text(node, "unitPrice"))));
+                        new BigDecimal(text(node, "quantity")),
+                        node.hasNonNull("unit") ? text(node, "unit") : "pc",
+                        new BigDecimal(text(node, "unitPrice"))));
             }
             UUID projectId = nullableUuid(row.get("projectId"));
             Receipt receipt = new Receipt(receiptId, text(row, "receiptNo"),
                     LocalDate.parse(text(row, "date")), ReceiptType.fromDb(text(row, "type")),
                     uuid(row, "supplierId"), projectId, items,
                     decimal(row, "discount"), decimal(row, "vat"), decimal(row, "additionalCharges"),
-                    attachments, null, instant(row, "createdAt"), instant(row, "modifiedAt"));
+                    attachments, null, instant(row, "createdAt"), instant(row, "modifiedAt"), null,
+                    text(row, "notes"), row.hasNonNull("paymentMethod") ? text(row, "paymentMethod") : "Cash",
+                    decimal(row, "ewtRate"));
             receipts.save(receipt);
         }
         return new int[] {rows.size(), attachmentCount};

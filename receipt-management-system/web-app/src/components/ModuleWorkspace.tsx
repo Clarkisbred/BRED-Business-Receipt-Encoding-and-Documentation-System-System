@@ -18,7 +18,9 @@ import {
   X,
 } from 'lucide-react';
 import { ProfileAvatar } from './IdentityAvatar';
+import { ReceiptEntryForm } from './ReceiptEntryForm';
 import { booleanValue, displayValue, inputValue } from '../utils/moduleValues';
+import { formatPhilippineTin } from '../utils/tin';
 import {
   loadModulePage,
   saveModuleRecord,
@@ -474,7 +476,12 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
         {...common}
         type={field.type}
         value={textValue}
-        onChange={(event) => setFormValues((previous) => ({ ...previous, [field.key]: event.target.value }))}
+        onChange={(event) => setFormValues((previous) => ({
+          ...previous,
+          [field.key]: module === 'SUPPLIERS' && field.key === 'tin'
+            ? formatPhilippineTin(event.target.value)
+            : event.target.value,
+        }))}
       />
     );
   }
@@ -1020,7 +1027,18 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
         </section>
       )}
 
-      {module !== 'SETTINGS' && data.fields.length > 0 && (editingId !== null || Object.keys(formValues).length > 0) && (
+      {module === 'RECEIPTS' && Object.keys(formValues).length > 0 && (
+        <ReceiptEntryForm
+          data={data}
+          saving={saving}
+          onSavingChange={setSaving}
+          onCancel={() => { setEditingId(null); setFormValues({}); }}
+          onSaved={(updated) => { setData(updated); setEditingId(null); setFormValues({}); }}
+        />
+      )}
+
+      {module !== 'SETTINGS' && module !== 'RECEIPTS' && data.fields.length > 0
+        && (editingId !== null || Object.keys(formValues).length > 0) && (
         <section className="panel module-form-panel" aria-labelledby="module-form-title">
           <div className="panel-heading">
             <div>
@@ -1110,6 +1128,8 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
                               </button>
                             ) : isStatus ? (
                               <span className={`module-state-pill is-${statusTone(value)}`}>{displayValue(value)}</span>
+                            ) : module === 'SUPPLIERS' && column.key === 'tin' ? (
+                              formatPhilippineTin(displayValue(value))
                             ) : (
                               displayValue(value)
                             )}
@@ -1156,10 +1176,19 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
                 { label: 'Date', value: selectedReceipt.values.date },
                 { label: 'Document type', value: selectedReceipt.values.type },
                 { label: 'Supplier', value: selectedReceipt.values.supplier },
-                { label: 'Supplier TIN', value: selectedReceipt.values.supplierTin },
+                { label: 'Supplier TIN', value: formatPhilippineTin(displayValue(selectedReceipt.values.supplierTin)) },
+                { label: 'Supplier address', value: selectedReceipt.values.supplierAddress },
                 { label: 'Project', value: selectedReceipt.values.project },
-                { label: 'Items', value: selectedReceipt.values.itemDescription },
+                { label: 'Items', value: selectedReceipt.values.itemDetails ?? selectedReceipt.values.itemDescription },
+                { label: 'Subtotal', value: selectedReceipt.values.subtotal },
+                { label: 'Discount', value: selectedReceipt.values.discount },
+                { label: 'VAT', value: selectedReceipt.values.vat },
+                { label: 'Additional charges', value: selectedReceipt.values.additionalCharges },
+                { label: 'Account', value: selectedReceipt.values.paymentMethod },
+                { label: 'EWT', value: Number(displayValue(selectedReceipt.values.ewtRate)) === 0 ? '—' : `${displayValue(selectedReceipt.values.ewtRate)}% · ${displayValue(selectedReceipt.values.ewtAmount)}` },
+                { label: 'Personal notes', value: selectedReceipt.values.notes },
                 { label: 'Total', value: selectedReceipt.values.total },
+                { label: 'Net payable', value: selectedReceipt.values.netTotal },
               ].map(({ label, value }) => (
                 <div key={label}>
                   <dt>{label}</dt>

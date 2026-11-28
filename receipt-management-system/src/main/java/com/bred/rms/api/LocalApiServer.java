@@ -56,7 +56,9 @@ public final class LocalApiServer implements AutoCloseable {
                     List.of(), List.of(), List.of(), false);
         }
     }
-    public record ModuleOption(String label, String value) { }
+    public record ModuleOption(String label, String value, String description) {
+        public ModuleOption(String label, String value) { this(label, value, ""); }
+    }
     public record ModuleField(String key, String label, String type, boolean required,
                               List<ModuleOption> options, Object value) { }
     public record ModuleColumn(String key, String label, boolean numeric) { }
@@ -104,6 +106,7 @@ public final class LocalApiServer implements AutoCloseable {
 
     private static final Logger LOGGER = Logger.getLogger(LocalApiServer.class.getName());
     private static final int MAX_REQUEST_BYTES = 64 * 1024;
+    private static final int MAX_RECEIPT_REQUEST_BYTES = 15 * 1024 * 1024;
     private static final int MAX_STATIC_RESOURCE_BYTES = 10 * 1024 * 1024;
     private static final int TOKEN_BYTES = 32;
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -392,7 +395,8 @@ public final class LocalApiServer implements AutoCloseable {
                 if ("GET".equals(method)) {
                     sendJson(exchange, 200, backend.modulePage(module, table));
                 } else if ("POST".equals(method)) {
-                    JsonNode request = readJson(exchange);
+                    JsonNode request = readJson(exchange, module == Module.RECEIPTS
+                            ? MAX_RECEIPT_REQUEST_BYTES : MAX_REQUEST_BYTES);
                     String action = request.path("action").asText("");
                     String id = request.path("id").isTextual() ? request.path("id").asText() : null;
                     sendJson(exchange, 200, backend.moduleAction(module, action, id, request.get("values")));
@@ -454,14 +458,18 @@ public final class LocalApiServer implements AutoCloseable {
     }
 
     private JsonNode readJson(HttpExchange exchange) throws IOException, RequestException {
+        return readJson(exchange, MAX_REQUEST_BYTES);
+    }
+
+    private JsonNode readJson(HttpExchange exchange, int maxBytes) throws IOException, RequestException {
         String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
         String mediaType = contentType == null ? "" : contentType.split(";", 2)[0].trim();
         if (!"application/json".equalsIgnoreCase(mediaType)) {
             throw new RequestException(415, "unsupported_media_type", "Send the request as JSON.");
         }
-        byte[] body = exchange.getRequestBody().readNBytes(MAX_REQUEST_BYTES + 1);
+        byte[] body = exchange.getRequestBody().readNBytes(maxBytes + 1);
         try {
-            if (body.length > MAX_REQUEST_BYTES) {
+            if (body.length > maxBytes) {
                 throw new RequestException(413, "request_too_large", "The request body is too large.");
             }
             JsonNode parsed = JSON.readTree(body);

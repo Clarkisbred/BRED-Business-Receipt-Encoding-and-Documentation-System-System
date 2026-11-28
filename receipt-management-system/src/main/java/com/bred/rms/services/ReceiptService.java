@@ -161,6 +161,13 @@ public final class ReceiptService {
         if (r.discount().signum() < 0 || r.vat().signum() < 0 || r.additionalCharges().signum() < 0) {
             throw new ValidationException("Discount, VAT and additional charges cannot be negative.");
         }
+        if (r.ewtRate().signum() < 0 || r.ewtRate().compareTo(new BigDecimal("100")) > 0) {
+            throw new ValidationException("EWT percentage must be from 0 to 100.");
+        }
+        if (!java.util.List.of("Cash", "Card", "E-wallet").contains(r.paymentMethod())) {
+            throw new ValidationException("Choose Cash, Card, or E-wallet.");
+        }
+        if (r.notes().length() > 2000) throw new ValidationException("Personal notes can be up to 2000 characters.");
         BigDecimal subtotal = r.subtotal();
         if (r.discount().compareTo(subtotal) > 0) throw new ValidationException("Discount cannot be more than the subtotal.");
     }

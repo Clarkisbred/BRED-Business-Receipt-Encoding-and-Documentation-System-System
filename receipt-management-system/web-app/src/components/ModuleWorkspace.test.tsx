@@ -181,6 +181,25 @@ const settingsPage: ModulePageData = {
   createAction: 'save',
 };
 
+const receiptCreationPage: ModulePageData = {
+  ...receiptPage,
+  fields: [
+    { key: 'receiptNo', label: 'Receipt number', type: 'text', required: true },
+    { key: 'date', label: 'Receipt date', type: 'date', required: true },
+    { key: 'type', label: 'Document type', type: 'select', required: true, options: [
+      { label: 'Official receipt', value: 'official_receipt' },
+    ] },
+    { key: 'supplierId', label: 'Supplier', type: 'select', required: true, options: [
+      { label: 'North Supply', value: 'supplier-1', description: 'TIN 123456789123456 · Davao City' },
+    ] },
+    { key: 'projectId', label: 'Project', type: 'select', options: [
+      { label: 'North site', value: 'project-1' },
+    ] },
+  ],
+  canCreate: true,
+  primaryActionLabel: 'New receipt',
+};
+
 describe('ModuleWorkspace', () => {
   afterEach(() => {
     cleanup();
@@ -375,6 +394,57 @@ describe('ModuleWorkspace', () => {
     expect(screen.getByRole('heading', { name: 'R-100' })).toBeInTheDocument();
     expect(screen.getByText('Cement')).toBeInTheDocument();
     expect(screen.getByText('scan.pdf')).toBeInTheDocument();
+  });
+
+  it('creates a receipt with editable items, units, EWT, and removable attachments', async () => {
+    loadModulePage.mockResolvedValueOnce(receiptCreationPage);
+    saveModuleRecord.mockResolvedValueOnce(receiptPage);
+    render(<ModuleWorkspace module="RECEIPTS" />);
+
+    await screen.findByText('Receipts');
+    fireEvent.click(screen.getByRole('button', { name: /New receipt/ }));
+    fireEvent.change(screen.getByLabelText(/Receipt number/), { target: { value: 'OR-300' } });
+    fireEvent.change(screen.getByRole('combobox', { name: /Supplier/ }), { target: { value: 'supplier-1' } });
+    fireEvent.change(screen.getByLabelText('Item 1 description'), { target: { value: 'Cement' } });
+    fireEvent.change(screen.getByLabelText('Item 1 quantity'), { target: { value: '2' } });
+    fireEvent.change(screen.getByLabelText('Item 1 unit'), { target: { value: 'kg' } });
+    fireEvent.change(screen.getByLabelText('Item 1 unit price'), { target: { value: '100' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add item' }));
+    expect(screen.getByLabelText('Item 2 description')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove item 2' }));
+    fireEvent.change(screen.getByLabelText('Custom EWT percentage'), { target: { value: '2.5' } });
+    expect(screen.getByText('−₱5.00')).toBeInTheDocument();
+
+    const scan = new File(['scan'], 'scan.pdf', { type: 'application/pdf' });
+    fireEvent.change(screen.getByLabelText('Add attachments'), { target: { files: [scan] } });
+    expect(screen.getByText('scan.pdf')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    expect(screen.queryByText('scan.pdf')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save receipt' }));
+    await waitFor(() => expect(saveModuleRecord).toHaveBeenCalledWith(
+      'RECEIPTS',
+      'save',
+      expect.objectContaining({
+        receiptNo: 'OR-300',
+        supplierId: 'supplier-1',
+        ewtRate: '2.5',
+        items: [{ description: 'Cement', quantity: '2', unit: 'kg', unitPrice: '100' }],
+        attachments: [],
+      }),
+    ));
+  });
+
+  it('auto-formats the requested Philippine TIN layout in the new supplier form', async () => {
+    loadModulePage.mockResolvedValueOnce(receiptCreationPage);
+    render(<ModuleWorkspace module="RECEIPTS" />);
+
+    await screen.findByText('Receipts');
+    fireEvent.click(screen.getByRole('button', { name: /New receipt/ }));
+    fireEvent.click(screen.getByRole('button', { name: /New supplier/ }));
+    fireEvent.change(screen.getByLabelText(/TIN/), { target: { value: '123456789123456' } });
+
+    expect(screen.getByLabelText(/TIN/)).toHaveValue('123-456-789-123456');
   });
 
   it('filters construction records by their Java workspace area', async () => {

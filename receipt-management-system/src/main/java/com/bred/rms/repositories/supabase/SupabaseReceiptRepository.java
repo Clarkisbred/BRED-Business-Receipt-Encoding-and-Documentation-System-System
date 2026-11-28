@@ -92,11 +92,15 @@ public final class SupabaseReceiptRepository implements ReceiptRepository {
         p.put("discount", r.discount());
         p.put("vat", r.vat());
         p.put("additional_charges", r.additionalCharges());
+        p.put("notes", r.notes());
+        p.put("payment_method", r.paymentMethod());
+        p.put("ewt_rate", r.ewtRate());
         List<Map<String, Object>> items = new ArrayList<>();
         for (ReceiptItem i : r.items()) {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("description", i.description());
             m.put("quantity", i.quantity());
+            m.put("unit", i.unit());
             m.put("unit_price", i.unitPrice());
             items.add(m);
         }
@@ -126,13 +130,16 @@ public final class SupabaseReceiptRepository implements ReceiptRepository {
         row.path("receipt_items").forEach(itemRows::add);
         itemRows.sort(Comparator.comparingInt(n -> n.path("line_no").asInt()));
         List<ReceiptItem> items = new ArrayList<>();
-        for (JsonNode n : itemRows) items.add(new ReceiptItem(Json.text(n, "description"), Json.decimal(n, "quantity"), Json.decimal(n, "unit_price")));
+        for (JsonNode n : itemRows) items.add(new ReceiptItem(Json.text(n, "description"), Json.decimal(n, "quantity"),
+                n.hasNonNull("unit") ? Json.text(n, "unit") : "pc", Json.decimal(n, "unit_price")));
         List<Attachment> atts = new ArrayList<>();
         for (JsonNode n : row.path("receipt_attachments")) atts.add(new Attachment(Json.text(n, "file_name"), Json.text(n, "storage_path")));
         return new Receipt(Json.uuid(row, "id"), Json.text(row, "receipt_no"), Json.date(row, "receipt_date"),
                 ReceiptType.fromDb(Json.text(row, "receipt_type")), Json.uuid(row, "supplier_id"), Json.uuid(row, "project_id"),
                 items, Json.decimal(row, "discount"), Json.decimal(row, "vat"), Json.decimal(row, "additional_charges"),
                 atts, Json.uuid(row, "encoded_by"), Json.instant(row, "created_at"), Json.instant(row, "modified_at"),
-                Json.uuid(row, "company_id"));
+                Json.uuid(row, "company_id"), Json.text(row, "notes"),
+                row.hasNonNull("payment_method") ? Json.text(row, "payment_method") : "Cash",
+                Json.decimal(row, "ewt_rate"));
     }
 }

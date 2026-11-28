@@ -4,6 +4,7 @@ import type { ModuleKey } from '../types';
 export interface ModuleOption {
   label: string;
   value: string;
+  description?: string;
 }
 
 export interface ModuleField {

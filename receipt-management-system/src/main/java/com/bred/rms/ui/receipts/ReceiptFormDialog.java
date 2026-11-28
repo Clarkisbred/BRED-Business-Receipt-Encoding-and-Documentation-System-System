@@ -19,6 +19,7 @@ import com.bred.rms.utils.BackgroundTask;
 
 import javax.swing.BorderFactory;
 import javax.swing.DefaultComboBoxModel;
+import javax.swing.DefaultCellEditor;
 import javax.swing.DefaultListModel;
 import javax.swing.JButton;
 import javax.swing.JComboBox;
@@ -31,6 +32,7 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextField;
+import javax.swing.JTextArea;
 import javax.swing.SwingConstants;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -82,6 +84,7 @@ public final class ReceiptFormDialog extends JDialog {
     private final JTextField receiptNo = new JTextField(16);
     private final DateField date = new DateField();
     private final JComboBox<ReceiptType> type = new JComboBox<>(ReceiptType.values());
+    private final JComboBox<String> paymentMethod = new JComboBox<>(new String[] {"Cash", "Card", "E-wallet"});
     private final JComboBox<Supplier> supplierBox = new JComboBox<>();
     private final JComboBox<Project> projectBox = new JComboBox<>();
     private final JLabel fundSource = new JLabel("—");
@@ -90,8 +93,12 @@ public final class ReceiptFormDialog extends JDialog {
     private final JTextField discount = new JTextField("0.00", 10);
     private final JTextField vat = new JTextField("0.00", 10);
     private final JTextField charges = new JTextField("0.00", 10);
+    private final JTextField ewtRate = new JTextField("0", 5);
+    private final JTextArea notes = new JTextArea(3, 24);
     private final JLabel subtotalLabel = new JLabel();
     private final JLabel grandLabel = new JLabel();
+    private final JLabel ewtLabel = new JLabel();
+    private final JLabel netLabel = new JLabel();
     private final DefaultListModel<Entry> attachmentModel = new DefaultListModel<>();
     private final JList<Entry> attachmentList = new JList<>(attachmentModel);
     private final JLabel error = new JLabel(" ");
@@ -156,6 +163,7 @@ public final class ReceiptFormDialog extends JDialog {
         g.anchor = GridBagConstraints.WEST;
         row(header, g, 0, "Receipt No.", receiptNo, "Date", date);
         row(header, g, 1, "Type", type, "Project", projectBox);
+        row(header, g, 3, "Account", paymentMethod, "", new JLabel());
         g.gridx = 0; g.gridy = 2;
         header.add(new JLabel("Supplier"), g);
         g.gridx = 1; g.gridwidth = 2; g.fill = GridBagConstraints.HORIZONTAL; g.weightx = 1;
@@ -186,12 +194,16 @@ public final class ReceiptFormDialog extends JDialog {
         ModernTable.apply(itemsTable);
         itemsTable.putClientProperty("terminateEditOnFocusLost", Boolean.TRUE);
         itemsTable.getColumnModel().getColumn(0).setPreferredWidth(420);
-        for (int c = 1; c <= 3; c++) {
+        for (int c : new int[] {1, 3, 4}) {
             itemsTable.getColumnModel().getColumn(c).setPreferredWidth(110);
             javax.swing.table.DefaultTableCellRenderer right = new javax.swing.table.DefaultTableCellRenderer();
             right.setHorizontalAlignment(SwingConstants.RIGHT);
             itemsTable.getColumnModel().getColumn(c).setCellRenderer(right);
         }
+        itemsTable.getColumnModel().getColumn(2).setPreferredWidth(90);
+        JComboBox<String> units = new JComboBox<>(new String[] {"pc", "quarter", "kg", "g", "lb", "L", "mL", "m", "cm", "box", "bag", "sack", "set", "roll"});
+        units.setEditable(true);
+        itemsTable.getColumnModel().getColumn(LineItemsTableModel.UNIT).setCellEditor(new DefaultCellEditor(units));
         JScrollPane itemsScroll = new StyledScrollPane(itemsTable);
         itemsScroll.setPreferredSize(new Dimension(600, 150));
         JPanel itemButtons = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
@@ -224,7 +236,15 @@ public final class ReceiptFormDialog extends JDialog {
         attachButtons.add(addFile);
         attachButtons.add(removeFile);
         attach.add(attachButtons, BorderLayout.SOUTH);
-        lower.add(attach, BorderLayout.CENTER);
+        JPanel attachmentsAndNotes = new JPanel(new BorderLayout(0, 8));
+        attachmentsAndNotes.add(attach, BorderLayout.CENTER);
+        notes.setLineWrap(true);
+        notes.setWrapStyleWord(true);
+        JPanel notesPanel = new JPanel(new BorderLayout(0, 4));
+        notesPanel.setBorder(BorderFactory.createTitledBorder("Personal notes"));
+        notesPanel.add(new StyledScrollPane(notes), BorderLayout.CENTER);
+        attachmentsAndNotes.add(notesPanel, BorderLayout.SOUTH);
+        lower.add(attachmentsAndNotes, BorderLayout.CENTER);
 
         JPanel totals = new JPanel(new GridBagLayout());
         GridBagConstraints t = new GridBagConstraints();
@@ -239,12 +259,26 @@ public final class ReceiptFormDialog extends JDialog {
         t.gridx = 1;
         totals.add(vat, t);
         line(totals, t, 3, "Additional charges", charges);
+        JPanel ewtControl = new JPanel(new FlowLayout(FlowLayout.RIGHT, 4, 0));
+        JButton ewtButton = new JButton("EWT %");
+        ewtButton.addActionListener(e -> {
+            String value = JOptionPane.showInputDialog(this, "Enter EWT percentage (0–100). Use 0 for blank.", ewtRate.getText());
+            if (value != null) ewtRate.setText(value.trim());
+        });
+        ewtControl.add(ewtButton);
+        ewtControl.add(ewtRate);
+        line(totals, t, 4, "Withholding tax", ewtControl);
+        line(totals, t, 5, "EWT amount", ewtLabel);
         grandLabel.setFont(grandLabel.getFont().deriveFont(Font.BOLD, 18f));
         grandLabel.setForeground(RmsColors.primary());
-        line(totals, t, 4, "GRAND TOTAL", grandLabel);
+        line(totals, t, 6, "RECEIPT TOTAL", grandLabel);
+        netLabel.setFont(netLabel.getFont().deriveFont(Font.BOLD, 18f));
+        netLabel.setForeground(RmsColors.primary());
+        line(totals, t, 7, "NET PAYABLE", netLabel);
         discount.setHorizontalAlignment(SwingConstants.RIGHT);
         vat.setHorizontalAlignment(SwingConstants.RIGHT);
         charges.setHorizontalAlignment(SwingConstants.RIGHT);
+        ewtRate.setHorizontalAlignment(SwingConstants.RIGHT);
         lower.add(totals, BorderLayout.EAST);
         middle.add(lower, BorderLayout.SOUTH);
         JScrollPane middleScroll = new StyledScrollPane(middle);
@@ -312,6 +346,9 @@ public final class ReceiptFormDialog extends JDialog {
         discount.setText(ReceiptMath.money(r.discount()).toPlainString());
         vat.setText(ReceiptMath.money(r.vat()).toPlainString());
         charges.setText(ReceiptMath.money(r.additionalCharges()).toPlainString());
+        ewtRate.setText(r.ewtRate().stripTrailingZeros().toPlainString());
+        paymentMethod.setSelectedItem(r.paymentMethod());
+        notes.setText(r.notes());
         r.attachments().forEach(a -> attachmentModel.addElement(new Entry(a, null)));
         vatAuto = false;
     }
@@ -324,6 +361,7 @@ public final class ReceiptFormDialog extends JDialog {
         };
         discount.getDocument().addDocumentListener(moneyChanged);
         charges.getDocument().addDocumentListener(moneyChanged);
+        ewtRate.getDocument().addDocumentListener(moneyChanged);
         vat.getDocument().addDocumentListener(new DocumentListener() {
             @Override public void insertUpdate(DocumentEvent e) { typed(); }
             @Override public void removeUpdate(DocumentEvent e) { typed(); }
@@ -369,7 +407,11 @@ public final class ReceiptFormDialog extends JDialog {
         }
         BigDecimal grand = subtotal.subtract(disc).add(lenient(vat)).add(lenient(charges));
         subtotalLabel.setText(ReceiptMath.format(subtotal));
+        BigDecimal ewt = ReceiptMath.money(grand.divide(new BigDecimal("1.12"), 8, java.math.RoundingMode.HALF_UP)
+                .multiply(lenient(ewtRate)).movePointLeft(2));
+        ewtLabel.setText(ewt.signum() == 0 ? "—" : "−" + ReceiptMath.format(ewt));
         grandLabel.setText(ReceiptMath.format(grand));
+        netLabel.setText(ReceiptMath.format(grand.subtract(ewt)));
     }
 
     private void chooseFile() {
@@ -389,6 +431,9 @@ public final class ReceiptFormDialog extends JDialog {
     private void quickSupplier() {
         JTextField name = new JTextField(22);
         JTextField tin = new JTextField(22);
+        tin.addFocusListener(new java.awt.event.FocusAdapter() {
+            @Override public void focusLost(java.awt.event.FocusEvent e) { tin.setText(formatTin(tin.getText())); }
+        });
         JTextField address = new JTextField(22);
         JTextField contact = new JTextField(22);
         JPanel p = new JPanel(new GridBagLayout());
@@ -420,11 +465,29 @@ public final class ReceiptFormDialog extends JDialog {
         if (s == null) throw new ValidationException("Choose a supplier.");
         Project p = (Project) projectBox.getSelectedItem();
         List<ReceiptItem> items = itemsModel.items();
+        BigDecimal rate = FormParsing.number("EWT percentage", ewtRate.getText());
+        if (rate.signum() < 0 || rate.compareTo(new BigDecimal("100")) > 0) {
+            throw new ValidationException("EWT percentage must be from 0 to 100.");
+        }
         return new Receipt(receiptId, no, d, (ReceiptType) type.getSelectedItem(), s.id(), p == null ? null : p.id(), items,
                 FormParsing.amount("Discount", discount.getText()), FormParsing.amount("VAT", vat.getText()),
                 FormParsing.amount("Additional charges", charges.getText()), attachments,
                 existing == null ? null : existing.encodedBy(), existing == null ? null : existing.createdAt(),
-                existing == null ? null : existing.modifiedAt());
+                existing == null ? null : existing.modifiedAt(), existing == null ? null : existing.companyId(),
+                notes.getText().trim(), (String) paymentMethod.getSelectedItem(), rate);
+    }
+
+    private static String formatTin(String value) {
+        String digits = value == null ? "" : value.replaceAll("\\D", "");
+        if (digits.length() > 15) digits = digits.substring(0, 15);
+        List<String> groups = new ArrayList<>();
+        for (int start = 0; start < digits.length(); start += 3) {
+            int end = Math.min(start + 3, digits.length());
+            if (start >= 9) end = digits.length();
+            groups.add(digits.substring(start, end));
+            if (start >= 9) break;
+        }
+        return String.join("-", groups);
     }
 
     private void save() {

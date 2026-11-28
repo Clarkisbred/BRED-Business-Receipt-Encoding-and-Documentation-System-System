@@ -87,7 +87,7 @@ public final class PaperReceiptView extends JPanel {
         out.add(row("Description", "Qty", "Unit price", "Amount"));
         out.add(rule('-'));
         for (ReceiptItem item : r.items()) {
-            List<String> lines = wrap(item.description(), DESC);
+            List<String> lines = wrap(item.description() + " (" + item.unit() + ")", DESC);
             out.add(row(lines.get(0), qty(item.quantity()), num(item.unitPrice()), num(item.subtotal())));
             for (int i = 1; i < lines.size(); i++) out.add(lines.get(i));
         }
@@ -98,6 +98,16 @@ public final class PaperReceiptView extends JPanel {
         out.add(total("Additional charges", ReceiptMath.format(r.additionalCharges())));
         out.add(rule('='));
         out.add(total("TOTAL", ReceiptMath.format(r.grandTotal())));
+        if (r.ewtRate().signum() > 0) {
+            out.add(total("EWT (" + r.ewtRate().stripTrailingZeros().toPlainString() + "%)", ReceiptMath.format(r.ewtAmount())));
+        }
+        out.add(total("NET PAYABLE", ReceiptMath.format(r.netTotal())));
+        out.add("Account: " + r.paymentMethod());
+        if (notBlank(r.notes())) {
+            out.add(rule('-'));
+            out.add("Notes:");
+            wrap(r.notes(), WIDTH).forEach(out::add);
+        }
         out.add(rule('='));
         if (notBlank(companyName)) out.add("Company: " + companyName);
         if (notBlank(encodedBy)) out.add("Encoded by: " + encodedBy);

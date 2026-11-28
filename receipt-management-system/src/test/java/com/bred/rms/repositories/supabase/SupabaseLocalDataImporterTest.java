@@ -39,8 +39,9 @@ class SupabaseLocalDataImporterTest {
                   "projects": [{"id":"%s","name":"Bridge","code":"BR-1","fundSource":"General"}],
                   "receipts": [{
                     "id":"%s","receiptNo":"R-1","date":"2025-01-02","type":"official_receipt",
-                    "supplierId":"%s","projectId":"%s","items":[{"description":"Part","quantity":"1","unitPrice":"5"}],
+                    "supplierId":"%s","projectId":"%s","items":[{"description":"Part","quantity":"1","unit":"kg","unitPrice":"5"}],
                     "discount":"0","vat":"0","additionalCharges":"0",
+                    "notes":"Tooling for repairs","paymentMethod":"Card","ewtRate":"2.5",
                     "attachments":[{"fileName":"scan.pdf","storagePath":"%s"}],
                     "encodedBy":"%s","createdAt":"2025-01-02T00:00:00Z","modifiedAt":"2025-01-02T00:00:00Z"
                   }],
@@ -83,6 +84,11 @@ class SupabaseLocalDataImporterTest {
             assertTrue(upsert.pathAndQuery().contains("on_conflict=id"));
             var upload = env.fake.requests("POST", "/storage/v1/object/receipts/").get(0);
             assertEquals("true", upload.headers().get("x-upsert"));
+            var receiptPayload = env.fake.requests("POST", "/rest/v1/rpc/save_receipt").get(0).bodyString();
+            assertTrue(receiptPayload.contains("\"unit\":\"kg\""));
+            assertTrue(receiptPayload.contains("\"notes\":\"Tooling for repairs\""));
+            assertTrue(receiptPayload.contains("\"payment_method\":\"Card\""));
+            assertTrue(receiptPayload.contains("\"ewt_rate\":2.5"));
             var activity = env.fake.requests("POST", "/functions/v1/admin-import-activity").get(0).bodyString();
             assertTrue(activity.contains(CLOUD_USER_ID), "local activity is linked to the matching cloud account");
         }

@@ -407,7 +407,8 @@ public final class LocalDatabase {
                             previous.map(Receipt::encodedBy).orElse(me == null ? null : me.id()),
                             previous.map(Receipt::createdAt).orElse(now), now,
                             previous.map(Receipt::companyId).orElseGet(() ->
-                                    me != null && me.companyId() != null ? me.companyId() : s.companies.get(0).id()));
+                                    me != null && me.companyId() != null ? me.companyId() : s.companies.get(0).id()),
+                            r.notes(), r.paymentMethod(), r.ewtRate());
                     s.receipts.removeIf(x -> x.id().equals(id));
                     s.receipts.add(stored);
                     log(s, previous.isPresent() ? "receipt.update" : "receipt.create", stored.receiptNo());
@@ -664,7 +665,8 @@ public final class LocalDatabase {
     private static Receipt readReceipt(JsonNode n, List<Account> accounts, Company defaultCompany) {
         List<ReceiptItem> items = new ArrayList<>();
         for (JsonNode i : n.path("items")) {
-            items.add(new ReceiptItem(i.path("description").asText(), new BigDecimal(i.path("quantity").asText()), new BigDecimal(i.path("unitPrice").asText())));
+            items.add(new ReceiptItem(i.path("description").asText(), new BigDecimal(i.path("quantity").asText()),
+                    i.path("unit").asText("pc"), new BigDecimal(i.path("unitPrice").asText())));
         }
         List<Attachment> atts = new ArrayList<>();
         for (JsonNode a : n.path("attachments")) atts.add(new Attachment(a.path("fileName").asText(), a.path("storagePath").asText()));
@@ -680,7 +682,8 @@ public final class LocalDatabase {
                 ReceiptType.fromDb(n.path("type").asText()), UUID.fromString(n.path("supplierId").asText()), uuidOrNull(n.path("projectId")), items,
                 new BigDecimal(n.path("discount").asText("0")), new BigDecimal(n.path("vat").asText("0")), new BigDecimal(n.path("additionalCharges").asText("0")),
                 atts, encodedBy, Instant.parse(n.path("createdAt").asText()), Instant.parse(n.path("modifiedAt").asText()),
-                companyId);
+                companyId, n.path("notes").asText(""), n.path("paymentMethod").asText("Cash"),
+                new BigDecimal(n.path("ewtRate").asText("0")));
     }
 
     private void save() {
@@ -716,9 +719,11 @@ public final class LocalDatabase {
             if (r.projectId() != null) n.put("projectId", r.projectId().toString());
             ArrayNode items = n.putArray("items");
             for (ReceiptItem i : r.items()) {
-                items.addObject().put("description", i.description()).put("quantity", i.quantity().toPlainString()).put("unitPrice", i.unitPrice().toPlainString());
+                items.addObject().put("description", i.description()).put("quantity", i.quantity().toPlainString())
+                        .put("unit", i.unit()).put("unitPrice", i.unitPrice().toPlainString());
             }
             n.put("discount", r.discount().toPlainString()).put("vat", r.vat().toPlainString()).put("additionalCharges", r.additionalCharges().toPlainString());
+            n.put("notes", r.notes()).put("paymentMethod", r.paymentMethod()).put("ewtRate", r.ewtRate().toPlainString());
             ArrayNode atts = n.putArray("attachments");
             for (Attachment a : r.attachments()) atts.addObject().put("fileName", a.fileName()).put("storagePath", a.storagePath());
             if (r.encodedBy() != null) n.put("encodedBy", r.encodedBy().toString());

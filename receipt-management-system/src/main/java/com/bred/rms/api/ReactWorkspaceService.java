@@ -5,6 +5,7 @@ import com.bred.rms.ai.GroqDuckyService;
 import com.bred.rms.config.AppContext;
 import com.bred.rms.config.AppVersion;
 import com.bred.rms.models.ActivityEntry;
+import com.bred.rms.models.Attachment;
 import com.bred.rms.models.BugReport;
 import com.bred.rms.models.ChatMessage;
 import com.bred.rms.models.Company;
@@ -16,6 +17,8 @@ import com.bred.rms.models.Role;
 import com.bred.rms.models.Supplier;
 import com.bred.rms.models.User;
 import com.bred.rms.repositories.RepositoryException;
+import com.bred.rms.repositories.AttachmentException;
+import com.bred.rms.repositories.AttachmentRules;
 import com.bred.rms.security.Module;
 import com.bred.rms.services.ReceiptQuery;
 import com.bred.rms.ui.construction.ConstructionPanel;
@@ -26,9 +29,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 
 import java.math.BigDecimal;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Base64;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -201,7 +207,9 @@ final class ReactWorkspaceService {
         Map<UUID, Project> projects = new LinkedHashMap<>();
         context.projects.findAll().forEach(project -> projects.put(project.id(), project));
         List<LocalApiServer.ModuleOption> supplierOptions = suppliers.values().stream()
-                .map(supplier -> option(supplier.businessName(), supplier.id().toString())).toList();
+                .map(supplier -> option(supplier.businessName(), supplier.id().toString(),
+                        "TIN " + supplier.tin() + (supplier.address().isBlank() ? "" : " · " + supplier.address())))
+                .toList();
         List<LocalApiServer.ModuleOption> projectOptions = projects.values().stream()
                 .map(project -> option(project.name(), project.id().toString())).toList();
         List<LocalApiServer.ModuleRecord> rows = receipts.stream().map(receipt -> record(
@@ -213,13 +221,29 @@ final class ReactWorkspaceService {
                         ? suppliers.get(receipt.supplierId()).businessName() : "Unavailable supplier",
                 "supplierTin", suppliers.containsKey(receipt.supplierId())
                         ? suppliers.get(receipt.supplierId()).tin() : "",
+                "supplierAddress", suppliers.containsKey(receipt.supplierId())
+                        ? suppliers.get(receipt.supplierId()).address() : "",
                 "project", receipt.projectId() == null ? "Unassigned"
                         : projects.containsKey(receipt.projectId()) ? projects.get(receipt.projectId()).name()
                         : "Unavailable project",
                 "itemDescription", receipt.items().stream().map(ReceiptItem::description)
                         .filter(description -> description != null && !description.isBlank())
                         .collect(java.util.stream.Collectors.joining(", ")),
+                "itemDetails", receipt.items().stream()
+                        .map(item -> item.description() + " — " + item.quantity().stripTrailingZeros().toPlainString()
+                                + " " + item.unit() + " × " + money(item.unitPrice())
+                                + " = " + money(item.subtotal()))
+                        .collect(java.util.stream.Collectors.joining("; ")),
                 "itemCount", receipt.items().size(),
+                "subtotal", money(receipt.subtotal()),
+                "discount", money(receipt.discount()),
+                "vat", money(receipt.vat()),
+                "additionalCharges", money(receipt.additionalCharges()),
+                "notes", receipt.notes(),
+                "paymentMethod", receipt.paymentMethod(),
+                "ewtRate", receipt.ewtRate().toPlainString(),
+                "ewtAmount", money(receipt.ewtAmount()),
+                "netTotal", money(receipt.netTotal()),
                 "attachmentNames", receipt.attachments().stream().map(attachment -> attachment.fileName())
                         .collect(java.util.stream.Collectors.joining(", ")),
                 "total", money(receipt.grandTotal())))
@@ -236,9 +260,10 @@ final class ReactWorkspaceService {
                         field("type", "Document type", "select", true, receiptTypeOptions()),
                         field("supplierId", "Supplier", "select", true, supplierOptions),
                         field("projectId", "Project", "select", false, projectOptions),
-                        field("description", "First item description", "text", true),
-                        field("quantity", "Quantity", "number", true),
-                        field("unitPrice", "Unit price", "number", true),
+                        field("paymentMethod", "Payment account", "select", true, List.of(
+                                option("Cash", "Cash"), option("Card", "Card"), option("E-wallet", "E-wallet"))),
+                        field("notes", "Personal notes", "textarea", false),
+                        field("ewtRate", "EWT percentage", "number", false),
                         field("discount", "Discount", "number", false),
                         field("vat", "VAT", "number", false),
                         field("additionalCharges", "Additional charges", "number", false)),
@@ -725,18 +750,119 @@ final class ReactWorkspaceService {
         if (id != null && !id.isBlank()) {
             throw new IllegalArgumentException("Receipt editing is not supported in this form. Open the receipt directory in BRED to preserve all line items and attachments.");
         }
-        Receipt receipt = new Receipt(null, text(values, "receiptNo"),
+        JsonNode itemNodes = values.path("items");
+        if (!itemNodes.isArray()) throw new IllegalArgumentException("Add at least one item.");
+        List<ReceiptItem> items = new ArrayList<>();
+        for (JsonNode item : itemNodes) {
+            items.add(new ReceiptItem(text(item, "description"), new BigDecimal(text(item, "quantity")),
+                    text(item, "unit").isBlank() ? "pc" : text(item, "unit"),
+                    new BigDecimal(text(item, "unitPrice"))));
+        }
+        String notes = text(values, "notes");
+        if (notes.length() > 2000) throw new IllegalArgumentException("Personal notes can be up to 2000 characters.");
+        BigDecimal ewtRate = decimal(values, "ewtRate");
+        if (ewtRate.signum() < 0 || ewtRate.compareTo(new BigDecimal("100")) > 0) {
+            throw new IllegalArgumentException("EWT percentage must be from 0 to 100.");
+        }
+        String paymentMethod = text(values, "paymentMethod");
+        if (!List.of("Cash", "Card", "E-wallet").contains(paymentMethod)) {
+            throw new IllegalArgumentException("Choose Cash, Card, or E-wallet.");
+        }
+        UUID receiptId = UUID.randomUUID();
+        Receipt receipt = new Receipt(receiptId, text(values, "receiptNo"),
                 LocalDate.parse(text(values, "date")),
                 ReceiptType.fromDb(text(values, "type")),
                 uuid(text(values, "supplierId"), "Choose a supplier."),
                 optionalUuid(text(values, "projectId")),
-                List.of(new ReceiptItem(text(values, "description"),
-                        new BigDecimal(text(values, "quantity")),
-                        new BigDecimal(text(values, "unitPrice")))),
+                items,
                 decimal(values, "discount"), decimal(values, "vat"),
-                decimal(values, "additionalCharges"), List.of(), null, null, null);
-        context.receipts.save(receipt);
+                decimal(values, "additionalCharges"), List.of(), null, null, null, null,
+                notes, paymentMethod, ewtRate);
+        List<Attachment> uploaded = uploadReceiptAttachments(receiptId, values.path("attachments"));
+        try {
+            context.receipts.save(receipt.withAttachments(uploaded));
+        } catch (RuntimeException failure) {
+            for (Attachment attachment : uploaded) {
+                try {
+                    context.attachments.remove(attachment);
+                } catch (AttachmentException cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+            }
+            throw failure;
+        }
         return receipts();
+    }
+
+    private List<Attachment> uploadReceiptAttachments(UUID receiptId, JsonNode attachmentNodes) {
+        if (attachmentNodes.isMissingNode() || attachmentNodes.isNull()) return List.of();
+        if (!attachmentNodes.isArray()) throw new IllegalArgumentException("Receipt attachments must be a list.");
+        List<Attachment> uploaded = new ArrayList<>();
+        long totalBytes = 0;
+        try {
+            for (JsonNode attachmentNode : attachmentNodes) {
+                String name = text(attachmentNode, "name").trim();
+                String encoded = text(attachmentNode, "data");
+                if (name.isBlank() || AttachmentRules.contentType(name) == null) {
+                    throw new IllegalArgumentException("Attachments must be png, jpg or pdf files.");
+                }
+                byte[] bytes;
+                try {
+                    bytes = Base64.getDecoder().decode(encoded);
+                } catch (IllegalArgumentException invalidBase64) {
+                    throw new IllegalArgumentException("An attachment could not be read. Please choose it again.");
+                }
+                try {
+                    totalBytes += bytes.length;
+                    if (bytes.length == 0) throw new IllegalArgumentException("An attachment is empty.");
+                    if (bytes.length > AttachmentRules.MAX_BYTES || totalBytes > AttachmentRules.MAX_BYTES) {
+                        throw new IllegalArgumentException("Receipt attachments must total 10 MB or less.");
+                    }
+                    String safeName = name.replaceAll("[^A-Za-z0-9._-]", "_");
+                    Path directory;
+                    try {
+                        directory = Files.createTempDirectory("bred-receipt-");
+                    } catch (java.io.IOException ioFailure) {
+                        throw new IllegalStateException("Could not prepare the receipt attachment.", ioFailure);
+                    }
+                    Path temporaryFile = directory.resolve(safeName);
+                    RuntimeException operationFailure = null;
+                    try {
+                        Files.write(temporaryFile, bytes);
+                        uploaded.add(context.attachments.upload(receiptId, temporaryFile));
+                    } catch (AttachmentException uploadFailure) {
+                        operationFailure = new IllegalArgumentException(uploadFailure.getMessage(), uploadFailure);
+                        throw operationFailure;
+                    } catch (java.io.IOException ioFailure) {
+                        operationFailure = new IllegalStateException("Could not read the selected receipt attachment.", ioFailure);
+                        throw operationFailure;
+                    } catch (RuntimeException runtimeFailure) {
+                        operationFailure = runtimeFailure;
+                        throw runtimeFailure;
+                    } finally {
+                        try {
+                            Files.deleteIfExists(temporaryFile);
+                            Files.deleteIfExists(directory);
+                        } catch (java.io.IOException cleanupFailure) {
+                            if (operationFailure != null) operationFailure.addSuppressed(cleanupFailure);
+                            else throw new IllegalStateException("Could not clean up the temporary receipt attachment.", cleanupFailure);
+                        }
+                    }
+                } finally {
+                    java.util.Arrays.fill(bytes, (byte) 0);
+                }
+            }
+        } catch (RuntimeException failure) {
+            for (Attachment attachment : uploaded) {
+                try {
+                    context.attachments.remove(attachment);
+                } catch (AttachmentException cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+            }
+            throw failure;
+        }
+        return List.copyOf(uploaded);
     }
 
     private LocalApiServer.ModulePageData sendMessage(JsonNode values) {
@@ -959,6 +1085,10 @@ final class ReactWorkspaceService {
 
     private static LocalApiServer.ModuleOption option(String label, String value) {
         return new LocalApiServer.ModuleOption(label, value);
+    }
+
+    private static LocalApiServer.ModuleOption option(String label, String value, String description) {
+        return new LocalApiServer.ModuleOption(label, value, description);
     }
 
     private static LocalApiServer.ModuleRecord record(String id, Object... values) {

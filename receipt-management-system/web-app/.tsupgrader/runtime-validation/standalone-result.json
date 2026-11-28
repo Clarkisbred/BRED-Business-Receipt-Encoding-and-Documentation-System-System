@@ -1,0 +1,116 @@
+{
+  "planHash": "3a43b849fdb7130bd1bff5ef98fab6ff8c4426cc6b75c1bd6955d4268fad4428",
+  "phase": "standalone",
+  "recordedAtUtc": "2026-11-28T06:40:18.6020899Z",
+  "retryCount": 1,
+  "resetBaseline": false,
+  "complete": true,
+  "result": {
+    "setupSucceeded": true,
+    "setupDurationMs": 158756,
+    "setupFailureOutput": null,
+    "assertions": [
+      {
+        "name": "production-build",
+        "kind": "process",
+        "verificationMethod": "exit-code",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": 0,
+        "outputSample": "\r\n\u003E bred-web@0.1.0 build\r\n\u003E tsc -b \u0026\u0026 vite build\r\n\r\n\u001B[36mvite v8.4.0 \u001B[32mbuilding client environment for production...\u001B[36m\u001B[39m\r\ntransforming...\r\n\u2713 3076 modules transformed.\r\nrendering chunks...\r\ncomputing gzip size...\r\ndist/index.html                   0.53 kB \u2502 gzip:   0.32 kB\r\ndist/assets/index-DQO8sXOE.css   50.36 kB \u2502 gzip:   9.24 kB\r\ndist/assets/index-B1jOqMWE.js   919.73 kB \u2502 gzip: 262.24 kB\r\n\r\n\u001B[33m[plugin builtin:vite-reporter] \r\n(!) Some chunks are larger than 500 kB after minification. Consider:\r\n- Using dynamic import() to code-split the application\r\n- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting\r\n- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.\u001B[39m\r\n\u001B[32m\u2713 built in 1.81s\u001B[39m\r\n",
+        "durationMs": 8696
+      },
+      {
+        "name": "tests-pass",
+        "kind": "process",
+        "verificationMethod": "test-results",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": 0,
+        "outputSample": "\r\n\u003E bred-web@0.1.0 test\r\n\u003E vitest run\r\n\r\n\r\n RUN  v5.1.2 C:/BRED/BRED-Business-Receipt-Encoding-and-Documentation-System-System-main/receipt-management-system/web-app\r\n\r\n\r\n Test Files  11 passed (11)\r\n      Tests  37 passed (37)\r\n   Start at  14:39:58\r\n   Duration  18.34s (environment 64%, setup 19%, import 10%, transform 4%, tests 3%)\r\n\r\n",
+        "durationMs": 20047,
+        "testResults": {
+          "testFramework": "vitest",
+          "runnerDetectedFrom": "package_json",
+          "testsTotal": 37,
+          "testsPassed": 37,
+          "testsFailed": 0,
+          "testsSkipped": 0,
+          "parseFailed": false
+        }
+      },
+      {
+        "name": "dev-server-serves-home",
+        "kind": "http-probe",
+        "verificationMethod": "http-status",
+        "passed": true,
+        "timedOut": false,
+        "skipped": false,
+        "skippedReason": null,
+        "exitCode": null,
+        "outputSample": "HTTP 200\n\u003C!doctype html\u003E\n\u003Chtml lang=\u0022en\u0022\u003E\n  \u003Chead\u003E\n    \u003Cscript type=\u0022module\u0022\u003Eimport { injectIntoGlobalHook } from \u0022/@react-refresh\u0022;\ninjectIntoGlobalHook(window);\nwindow.$RefreshReg$ = () =\u003E {};\nwindow.$RefreshSig$ = () =\u003E (type) =\u003E type;\u003C/script\u003E\n\n    \u003Cscript type=\u0022module\u0022 src=\u0022/@vite/client\u0022\u003E\u003C/script\u003E\n\n    \u003Cmeta charset=\u0022UTF-8\u0022 /\u003E\n    \u003Cmeta name=\u0022viewport\u0022 content=\u0022width=device-width, initial-scale=1.0\u0022 /\u003E\n    \u003Cmeta name=\u0022theme-color\u0022 content=\u0022#f5f6f8\u0022 /\u003E\n    \u003Cmeta name=\u0022description\u0022 content=\u0022BRED Business Receipt Encoding and Documentation System\u0022 /\u003E\n    \u003Ctitle\u003EBRED\u003C/title\u003E\n  \u003C/head\u003E\n  \u003Cbody\u003E\n    \u003Cdiv id=\u0022root\u0022\u003E\u003C/div\u003E\n    \u003Cscript type=\u0022module\u0022 src=\u0022/src/main.tsx\u0022\u003E\u003C/script\u003E\n  \u003C/body\u003E\n\u003C/html\u003E\n\n--- server output ---\n\r\n\u003E bred-web@0.1.0 dev\r\n\u003E vite --host 127.0.0.1\r\n\r\n\r\n  \u001B[32m\u001B[1mVITE\u001B[22m v8.4.0\u001B[39m  \u001B[2mready in \u001B[0m\u001B[1m414\u001B[22m\u001B[2m\u001B[0m ms\u001B[22m\r\n\r\n  \u001B[32m\u279C\u001B[39m  \u001B[1mLocal\u001B[22m:   \u001B[36mhttp://127.0.0.1:\u001B[1m5173\u001B[22m/\u001B[39m\r\n",
+        "durationMs": 1250
+      }
+    ],
+    "executions": [
+      {
+        "source": "setup[0]",
+        "resolvedExecutable": "C:\\Users\\Cris_T_Na\\.bred-build\\bred-2.0.0-node24\\node\\npm.CMD",
+        "args": [
+          "ci"
+        ],
+        "cwd": "C:\\BRED\\BRED-Business-Receipt-Encoding-and-Documentation-System-System-main\\receipt-management-system\\web-app",
+        "env": {},
+        "prependPath": [
+          "C:\\Users\\Cris_T_Na\\.bred-build\\bred-2.0.0-node24\\node"
+        ],
+        "platform": "win32"
+      },
+      {
+        "source": "production-build",
+        "resolvedExecutable": "C:\\Users\\Cris_T_Na\\.bred-build\\bred-2.0.0-node24\\node\\npm.CMD",
+        "args": [
+          "run",
+          "build"
+        ],
+        "cwd": "C:\\BRED\\BRED-Business-Receipt-Encoding-and-Documentation-System-System-main\\receipt-management-system\\web-app",
+        "env": {},
+        "prependPath": [
+          "C:\\Users\\Cris_T_Na\\.bred-build\\bred-2.0.0-node24\\node"
+        ],
+        "platform": "win32"
+      },
+      {
+        "source": "tests-pass",
+        "resolvedExecutable": "C:\\Users\\Cris_T_Na\\.bred-build\\bred-2.0.0-node24\\node\\npm.CMD",
+        "args": [
+          "test"
+        ],
+        "cwd": "C:\\BRED\\BRED-Business-Receipt-Encoding-and-Documentation-System-System-main\\receipt-management-system\\web-app",
+        "env": {},
+        "prependPath": [
+          "C:\\Users\\Cris_T_Na\\.bred-build\\bred-2.0.0-node24\\node"
+        ],
+        "platform": "win32"
+      },
+      {
+        "source": "dev-server-serves-home",
+        "resolvedExecutable": "C:\\Users\\Cris_T_Na\\.bred-build\\bred-2.0.0-node24\\node\\npm.CMD",
+        "args": [
+          "run",
+          "dev"
+        ],
+        "cwd": "C:\\BRED\\BRED-Business-Receipt-Encoding-and-Documentation-System-System-main\\receipt-management-system\\web-app",
+        "env": {},
+        "prependPath": [
+          "C:\\Users\\Cris_T_Na\\.bred-build\\bred-2.0.0-node24\\node"
+        ],
+        "platform": "win32"
+      }
+    ]
+  }
+}

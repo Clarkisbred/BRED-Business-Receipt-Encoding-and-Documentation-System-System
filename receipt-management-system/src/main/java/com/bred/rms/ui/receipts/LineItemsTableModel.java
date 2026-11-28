@@ -13,13 +13,15 @@ import java.util.List;
 public final class LineItemsTableModel extends AbstractTableModel {
     public static final int DESCRIPTION = 0;
     public static final int QTY = 1;
-    public static final int PRICE = 2;
-    public static final int SUBTOTAL = 3;
-    private static final String[] COLUMNS = {"Description", "Qty", "Unit price", "Subtotal"};
+    public static final int UNIT = 2;
+    public static final int PRICE = 3;
+    public static final int SUBTOTAL = 4;
+    private static final String[] COLUMNS = {"Description", "Qty", "Unit", "Unit price", "Subtotal"};
 
     private static final class Row {
         String description = "";
         BigDecimal qty = BigDecimal.ONE;
+        String unit = "pc";
         BigDecimal price = ReceiptMath.money(BigDecimal.ZERO);
     }
 
@@ -32,6 +34,7 @@ public final class LineItemsTableModel extends AbstractTableModel {
             Row r = new Row();
             r.description = i.description();
             r.qty = i.quantity();
+            r.unit = i.unit();
             r.price = i.unitPrice();
             rows.add(r);
         }
@@ -52,7 +55,7 @@ public final class LineItemsTableModel extends AbstractTableModel {
         List<ReceiptItem> out = new ArrayList<>();
         for (Row r : rows) {
             if (r.description.isBlank() && r.price.signum() == 0) continue;
-            out.add(new ReceiptItem(r.description.trim(), r.qty, r.price));
+            out.add(new ReceiptItem(r.description.trim(), r.qty, r.unit, r.price));
         }
         return out;
     }
@@ -82,6 +85,7 @@ public final class LineItemsTableModel extends AbstractTableModel {
         return switch (col) {
             case DESCRIPTION -> r.description;
             case QTY -> r.qty.stripTrailingZeros().toPlainString();
+            case UNIT -> r.unit;
             case PRICE -> ReceiptMath.money(r.price).toPlainString();
             default -> ReceiptMath.money(r.qty.multiply(r.price)).toPlainString();
         };
@@ -95,6 +99,7 @@ public final class LineItemsTableModel extends AbstractTableModel {
             switch (col) {
                 case DESCRIPTION -> r.description = text;
                 case QTY -> r.qty = FormParsing.number("Quantity", text);
+                case UNIT -> r.unit = text.isBlank() ? "pc" : text.trim();
                 case PRICE -> r.price = ReceiptMath.money(FormParsing.number("Unit price", text));
                 default -> { return; }
             }

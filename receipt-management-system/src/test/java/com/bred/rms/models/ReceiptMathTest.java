@@ -33,6 +33,22 @@ class ReceiptMathTest {
     }
 
     @Test
+    void ewtIsCalculatedFromVatExclusiveReceiptTotalAndDeductedFromNetPayable() {
+        Receipt r = new Receipt(UUID.randomUUID(), "OR-002", LocalDate.of(2026, 11, 1),
+                ReceiptType.OFFICIAL_RECEIPT, UUID.randomUUID(), null,
+                List.of(new ReceiptItem("a", d("3"), "kg", d("100.00"))),
+                d("0"), d("12.00"), d("0"), List.of(), null, null, null, null,
+                "For project supplies", "Card", d("2.5"));
+
+        assertEquals("kg", r.items().get(0).unit());
+        assertEquals(new BigDecimal("312.00"), r.grandTotal());
+        assertEquals(new BigDecimal("6.96"), r.ewtAmount());
+        assertEquals(new BigDecimal("305.04"), r.netTotal());
+        assertEquals("For project supplies", r.notes());
+        assertEquals("Card", r.paymentMethod());
+    }
+
+    @Test
     void defaultVatIsTwelvePercentOfNet() {
         assertEquals(new BigDecimal("108.00"), ReceiptMath.defaultVat(d("1000.00"), d("100.00")));
     }

@@ -10,13 +10,25 @@ import java.util.UUID;
 public record Receipt(UUID id, String receiptNo, LocalDate date, ReceiptType type, UUID supplierId, UUID projectId,
                       List<ReceiptItem> items, BigDecimal discount, BigDecimal vat, BigDecimal additionalCharges,
                       List<Attachment> attachments, UUID encodedBy, Instant createdAt, Instant modifiedAt,
-                      UUID companyId) {
+                      UUID companyId, String notes, String paymentMethod, BigDecimal ewtRate) {
     public Receipt {
         items = items == null ? List.of() : List.copyOf(items);
         attachments = attachments == null ? List.of() : List.copyOf(attachments);
         discount = discount == null ? BigDecimal.ZERO : discount;
         vat = vat == null ? BigDecimal.ZERO : vat;
         additionalCharges = additionalCharges == null ? BigDecimal.ZERO : additionalCharges;
+        notes = notes == null ? "" : notes;
+        paymentMethod = paymentMethod == null || paymentMethod.isBlank() ? "Cash" : paymentMethod;
+        ewtRate = ewtRate == null ? BigDecimal.ZERO : ewtRate;
+    }
+
+    /** Compatibility constructor for callers without extended receipt details. */
+    public Receipt(UUID id, String receiptNo, LocalDate date, ReceiptType type, UUID supplierId, UUID projectId,
+                   List<ReceiptItem> items, BigDecimal discount, BigDecimal vat, BigDecimal additionalCharges,
+                   List<Attachment> attachments, UUID encodedBy, Instant createdAt, Instant modifiedAt,
+                   UUID companyId) {
+        this(id, receiptNo, date, type, supplierId, projectId, items, discount, vat, additionalCharges,
+                attachments, encodedBy, createdAt, modifiedAt, companyId, "", "Cash", BigDecimal.ZERO);
     }
 
     /** Compatibility constructor for callers without persisted company scope. */
@@ -24,7 +36,7 @@ public record Receipt(UUID id, String receiptNo, LocalDate date, ReceiptType typ
                    List<ReceiptItem> items, BigDecimal discount, BigDecimal vat, BigDecimal additionalCharges,
                    List<Attachment> attachments, UUID encodedBy, Instant createdAt, Instant modifiedAt) {
         this(id, receiptNo, date, type, supplierId, projectId, items, discount, vat, additionalCharges,
-                attachments, encodedBy, createdAt, modifiedAt, null);
+                attachments, encodedBy, createdAt, modifiedAt, null, "", "Cash", BigDecimal.ZERO);
     }
 
     /** Returns the sum of all item subtotals. */
@@ -37,9 +49,19 @@ public record Receipt(UUID id, String receiptNo, LocalDate date, ReceiptType typ
         return ReceiptMath.money(subtotal().subtract(discount).add(vat).add(additionalCharges));
     }
 
+    /** EWT is computed from the VAT-exclusive receipt total and withheld from the amount payable. */
+    public BigDecimal ewtAmount() {
+        return ReceiptMath.money(grandTotal().divide(new BigDecimal("1.12"), 8, java.math.RoundingMode.HALF_UP)
+                .multiply(ewtRate).movePointLeft(2));
+    }
+
+    public BigDecimal netTotal() {
+        return ReceiptMath.money(grandTotal().subtract(ewtAmount()));
+    }
+
     /** Returns a copy of this receipt with the given attachments. */
     public Receipt withAttachments(List<Attachment> newAttachments) {
         return new Receipt(id, receiptNo, date, type, supplierId, projectId, items, discount, vat, additionalCharges,
-                newAttachments, encodedBy, createdAt, modifiedAt, companyId);
+                newAttachments, encodedBy, createdAt, modifiedAt, companyId, notes, paymentMethod, ewtRate);
     }
 }

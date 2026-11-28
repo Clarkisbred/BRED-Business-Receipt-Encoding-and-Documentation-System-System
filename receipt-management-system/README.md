@@ -7,7 +7,7 @@ The app stores data in **Supabase** so multiple computers share the same records
 starting the app (see [SETUP.md](SETUP.md)). Existing local data can be imported from **Settings** by an administrator.
 
 ## What it does
-- **Receipts**: add, view, edit and delete (admins only) receipts with line items, VAT, discount, additional charges and a computed grand total in pesos (₱). Attach a photo or PDF (png, jpg, jpeg, pdf, up to 10 MB each).
+- **Receipts**: encode official receipt details with repeatable line items and SI units, supplier TIN/address, account type, personal notes, VAT, discount, charges, and configurable EWT (0–100%). Totals display in pesos (₱), including the EWT-adjusted net payable. Attach png, jpg, jpeg, and PDF scans.
 - **Receipt detail**: click a receipt number to see it as a paper-style slip, with Edit, Delete (admins) and Open attachment.
 - **Search and filter**: by receipt number, TIN, supplier, product description, date range, supplier or project.
 - **Suppliers and Projects**: business name, TIN, address, contact; project name, code, fund source, with total spend per project.
@@ -29,7 +29,7 @@ until an administrator approves them in **Users**. An administrator may also con
 
 ## Getting started
 1. Install Java 21 or newer and Maven.
-2. Run the app: `mvn -q exec:java` (or `mvn -q package`, then `java -jar target/bred-0.1.0-SNAPSHOT.jar`). In VS Code, run `Main.java`.
+2. From this directory, run `mvn -q exec:java` (or `mvn -q package`, then `java -jar target/bred-2.0.0.jar`). In VS Code, use the Java extension's Run/Debug action for `com.bred.rms.Main` after Maven has built the project. Do not use Code Runner's **Run Code** action, which compiles only `Main.java` and omits the bundled web assets.
 3. Sign in with the Supabase admin account created during setup.
 4. Add a supplier, then a receipt. Create more accounts (Admin or Encoder) under **Users**.
 
