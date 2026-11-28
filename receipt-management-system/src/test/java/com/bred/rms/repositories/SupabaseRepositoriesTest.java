@@ -42,6 +42,7 @@ class SupabaseRepositoriesTest {
     private static final String RECEIPT_JSON = """
             [{"id":"%s","receipt_no":"OR-100","receipt_date":"2026-11-05","receipt_type":"sales_invoice",
               "supplier_id":"%s","project_id":"%s","company_id":"%s","discount":11.00,"vat":28.80,"additional_charges":5,
+              "classification":"Office supplies",
               "encoded_by":"dddddddd-0000-0000-0000-000000000001",
               "created_at":"2026-11-05T01:02:03.123456+00:00","modified_at":"2026-11-06T01:02:03+00:00",
               "receipt_items":[{"line_no":2,"description":"Hammer","quantity":1,"unit_price":50},
@@ -63,6 +64,7 @@ class SupabaseRepositoriesTest {
             assertEquals("Nails", r.items().get(0).description());
             assertEquals("Hammer", r.items().get(1).description());
             assertEquals(new BigDecimal("273.80"), r.grandTotal());
+            assertEquals("OFFICE SUPPLIES", r.classification());
             assertEquals("scan.pdf", r.attachments().get(0).fileName());
             assertEquals(Instant.parse("2026-11-05T01:02:03.123456Z"), r.createdAt());
             String q = env.fake.requests("GET", "/rest/v1/receipts").get(0).pathAndQuery();
@@ -76,7 +78,8 @@ class SupabaseRepositoriesTest {
                 List.of(new ReceiptItem("Nails", new BigDecimal("2"), new BigDecimal("100.50")),
                         new ReceiptItem("Hammer", BigDecimal.ONE, new BigDecimal("50"))),
                 new BigDecimal("11.00"), new BigDecimal("28.80"), new BigDecimal("5.00"),
-                List.of(new Attachment("scan.pdf", RID + "/1-scan.pdf")), null, null, null);
+                List.of(new Attachment("scan.pdf", RID + "/1-scan.pdf")), null, null, null,
+                null, "", "Cash", BigDecimal.ZERO, "Office supplies");
     }
 
     @Test
@@ -92,6 +95,7 @@ class SupabaseRepositoriesTest {
             assertEquals("sales_invoice", p.get("receipt_type").asText());
             assertEquals(SID, p.get("supplier_id").asText());
             assertTrue(p.get("project_id").isNull());
+            assertEquals("OFFICE SUPPLIES", p.get("classification").asText());
             assertEquals(2, p.get("items").size());
             assertTrue(p.get("items").get(0).get("unit_price").isNumber(), "unit_price is sent as a JSON number");
             assertEquals(0, new BigDecimal("100.50").compareTo(p.get("items").get(0).get("unit_price").decimalValue()));

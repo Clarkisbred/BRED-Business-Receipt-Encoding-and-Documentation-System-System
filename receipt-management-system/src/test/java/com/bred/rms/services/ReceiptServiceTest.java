@@ -96,6 +96,15 @@ class ReceiptServiceTest {
     }
 
     @Test
+    void categoryMatchingIsCaseInsensitiveAndStoredUppercase() {
+        service.save(base("OR-100", acme).withClassification("Office supplies"));
+
+        Receipt saved = service.save(base("OR-101", beta).withClassification("office SUPPLIES"));
+
+        assertEquals("OFFICE SUPPLIES", saved.classification());
+    }
+
+    @Test
     void editingAReceiptDoesNotClashWithItself() {
         Receipt saved = service.save(base("OR-100", acme));
         service.save(withMoney(saved, "10.00"));

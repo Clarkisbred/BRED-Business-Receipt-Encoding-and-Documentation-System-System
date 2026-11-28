@@ -42,6 +42,7 @@ class SupabaseLocalDataImporterTest {
                     "supplierId":"%s","projectId":"%s","items":[{"description":"Part","quantity":"1","unit":"kg","unitPrice":"5"}],
                     "discount":"0","vat":"0","additionalCharges":"0",
                     "notes":"Tooling for repairs","paymentMethod":"Card","ewtRate":"2.5",
+                    "classification":"Maintenance",
                     "attachments":[{"fileName":"scan.pdf","storagePath":"%s"}],
                     "encodedBy":"%s","createdAt":"2025-01-02T00:00:00Z","modifiedAt":"2025-01-02T00:00:00Z"
                   }],
@@ -88,6 +89,7 @@ class SupabaseLocalDataImporterTest {
             assertTrue(receiptPayload.contains("\"unit\":\"kg\""));
             assertTrue(receiptPayload.contains("\"notes\":\"Tooling for repairs\""));
             assertTrue(receiptPayload.contains("\"payment_method\":\"Card\""));
+            assertTrue(receiptPayload.contains("\"classification\":\"MAINTENANCE\""));
             assertTrue(receiptPayload.contains("\"ewt_rate\":2.5"));
             var activity = env.fake.requests("POST", "/functions/v1/admin-import-activity").get(0).bodyString();
             assertTrue(activity.contains(CLOUD_USER_ID), "local activity is linked to the matching cloud account");

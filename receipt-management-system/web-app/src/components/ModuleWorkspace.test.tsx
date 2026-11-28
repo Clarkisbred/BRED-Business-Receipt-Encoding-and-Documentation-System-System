@@ -52,13 +52,17 @@ const receiptPage: ModulePageData = {
   key: 'RECEIPTS',
   title: 'Receipts',
   description: 'Search encoded receipts.',
-  metrics: [{ label: 'Total receipts', value: '2' }],
+  metrics: [
+    { label: 'Total receipts', value: '2' },
+    { label: 'Net payables', value: '₱2,700.00' },
+    { label: 'Accumulated EWT', value: '₱300.00' },
+  ],
   columns: [
     { key: 'receiptNo', label: 'Receipt no.' },
     { key: 'date', label: 'Date' },
     { key: 'supplier', label: 'Supplier' },
     { key: 'project', label: 'Project' },
-    { key: 'total', label: 'Total', numeric: true },
+    { key: 'netTotal', label: 'Net payable', numeric: true },
   ],
   fields: [],
   rows: [
@@ -70,9 +74,15 @@ const receiptPage: ModulePageData = {
         supplier: 'North Supply',
         supplierTin: '123-456',
         project: 'North site',
+        projectId: 'project-1',
+        classification: 'Materials',
         itemDescription: 'Cement',
         attachmentNames: 'scan.pdf',
+        attachments: [{ fileName: 'scan.pdf', storagePath: 'receipts/scan.pdf' }],
+        items: [{ description: 'Cement', quantity: '2', unit: 'kg', unitPrice: '500' }],
         total: '₱1,000.00',
+        netTotal: '₱900.00',
+        ewtAmount: '₱100.00',
       },
     },
     {
@@ -82,8 +92,12 @@ const receiptPage: ModulePageData = {
         date: '2026-02-01',
         supplier: 'South Supply',
         project: 'South site',
+        projectId: 'project-2',
+        classification: 'Labor',
         itemDescription: 'Steel',
         total: '₱2,000.00',
+        netTotal: '₱1,800.00',
+        ewtAmount: '₱200.00',
       },
     },
   ],
@@ -195,6 +209,7 @@ const receiptCreationPage: ModulePageData = {
     { key: 'projectId', label: 'Project', type: 'select', options: [
       { label: 'North site', value: 'project-1' },
     ] },
+    { key: 'classification', label: 'Category', type: 'text', required: true },
   ],
   canCreate: true,
   primaryActionLabel: 'New receipt',
@@ -405,6 +420,8 @@ describe('ModuleWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: /New receipt/ }));
     fireEvent.change(screen.getByLabelText(/Receipt number/), { target: { value: 'OR-300' } });
     fireEvent.change(screen.getByRole('combobox', { name: /Supplier/ }), { target: { value: 'supplier-1' } });
+    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'materials' } });
+    expect(screen.getByLabelText('Category')).toHaveValue('MATERIALS');
     fireEvent.change(screen.getByLabelText('Item 1 description'), { target: { value: 'Cement' } });
     fireEvent.change(screen.getByLabelText('Item 1 quantity'), { target: { value: '2' } });
     fireEvent.change(screen.getByLabelText('Item 1 unit'), { target: { value: 'kg' } });
@@ -429,10 +446,78 @@ describe('ModuleWorkspace', () => {
         receiptNo: 'OR-300',
         supplierId: 'supplier-1',
         ewtRate: '2.5',
+        classification: 'MATERIALS',
         items: [{ description: 'Cement', quantity: '2', unit: 'kg', unitPrice: '100' }],
         attachments: [],
+        existingAttachmentPaths: [],
       }),
+      undefined,
     ));
+  });
+
+  it('edits receipt items and removes saved attachments', async () => {
+    const baseReceipt = receiptPage.rows.find((row) => row.id === 'receipt-1');
+    if (!baseReceipt) throw new Error('Expected the receipt fixture to include receipt-1.');
+    const editablePage = {
+      ...receiptCreationPage,
+      rows: [{
+        ...baseReceipt,
+        values: {
+          ...baseReceipt.values,
+          typeValue: 'official_receipt',
+          supplierId: 'supplier-1',
+          projectId: 'project-1',
+          classification: 'MATERIALS',
+          paymentMethod: 'Cash',
+          notes: 'Initial note',
+          discountValue: '0',
+          vatValue: '0',
+          additionalChargesValue: '0',
+          ewtRate: '2',
+        },
+      }],
+      canEdit: true,
+    };
+    loadModulePage.mockResolvedValueOnce(editablePage);
+    saveModuleRecord.mockResolvedValueOnce(receiptPage);
+    render(<ModuleWorkspace module="RECEIPTS" />);
+
+    await screen.findByRole('button', { name: 'Edit' });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(screen.getByRole('heading', { name: 'Edit receipt' })).toBeInTheDocument();
+    expect(screen.getByLabelText('Item 1 unit price')).toHaveValue(500);
+    fireEvent.change(screen.getByLabelText('Item 1 unit price'), { target: { value: '600' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(saveModuleRecord).toHaveBeenCalledWith(
+      'RECEIPTS',
+      'save',
+      expect.objectContaining({
+        receiptNo: 'R-100',
+        classification: 'MATERIALS',
+        items: [{ description: 'Cement', quantity: '2', unit: 'kg', unitPrice: '600' }],
+        attachments: [],
+        existingAttachmentPaths: [],
+      }),
+      'receipt-1',
+    ));
+  });
+
+  it('limits expense classification totals and net payable metrics to the selected project', async () => {
+    loadModulePage.mockResolvedValueOnce(receiptPage);
+    render(<ModuleWorkspace module="RECEIPTS" />);
+
+    expect(await screen.findByText('Expenses by category')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Filter by project' }), {
+      target: { value: 'North site' },
+    });
+
+    expect(screen.getByText('Filtered project: North site · Based on the visible receipts')).toBeInTheDocument();
+    expect(screen.getByText('₱900.00 total expenses')).toBeInTheDocument();
+    expect(screen.getByText('₱900.00 · 100.0%')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'View receipt R-200' })).not.toBeInTheDocument();
+    expect(screen.getByText('₱100.00')).toBeInTheDocument();
   });
 
   it('auto-formats the requested Philippine TIN layout in the new supplier form', async () => {

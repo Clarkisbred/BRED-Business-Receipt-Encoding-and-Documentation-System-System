@@ -467,7 +467,8 @@ public final class SupabaseLocalDataImporter {
                     decimal(row, "discount"), decimal(row, "vat"), decimal(row, "additionalCharges"),
                     attachments, null, instant(row, "createdAt"), instant(row, "modifiedAt"), null,
                     text(row, "notes"), row.hasNonNull("paymentMethod") ? text(row, "paymentMethod") : "Cash",
-                    decimal(row, "ewtRate"));
+                    decimal(row, "ewtRate"),
+                    row.hasNonNull("classification") ? text(row, "classification") : "Unclassified");
             receipts.save(receipt);
         }
         return new int[] {rows.size(), attachmentCount};

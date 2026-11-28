@@ -50,11 +50,27 @@ public final class ReceiptService {
 
     /** Validates and saves a receipt (insert when id is null or unknown, otherwise update). */
     public Receipt save(Receipt r) {
-        precheck(r);
-        Optional<Receipt> previous = r.id() == null ? Optional.empty() : receipts.findById(r.id());
-        Receipt saved = receipts.save(r);
+        Guard.requireSignedIn(who);
+        Receipt normalized = normalizeClassification(r);
+        precheck(normalized);
+        Optional<Receipt> previous = normalized.id() == null ? Optional.empty() : receipts.findById(normalized.id());
+        Receipt saved = receipts.save(normalized);
         previous.ifPresent(old -> removeDetached(old.attachments(), saved.attachments()));
         return saved;
+    }
+
+    private Receipt normalizeClassification(Receipt receipt) {
+        String entered = receipt.classification().trim().toUpperCase(java.util.Locale.ROOT);
+        if (entered.isEmpty()) return receipt;
+        User user = who.get();
+        if (user.role() == Role.CREATOR) return receipt;
+        UUID companyId = receipt.companyId() == null ? user.companyId() : receipt.companyId();
+        String match = receipts.findAll().stream()
+                .filter(existing -> java.util.Objects.equals(existing.companyId(), companyId))
+                .map(Receipt::classification)
+                .filter(value -> value.equalsIgnoreCase(entered))
+                .findFirst().orElse(entered);
+        return match.equals(receipt.classification()) ? receipt : receipt.withClassification(match);
     }
 
     /** Saves a new import only after revalidating the administrator and company context. */

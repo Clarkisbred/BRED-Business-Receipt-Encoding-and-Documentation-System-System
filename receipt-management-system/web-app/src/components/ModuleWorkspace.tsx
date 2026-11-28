@@ -48,6 +48,22 @@ function rowAmount(row: ModulePageData['rows'][number]): number {
   return Number.isFinite(amount) ? amount : 0;
 }
 
+function receiptNetAmount(row: ModulePageData['rows'][number]): number {
+  const normalized = displayValue(row.values.netTotal).replace(/[^\d.-]/g, '');
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function receiptEwtAmount(row: ModulePageData['rows'][number]): number {
+  const normalized = displayValue(row.values.ewtAmount).replace(/[^\d.-]/g, '');
+  const amount = Number(normalized);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function pesoAmount(value: number): string {
+  return `₱${value.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function coordinateValue(value: unknown): number {
   if (typeof value !== 'number' && (typeof value !== 'string' || value.trim() === '')) return Number.NaN;
   const parsed = Number(value);
@@ -213,6 +229,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
   const selectedReceipt = module === 'RECEIPTS'
     ? rows.find((row) => row.id === selectedReceiptId) ?? null
     : null;
+  const editedReceipt = editingId ? data?.rows.find((row) => row.id === editingId) : undefined;
   const mapMarker = module === 'LIVE_MAP'
     ? data?.rows.find((row) => row.id === selectedMapMarkerId) ?? data?.rows[0] ?? null
     : null;
@@ -228,8 +245,36 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
     : [];
   const largestReportAmount = Math.max(1, ...reportBars.map(rowAmount));
   const visibleReceiptTotalCents = module === 'RECEIPTS'
-    ? rows.reduce((sum, row) => sum + Math.round(rowAmount(row) * 100), 0)
+    ? rows.reduce((sum, row) => sum + Math.round(receiptNetAmount(row) * 100), 0)
     : 0;
+  const classificationSummary = useMemo(() => {
+    if (module !== 'RECEIPTS') return [];
+    const totals = new Map<string, { label: string; cents: number }>();
+    for (const row of rows) {
+      const label = displayValue(row.values.classification).trim().toLocaleUpperCase() || 'UNCLASSIFIED';
+      const key = label.toLocaleLowerCase();
+      const existing = totals.get(key);
+      totals.set(key, {
+        label: existing?.label ?? label,
+        cents: (existing?.cents ?? 0) + Math.round(receiptNetAmount(row) * 100),
+      });
+    }
+    return [...totals.values()]
+      .sort((left, right) => right.cents - left.cents || left.label.localeCompare(right.label));
+  }, [module, rows]);
+  const classificationTotalCents = classificationSummary.reduce((sum, item) => sum + item.cents, 0);
+  const displayedMetrics = module === 'RECEIPTS'
+    ? data?.metrics.map((metric) => {
+      if (metric.label === 'Total receipts') return { ...metric, value: String(rows.length) };
+      if (metric.label === 'Net payables') {
+        return { ...metric, value: pesoAmount(rows.reduce((sum, row) => sum + receiptNetAmount(row), 0)) };
+      }
+      if (metric.label === 'Accumulated EWT') {
+        return { ...metric, value: pesoAmount(rows.reduce((sum, row) => sum + receiptEwtAmount(row), 0)) };
+      }
+      return metric;
+    }) ?? []
+    : data?.metrics ?? [];
 
   function beginCreate() {
     if (!data) return;
@@ -554,7 +599,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
 
       {data.metrics.length > 0 && (
         <div className="module-metrics">
-          {data.metrics.map((metric) => (
+          {displayedMetrics.map((metric) => (
             <article className="stat-card module-metric-card" key={metric.label}>
               <span className="stat-label">{metric.label}</span>
               <strong className="stat-value">{metric.value}</strong>
@@ -1029,12 +1074,42 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
 
       {module === 'RECEIPTS' && Object.keys(formValues).length > 0 && (
         <ReceiptEntryForm
+          key={editingId ?? 'new'}
           data={data}
           saving={saving}
+          {...(editedReceipt ? { receipt: editedReceipt } : {})}
           onSavingChange={setSaving}
           onCancel={() => { setEditingId(null); setFormValues({}); }}
           onSaved={(updated) => { setData(updated); setEditingId(null); setFormValues({}); }}
         />
+      )}
+
+      {module === 'RECEIPTS' && (
+        <section className="panel module-report-summary" aria-labelledby="receipt-classification-summary-title">
+          <div className="panel-heading">
+            <div>
+              <h3 id="receipt-classification-summary-title">Expenses by category</h3>
+              <p>{receiptProject ? `Filtered project: ${receiptProject}` : 'All projects'} · Based on the visible receipts</p>
+            </div>
+            <strong>{pesoAmount(classificationTotalCents / 100)} total expenses</strong>
+          </div>
+          {classificationSummary.length === 0 ? (
+            <p className="module-empty-state">No receipt expenses match the current filters.</p>
+          ) : (
+            <div className="module-report-bars">
+              {classificationSummary.map(({ label, cents }) => {
+                const percentage = classificationTotalCents === 0 ? 0 : cents / classificationTotalCents * 100;
+                return (
+                  <div className="module-report-bar" key={label}>
+                    <span title={label}>{label}</span>
+                    <div role="presentation"><i style={{ width: `${Math.max(3, percentage)}%` }} /></div>
+                    <strong>{pesoAmount(cents / 100)} · {percentage.toFixed(1)}%</strong>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
       )}
 
       {module !== 'SETTINGS' && module !== 'RECEIPTS' && data.fields.length > 0
@@ -1179,6 +1254,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
                 { label: 'Supplier TIN', value: formatPhilippineTin(displayValue(selectedReceipt.values.supplierTin)) },
                 { label: 'Supplier address', value: selectedReceipt.values.supplierAddress },
                 { label: 'Project', value: selectedReceipt.values.project },
+                { label: 'Category', value: selectedReceipt.values.classification },
                 { label: 'Items', value: selectedReceipt.values.itemDetails ?? selectedReceipt.values.itemDescription },
                 { label: 'Subtotal', value: selectedReceipt.values.subtotal },
                 { label: 'Discount', value: selectedReceipt.values.discount },
@@ -1187,7 +1263,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
                 { label: 'Account', value: selectedReceipt.values.paymentMethod },
                 { label: 'EWT', value: Number(displayValue(selectedReceipt.values.ewtRate)) === 0 ? '—' : `${displayValue(selectedReceipt.values.ewtRate)}% · ${displayValue(selectedReceipt.values.ewtAmount)}` },
                 { label: 'Personal notes', value: selectedReceipt.values.notes },
-                { label: 'Total', value: selectedReceipt.values.total },
+                { label: 'Receipt total', value: selectedReceipt.values.total },
                 { label: 'Net payable', value: selectedReceipt.values.netTotal },
               ].map(({ label, value }) => (
                 <div key={label}>

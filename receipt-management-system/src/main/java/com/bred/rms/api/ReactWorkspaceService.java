@@ -217,6 +217,7 @@ final class ReactWorkspaceService {
                 "receiptNo", receipt.receiptNo(),
                 "date", receipt.date(),
                 "type", receipt.type().label(),
+                "supplierId", receipt.supplierId(),
                 "supplier", suppliers.containsKey(receipt.supplierId())
                         ? suppliers.get(receipt.supplierId()).businessName() : "Unavailable supplier",
                 "supplierTin", suppliers.containsKey(receipt.supplierId())
@@ -226,6 +227,9 @@ final class ReactWorkspaceService {
                 "project", receipt.projectId() == null ? "Unassigned"
                         : projects.containsKey(receipt.projectId()) ? projects.get(receipt.projectId()).name()
                         : "Unavailable project",
+                "projectId", receipt.projectId(),
+                "typeValue", receipt.type().dbValue(),
+                "classification", receipt.classification(),
                 "itemDescription", receipt.items().stream().map(ReceiptItem::description)
                         .filter(description -> description != null && !description.isBlank())
                         .collect(java.util.stream.Collectors.joining(", ")),
@@ -235,10 +239,18 @@ final class ReactWorkspaceService {
                                 + " = " + money(item.subtotal()))
                         .collect(java.util.stream.Collectors.joining("; ")),
                 "itemCount", receipt.items().size(),
+                "items", receipt.items().stream().map(item -> Map.of(
+                        "description", item.description(),
+                        "quantity", item.quantity().stripTrailingZeros().toPlainString(),
+                        "unit", item.unit(),
+                        "unitPrice", item.unitPrice().stripTrailingZeros().toPlainString())).toList(),
                 "subtotal", money(receipt.subtotal()),
                 "discount", money(receipt.discount()),
+                "discountValue", receipt.discount().toPlainString(),
                 "vat", money(receipt.vat()),
+                "vatValue", receipt.vat().toPlainString(),
                 "additionalCharges", money(receipt.additionalCharges()),
+                "additionalChargesValue", receipt.additionalCharges().toPlainString(),
                 "notes", receipt.notes(),
                 "paymentMethod", receipt.paymentMethod(),
                 "ewtRate", receipt.ewtRate().toPlainString(),
@@ -246,20 +258,26 @@ final class ReactWorkspaceService {
                 "netTotal", money(receipt.netTotal()),
                 "attachmentNames", receipt.attachments().stream().map(attachment -> attachment.fileName())
                         .collect(java.util.stream.Collectors.joining(", ")),
+                "attachments", receipt.attachments().stream().map(attachment -> Map.of(
+                        "fileName", attachment.fileName(), "storagePath", attachment.storagePath())).toList(),
                 "total", money(receipt.grandTotal())))
                 .toList();
         return page(Module.RECEIPTS, "Receipts", "Search encoded receipts and add a receipt record.",
                 List.of(metric("Total receipts", receipts.size()),
-                        metric("Recorded spend", money(receipts.stream().map(Receipt::grandTotal)
+                        metric("Net payables", money(receipts.stream().map(Receipt::netTotal)
+                                .reduce(BigDecimal.ZERO, BigDecimal::add))),
+                        metric("Accumulated EWT", money(receipts.stream().map(Receipt::ewtAmount)
                                 .reduce(BigDecimal.ZERO, BigDecimal::add)))),
                 List.of(column("receiptNo", "Receipt no."), column("date", "Date"),
                         column("type", "Document type"), column("supplier", "Supplier"),
-                        column("project", "Project"), column("total", "Total", true)),
+                        column("project", "Project"), column("classification", "Classification"),
+                        column("netTotal", "Net payable", true)),
                 List.of(field("receiptNo", "Receipt number", "text", true),
                         field("date", "Receipt date", "date", true),
                         field("type", "Document type", "select", true, receiptTypeOptions()),
                         field("supplierId", "Supplier", "select", true, supplierOptions),
                         field("projectId", "Project", "select", false, projectOptions),
+                        field("classification", "Category", "text", true),
                         field("paymentMethod", "Payment account", "select", true, List.of(
                                 option("Cash", "Cash"), option("Card", "Card"), option("E-wallet", "E-wallet"))),
                         field("notes", "Personal notes", "textarea", false),
@@ -267,7 +285,7 @@ final class ReactWorkspaceService {
                         field("discount", "Discount", "number", false),
                         field("vat", "VAT", "number", false),
                         field("additionalCharges", "Additional charges", "number", false)),
-                rows, true, false, currentRole().canManageCompany(), "New receipt", "Save receipt", "save");
+                rows, true, true, currentRole().canManageCompany(), "New receipt", "Save receipt", "save");
     }
 
     private LocalApiServer.ModulePageData messages() {
@@ -747,9 +765,9 @@ final class ReactWorkspaceService {
     }
 
     private LocalApiServer.ModulePageData saveReceipt(String id, JsonNode values) {
-        if (id != null && !id.isBlank()) {
-            throw new IllegalArgumentException("Receipt editing is not supported in this form. Open the receipt directory in BRED to preserve all line items and attachments.");
-        }
+        Receipt previous = id == null || id.isBlank() ? null
+                : context.receipts.find(uuid(id, "Choose a receipt to edit."))
+                        .orElseThrow(() -> new IllegalArgumentException("That receipt is no longer available."));
         JsonNode itemNodes = values.path("items");
         if (!itemNodes.isArray()) throw new IllegalArgumentException("Add at least one item.");
         List<ReceiptItem> items = new ArrayList<>();
@@ -768,7 +786,9 @@ final class ReactWorkspaceService {
         if (!List.of("Cash", "Card", "E-wallet").contains(paymentMethod)) {
             throw new IllegalArgumentException("Choose Cash, Card, or E-wallet.");
         }
-        UUID receiptId = UUID.randomUUID();
+        String classification = text(values, "classification").trim();
+        if (classification.isEmpty()) throw new IllegalArgumentException("Enter a category.");
+        UUID receiptId = previous == null ? UUID.randomUUID() : previous.id();
         Receipt receipt = new Receipt(receiptId, text(values, "receiptNo"),
                 LocalDate.parse(text(values, "date")),
                 ReceiptType.fromDb(text(values, "type")),
@@ -776,11 +796,17 @@ final class ReactWorkspaceService {
                 optionalUuid(text(values, "projectId")),
                 items,
                 decimal(values, "discount"), decimal(values, "vat"),
-                decimal(values, "additionalCharges"), List.of(), null, null, null, null,
-                notes, paymentMethod, ewtRate);
+                decimal(values, "additionalCharges"), List.of(), null,
+                previous == null ? null : previous.createdAt(),
+                previous == null ? null : previous.modifiedAt(),
+                previous == null ? null : previous.companyId(),
+                notes, paymentMethod, ewtRate, classification);
+        List<Attachment> retained = retainedReceiptAttachments(previous, values.path("existingAttachmentPaths"));
         List<Attachment> uploaded = uploadReceiptAttachments(receiptId, values.path("attachments"));
         try {
-            context.receipts.save(receipt.withAttachments(uploaded));
+            List<Attachment> attachments = new ArrayList<>(retained);
+            attachments.addAll(uploaded);
+            context.receipts.save(receipt.withAttachments(attachments));
         } catch (RuntimeException failure) {
             for (Attachment attachment : uploaded) {
                 try {
@@ -792,6 +818,29 @@ final class ReactWorkspaceService {
             throw failure;
         }
         return receipts();
+    }
+
+    private static List<Attachment> retainedReceiptAttachments(Receipt previous, JsonNode requestedPaths) {
+        if (requestedPaths.isMissingNode() || requestedPaths.isNull()) return List.of();
+        if (!requestedPaths.isArray()) throw new IllegalArgumentException("Receipt attachments must be a list.");
+        if (previous == null && !requestedPaths.isEmpty()) {
+            throw new IllegalArgumentException("Attachments can only be retained when editing a receipt.");
+        }
+        Map<String, Attachment> available = new LinkedHashMap<>();
+        if (previous != null) {
+            previous.attachments().forEach(attachment -> available.put(attachment.storagePath(), attachment));
+        }
+        List<Attachment> retained = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (JsonNode pathNode : requestedPaths) {
+            String path = pathNode.asText("").trim();
+            Attachment attachment = available.get(path);
+            if (attachment == null || !seen.add(path)) {
+                throw new IllegalArgumentException("An attachment is no longer available on this receipt.");
+            }
+            retained.add(attachment);
+        }
+        return List.copyOf(retained);
     }
 
     private List<Attachment> uploadReceiptAttachments(UUID receiptId, JsonNode attachmentNodes) {

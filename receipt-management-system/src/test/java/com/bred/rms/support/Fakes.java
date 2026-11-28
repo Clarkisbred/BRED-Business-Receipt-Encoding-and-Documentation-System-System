@@ -53,7 +53,8 @@ public final class Fakes {
         @Override public Receipt save(Receipt r) {
             Receipt stored = r.id() == null ? new Receipt(UUID.randomUUID(), r.receiptNo(), r.date(), r.type(), r.supplierId(),
                     r.projectId(), r.items(), r.discount(), r.vat(), r.additionalCharges(), r.attachments(), r.encodedBy(),
-                    r.createdAt(), r.modifiedAt(), r.companyId()) : r;
+                    r.createdAt(), r.modifiedAt(), r.companyId(), r.notes(), r.paymentMethod(), r.ewtRate(),
+                    r.classification()) : r;
             data.put(stored.id(), stored);
             return stored;
         }

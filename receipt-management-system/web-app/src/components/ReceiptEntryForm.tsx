@@ -1,15 +1,49 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Plus, X } from 'lucide-react';
 import Decimal from 'decimal.js';
-import { loadModulePage, saveModuleRecord, type ModulePageData } from '../api/modules';
+import { loadModulePage, saveModuleRecord, type ModulePageData, type ModuleRecord } from '../api/modules';
 import { formatPhilippineTin } from '../utils/tin';
 
 interface ReceiptEntryFormProps {
   data: ModulePageData;
   saving: boolean;
+  receipt?: ModuleRecord;
   onSavingChange: (saving: boolean) => void;
   onCancel: () => void;
   onSaved: (data: ModulePageData) => void;
+}
+
+function valueText(value: unknown, fallback = ''): string {
+  return typeof value === 'string' || typeof value === 'number' ? String(value) : fallback;
+}
+
+function receiptItems(receipt?: ModuleRecord): ReceiptLine[] {
+  const source = receipt?.values.items;
+  if (!Array.isArray(source)) return [{ id: 1, description: '', quantity: '1', unit: 'pc', unitPrice: '' }];
+  const items = source.flatMap((value, index) => {
+    if (!value || typeof value !== 'object') return [];
+    const item = value as Record<string, unknown>;
+    return [{
+      id: index + 1,
+      description: valueText(item.description),
+      quantity: valueText(item.quantity, '1'),
+      unit: valueText(item.unit, 'pc'),
+      unitPrice: valueText(item.unitPrice),
+    }];
+  });
+  return items.length > 0 ? items : [{ id: 1, description: '', quantity: '1', unit: 'pc', unitPrice: '' }];
+}
+
+function receiptAttachments(receipt?: ModuleRecord): ExistingAttachment[] {
+  const source = receipt?.values.attachments;
+  if (!Array.isArray(source)) return [];
+  return source.flatMap((value) => {
+    if (!value || typeof value !== 'object') return [];
+    const attachment = value as Record<string, unknown>;
+    const fileName = valueText(attachment.fileName);
+    const storagePath = valueText(attachment.storagePath);
+    return fileName && storagePath ? [{ fileName, storagePath }] : [];
+  });
 }
 
 interface ReceiptLine {
@@ -25,6 +59,11 @@ interface NewSupplier {
   tin: string;
   address: string;
   contactNumber: string;
+}
+
+interface ExistingAttachment {
+  fileName: string;
+  storagePath: string;
 }
 
 const units = ['pc', 'quarter', 'kg', 'g', 'lb', 'L', 'mL', 'm', 'cm', 'box', 'bag', 'sack', 'set', 'roll'];
@@ -59,23 +98,23 @@ function fileAsBase64(file: File): Promise<string> {
   });
 }
 
-export function ReceiptEntryForm({ data, saving, onSavingChange, onCancel, onSaved }: ReceiptEntryFormProps) {
+export function ReceiptEntryForm({ data, saving, receipt, onSavingChange, onCancel, onSaved }: ReceiptEntryFormProps) {
   const [page, setPage] = useState(data);
-  const [receiptNo, setReceiptNo] = useState('');
-  const [date, setDate] = useState(todayValue);
-  const [type, setType] = useState('official_receipt');
-  const [supplierId, setSupplierId] = useState('');
-  const [projectId, setProjectId] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('Cash');
-  const [notes, setNotes] = useState('');
-  const [discount, setDiscount] = useState('0');
-  const [vat, setVat] = useState('0');
-  const [vatAuto, setVatAuto] = useState(true);
-  const [additionalCharges, setAdditionalCharges] = useState('0');
-  const [ewtRate, setEwtRate] = useState('0');
-  const [items, setItems] = useState<ReceiptLine[]>([
-    { id: 1, description: '', quantity: '1', unit: 'pc', unitPrice: '' },
-  ]);
+  const [receiptNo, setReceiptNo] = useState(() => valueText(receipt?.values.receiptNo));
+  const [date, setDate] = useState(() => valueText(receipt?.values.date, todayValue()));
+  const [type, setType] = useState(() => valueText(receipt?.values.typeValue, 'official_receipt'));
+  const [supplierId, setSupplierId] = useState(() => valueText(receipt?.values.supplierId));
+  const [projectId, setProjectId] = useState(() => valueText(receipt?.values.projectId));
+  const [classification, setClassification] = useState(() => valueText(receipt?.values.classification));
+  const [paymentMethod, setPaymentMethod] = useState(() => valueText(receipt?.values.paymentMethod, 'Cash'));
+  const [notes, setNotes] = useState(() => valueText(receipt?.values.notes));
+  const [discount, setDiscount] = useState(() => valueText(receipt?.values.discountValue, '0'));
+  const [vat, setVat] = useState(() => valueText(receipt?.values.vatValue, '0'));
+  const [vatAuto, setVatAuto] = useState(!receipt);
+  const [additionalCharges, setAdditionalCharges] = useState(() => valueText(receipt?.values.additionalChargesValue, '0'));
+  const [ewtRate, setEwtRate] = useState(() => valueText(receipt?.values.ewtRate, '0'));
+  const [items, setItems] = useState<ReceiptLine[]>(() => receiptItems(receipt));
+  const [existingAttachments, setExistingAttachments] = useState<ExistingAttachment[]>(() => receiptAttachments(receipt));
   const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [supplierDialog, setSupplierDialog] = useState(false);
@@ -90,6 +129,11 @@ export function ReceiptEntryForm({ data, saving, onSavingChange, onCancel, onSav
   const supplierOptions = page.fields.find((field) => field.key === 'supplierId')?.options ?? [];
   const projectOptions = page.fields.find((field) => field.key === 'projectId')?.options ?? [];
   const typeOptions = page.fields.find((field) => field.key === 'type')?.options ?? [];
+  const classificationOptions = [...new Map(data.rows
+    .map((row) => valueText(row.values.classification).trim())
+    .filter((value) => value && value.toLocaleUpperCase() !== 'UNCLASSIFIED')
+    .map((value) => [value.toLocaleLowerCase(), value] as const)).values()]
+    .sort((left, right) => left.localeCompare(right));
   const supplier = supplierOptions.find((option) => option.value === supplierId);
   const subtotal = useMemo(() => items.reduce(
     (sum, item) => sum.plus(amount(item.quantity).mul(amount(item.unitPrice))
@@ -183,6 +227,10 @@ export function ReceiptEntryForm({ data, saving, onSavingChange, onCancel, onSav
       setError('Choose a supplier.');
       return;
     }
+    if (!classification.trim()) {
+      setError('Enter a category.');
+      return;
+    }
     const enteredItems = items.filter((item) => (
       item.description.trim() || item.unitPrice.trim() || item.quantity !== '1' || item.unit !== 'pc'
     ));
@@ -211,6 +259,7 @@ export function ReceiptEntryForm({ data, saving, onSavingChange, onCancel, onSav
         type,
         supplierId,
         projectId,
+        classification: classification.trim().toLocaleUpperCase(),
         paymentMethod,
         notes,
         ewtRate: String(ewtPercent),
@@ -224,7 +273,8 @@ export function ReceiptEntryForm({ data, saving, onSavingChange, onCancel, onSav
           unitPrice: item.unitPrice || '0',
         })),
         attachments,
-      });
+        existingAttachmentPaths: existingAttachments.map((attachment) => attachment.storagePath),
+      }, receipt?.id);
       onSaved(updated);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'BRED could not save this receipt.');
@@ -237,7 +287,7 @@ export function ReceiptEntryForm({ data, saving, onSavingChange, onCancel, onSav
     <section className="panel module-form-panel receipt-entry-panel" aria-labelledby="receipt-entry-title">
       <div className="panel-heading">
         <div>
-          <h3 id="receipt-entry-title">New receipt</h3>
+          <h3 id="receipt-entry-title">{receipt ? 'Edit receipt' : 'New receipt'}</h3>
           <p>Enter the receipt details, line items, and supporting files.</p>
         </div>
         <button className="icon-button" type="button" aria-label="Close form" onClick={onCancel} disabled={saving}>
@@ -249,6 +299,19 @@ export function ReceiptEntryForm({ data, saving, onSavingChange, onCancel, onSav
           <label className="module-field">
             <span>Receipt number <strong aria-hidden="true">*</strong></span>
             <input required value={receiptNo} onChange={(event) => setReceiptNo(event.target.value)} disabled={saving} />
+          </label>
+          <label className="module-field">
+            <span>Category <strong aria-hidden="true">*</strong></span>
+            <input
+              required
+              list="receipt-classifications"
+              value={classification}
+              onChange={(event) => setClassification(event.target.value.toLocaleUpperCase())}
+              disabled={saving}
+            />
+            <datalist id="receipt-classifications">
+              {classificationOptions.map((option) => <option value={option} key={option} />)}
+            </datalist>
           </label>
           <label className="module-field">
             <span>Date <strong aria-hidden="true">*</strong></span>
@@ -326,8 +389,14 @@ export function ReceiptEntryForm({ data, saving, onSavingChange, onCancel, onSav
                 <input aria-label="Add attachments" type="file" accept=".png,.jpg,.jpeg,.pdf" multiple onChange={(event) => { addFiles(event.target.files); event.currentTarget.value = ''; }} disabled={saving} />
               </label>
             </div>
-            {files.length === 0 ? <p className="receipt-attachments-empty">No attachments added.</p> : (
+            {files.length === 0 && existingAttachments.length === 0 ? <p className="receipt-attachments-empty">No attachments added.</p> : (
               <ul className="receipt-attachment-list">
+                {existingAttachments.map((attachment) => (
+                  <li key={attachment.storagePath}>
+                    <span>{attachment.fileName} <small>(saved)</small></span>
+                    <button className="text-button text-button-danger" type="button" onClick={() => setExistingAttachments((current) => current.filter((entry) => entry.storagePath !== attachment.storagePath))} disabled={saving}>Remove</button>
+                  </li>
+                ))}
                 {files.map((file, index) => (
                   <li key={`${file.name}-${file.lastModified}-${index}`}>
                     <span>{file.name} <small>({(file.size / 1024).toFixed(0)} KB)</small></span>
@@ -368,7 +437,7 @@ export function ReceiptEntryForm({ data, saving, onSavingChange, onCancel, onSav
         {error && <p className="form-message receipt-entry-error" role="alert">{error}</p>}
         <div className="module-form-actions">
           <button className="button button-secondary" type="button" onClick={onCancel} disabled={saving}>Cancel</button>
-          <button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : 'Save receipt'}</button>
+          <button className="button button-primary" type="submit" disabled={saving}>{saving ? 'Saving…' : receipt ? 'Save changes' : 'Save receipt'}</button>
         </div>
       </form>
 

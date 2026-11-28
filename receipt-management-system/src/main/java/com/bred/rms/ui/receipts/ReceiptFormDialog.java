@@ -13,6 +13,7 @@ import com.bred.rms.ui.components.ModernTable;
 import com.bred.rms.models.ValidationException;
 import com.bred.rms.repositories.AttachmentException;
 import com.bred.rms.repositories.AttachmentRules;
+import com.bred.rms.services.ReceiptQuery;
 import com.bred.rms.ui.components.DateField;
 import com.bred.rms.ui.theme.RmsColors;
 import com.bred.rms.utils.BackgroundTask;
@@ -85,6 +86,7 @@ public final class ReceiptFormDialog extends JDialog {
     private final DateField date = new DateField();
     private final JComboBox<ReceiptType> type = new JComboBox<>(ReceiptType.values());
     private final JComboBox<String> paymentMethod = new JComboBox<>(new String[] {"Cash", "Card", "E-wallet"});
+    private final JComboBox<String> classification = new JComboBox<>();
     private final JComboBox<Supplier> supplierBox = new JComboBox<>();
     private final JComboBox<Project> projectBox = new JComboBox<>();
     private final JLabel fundSource = new JLabel("—");
@@ -125,12 +127,16 @@ public final class ReceiptFormDialog extends JDialog {
         recalc();
         setBusy(true);
         error.setText("Loading suppliers and projects…");
-        BackgroundTask.run(() -> new Lists(ctx.suppliers.findAll(), ctx.projects.findAll()), this::populate,
+        BackgroundTask.run(() -> new Lists(ctx.suppliers.findAll(), ctx.projects.findAll(),
+                        ctx.receipts.search(ReceiptQuery.all()).stream().map(Receipt::classification)
+                                .filter(value -> value != null && !value.isBlank())
+                                .distinct().sorted(String.CASE_INSENSITIVE_ORDER).toList()),
+                this::populate,
                 e -> { setBusy(false); showError(e); });
         fitToScreen(owner, 920, 680, 820, 600);
     }
 
-    private record Lists(List<Supplier> suppliers, List<Project> projects) { }
+    private record Lists(List<Supplier> suppliers, List<Project> projects, List<String> classifications) { }
 
     private void populate(Lists l) {
         DefaultComboBoxModel<Supplier> sm = new DefaultComboBoxModel<>();
@@ -140,12 +146,16 @@ public final class ReceiptFormDialog extends JDialog {
         pm.addElement(null);
         l.projects().forEach(pm::addElement);
         projectBox.setModel(pm);
+        DefaultComboBoxModel<String> cm = new DefaultComboBoxModel<>();
+        l.classifications().forEach(cm::addElement);
+        classification.setModel(cm);
         if (existing != null) {
             for (int i = 0; i < sm.getSize(); i++) if (sm.getElementAt(i).id().equals(existing.supplierId())) supplierBox.setSelectedIndex(i);
             for (int i = 0; i < pm.getSize(); i++) {
                 Project p = pm.getElementAt(i);
                 if (p != null && p.id().equals(existing.projectId())) projectBox.setSelectedIndex(i);
             }
+            classification.setSelectedItem(existing.classification());
         } else if (sm.getSize() > 0) {
             supplierBox.setSelectedIndex(0);
         }
@@ -163,8 +173,10 @@ public final class ReceiptFormDialog extends JDialog {
         g.anchor = GridBagConstraints.WEST;
         row(header, g, 0, "Receipt No.", receiptNo, "Date", date);
         row(header, g, 1, "Type", type, "Project", projectBox);
-        row(header, g, 3, "Account", paymentMethod, "", new JLabel());
-        g.gridx = 0; g.gridy = 2;
+        classification.setEditable(true);
+        row(header, g, 2, "Category", classification, "", new JLabel());
+        row(header, g, 4, "Account", paymentMethod, "", new JLabel());
+        g.gridx = 0; g.gridy = 3;
         header.add(new JLabel("Supplier"), g);
         g.gridx = 1; g.gridwidth = 2; g.fill = GridBagConstraints.HORIZONTAL; g.weightx = 1;
         header.add(supplierBox, g);
@@ -349,6 +361,7 @@ public final class ReceiptFormDialog extends JDialog {
         ewtRate.setText(r.ewtRate().stripTrailingZeros().toPlainString());
         paymentMethod.setSelectedItem(r.paymentMethod());
         notes.setText(r.notes());
+        classification.setSelectedItem(r.classification());
         r.attachments().forEach(a -> attachmentModel.addElement(new Entry(a, null)));
         vatAuto = false;
     }
@@ -463,6 +476,9 @@ public final class ReceiptFormDialog extends JDialog {
         if (d == null) throw new ValidationException("Enter the receipt date as YYYY-MM-DD.");
         Supplier s = (Supplier) supplierBox.getSelectedItem();
         if (s == null) throw new ValidationException("Choose a supplier.");
+        Object selectedClassification = classification.getEditor().getItem();
+        String expenseClassification = selectedClassification == null ? "" : selectedClassification.toString().trim();
+        if (expenseClassification.isEmpty()) throw new ValidationException("Enter a category.");
         Project p = (Project) projectBox.getSelectedItem();
         List<ReceiptItem> items = itemsModel.items();
         BigDecimal rate = FormParsing.number("EWT percentage", ewtRate.getText());
@@ -474,7 +490,7 @@ public final class ReceiptFormDialog extends JDialog {
                 FormParsing.amount("Additional charges", charges.getText()), attachments,
                 existing == null ? null : existing.encodedBy(), existing == null ? null : existing.createdAt(),
                 existing == null ? null : existing.modifiedAt(), existing == null ? null : existing.companyId(),
-                notes.getText().trim(), (String) paymentMethod.getSelectedItem(), rate);
+                notes.getText().trim(), (String) paymentMethod.getSelectedItem(), rate, expenseClassification);
     }
 
     private static String formatTin(String value) {
