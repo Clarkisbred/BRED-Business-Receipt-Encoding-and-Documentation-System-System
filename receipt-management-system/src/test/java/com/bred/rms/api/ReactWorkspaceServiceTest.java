@@ -4,6 +4,7 @@ import com.bred.rms.config.AppContext;
 import com.bred.rms.models.BugReport;
 import com.bred.rms.models.ChatMessage;
 import com.bred.rms.models.AppRelease;
+import com.bred.rms.models.Receipt;
 import com.bred.rms.models.Role;
 import com.bred.rms.models.User;
 import com.bred.rms.repositories.AppReleaseRepository;
@@ -11,6 +12,10 @@ import com.bred.rms.repositories.BugReportRepository;
 import com.bred.rms.repositories.MessageRepository;
 import com.bred.rms.repositories.UserRepository;
 import com.bred.rms.security.Module;
+import com.bred.rms.services.ProjectService;
+import com.bred.rms.services.ReceiptService;
+import com.bred.rms.services.SupplierService;
+import com.bred.rms.support.Fakes;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -176,6 +181,40 @@ class ReactWorkspaceServiceTest {
         ReactWorkspaceService adminService = service(admin, List.of(admin, target), new MemoryMessages());
         assertThrows(SecurityException.class,
                 () -> adminService.apply(Module.USERS, "send-password-reset", target.id().toString(), JSON.readTree("{}")));
+    }
+
+    @Test
+    void editingReceiptPersistsTheTypedCategory() throws Exception {
+        User user = Fakes.encoder();
+        Fakes.Receipts receiptRepository = new Fakes.Receipts();
+        Fakes.Suppliers supplierRepository = new Fakes.Suppliers();
+        Fakes.Projects projectRepository = new Fakes.Projects();
+        Fakes.Attachments attachmentStore = new Fakes.Attachments();
+        var supplier = supplierRepository.add("North Supply", "123-456");
+        ReceiptService receiptService = new ReceiptService(receiptRepository, supplierRepository,
+                projectRepository, attachmentStore, () -> user);
+        Receipt existing = receiptService.save(Fakes.receipt("OR-EDIT", supplier, null,
+                java.time.LocalDate.of(2026, 3, 10), "Cement", "500")
+                .withClassification("UNCLASSIFIED"));
+        AppContext context = AppContext.forTesting(user, receiptService,
+                new SupplierService(supplierRepository, receiptRepository, () -> user),
+                new ProjectService(projectRepository, receiptRepository, () -> user), attachmentStore);
+        ReactWorkspaceService service = new ReactWorkspaceService(context);
+        String input = "{\"receiptNo\":\"OR-EDIT\",\"date\":\"2026-03-10\","
+                + "\"type\":\"official_receipt\",\"supplierId\":\"" + supplier.id() + "\","
+                + "\"projectId\":\"\",\"classification\":\"materials\",\"paymentMethod\":\"Cash\","
+                + "\"notes\":\"\",\"ewtRate\":\"0\",\"discount\":\"0\",\"vat\":\"0\","
+                + "\"additionalCharges\":\"0\",\"items\":[{\"description\":\"Cement\","
+                + "\"quantity\":\"1\",\"unit\":\"kg\",\"unitPrice\":\"500\"}],"
+                + "\"attachments\":[],\"existingAttachmentPaths\":[]}";
+
+        LocalApiServer.ModulePageData updated = service.apply(Module.RECEIPTS, "save",
+                existing.id().toString(), JSON.readTree(input));
+
+        assertEquals("MATERIALS", receiptService.find(existing.id()).orElseThrow().classification());
+        assertEquals("MATERIALS", updated.rows().stream()
+                .filter(row -> existing.id().toString().equals(row.id()))
+                .findFirst().orElseThrow().values().get("classification"));
     }
 
     @Test

@@ -472,7 +472,7 @@ describe('ModuleWorkspace', () => {
           typeValue: 'official_receipt',
           supplierId: 'supplier-1',
           projectId: 'project-1',
-          classification: 'MATERIALS',
+          classification: 'UNCLASSIFIED',
           paymentMethod: 'Cash',
           notes: 'Initial note',
           discountValue: '0',
@@ -491,6 +491,8 @@ describe('ModuleWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     expect(screen.getByRole('heading', { name: 'Edit receipt' })).toBeInTheDocument();
     expect(screen.getByLabelText('Item 1 unit price')).toHaveValue(500);
+    fireEvent.change(screen.getByLabelText(/Category/), { target: { value: 'materials' } });
+    expect(screen.getByLabelText(/Category/)).toHaveValue('MATERIALS');
     fireEvent.change(screen.getByLabelText('Item 1 unit price'), { target: { value: '600' } });
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));

@@ -803,10 +803,11 @@ final class ReactWorkspaceService {
                 notes, paymentMethod, ewtRate, classification);
         List<Attachment> retained = retainedReceiptAttachments(previous, values.path("existingAttachmentPaths"));
         List<Attachment> uploaded = uploadReceiptAttachments(receiptId, values.path("attachments"));
+        Receipt saved;
         try {
             List<Attachment> attachments = new ArrayList<>(retained);
             attachments.addAll(uploaded);
-            context.receipts.save(receipt.withAttachments(attachments));
+            saved = context.receipts.save(receipt.withAttachments(attachments));
         } catch (RuntimeException failure) {
             for (Attachment attachment : uploaded) {
                 try {
@@ -816,6 +817,10 @@ final class ReactWorkspaceService {
                 }
             }
             throw failure;
+        }
+        if (!saved.classification().equalsIgnoreCase(receipt.classification())) {
+            throw new IllegalStateException("The receipt was saved, but its category was not stored. "
+                    + "Apply database migration 039_receipt_classification.sql, then retry the category change.");
         }
         return receipts();
     }
