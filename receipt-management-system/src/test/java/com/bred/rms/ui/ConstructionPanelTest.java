@@ -20,6 +20,7 @@ class ConstructionPanelTest {
         assertTrue(hasButton(panel, "Contracts"));
         assertTrue(hasButton(panel, "BOQ items"));
         assertTrue(hasButton(panel, "Billings"));
+        assertTrue(hasButton(panel, "Royalties"));
         assertTrue(hasButton(panel, "Project expenses"));
         assertTrue(hasButton(panel, "Purchase orders"));
         assertTrue(hasButton(panel, "Workers"));
@@ -28,6 +29,13 @@ class ConstructionPanelTest {
         assertTrue(hasButton(panel, "Quality NCR"));
         assertTrue(hasButton(panel, "Closeout"));
         assertTrue(hasButton(panel, "Offline queue"));
+
+        assertTrue(ConstructionPanel.workspaceCategories().stream()
+                .filter(category -> "Billing and Finance".equals(category.title()))
+                .flatMap(category -> category.tabs().stream())
+                .anyMatch(tab -> "Royalties".equals(tab.title()) && "royalty_records".equals(tab.table())));
+        assertTrue(ConstructionPanel.workspaceCategories().stream()
+                .noneMatch(category -> "Royalties".equals(category.title())));
     }
 
     private static boolean hasLabel(java.awt.Container root, String text) {

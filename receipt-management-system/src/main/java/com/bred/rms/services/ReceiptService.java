@@ -51,7 +51,7 @@ public final class ReceiptService {
     /** Validates and saves a receipt (insert when id is null or unknown, otherwise update). */
     public Receipt save(Receipt r) {
         Guard.requireSignedIn(who);
-        Receipt normalized = normalizeClassification(r);
+        Receipt normalized = withSupplierTaxClassification(normalizeClassification(r));
         precheck(normalized);
         Optional<Receipt> previous = normalized.id() == null ? Optional.empty() : receipts.findById(normalized.id());
         Receipt saved = receipts.save(normalized);
@@ -73,6 +73,13 @@ public final class ReceiptService {
         return match.equals(receipt.classification()) ? receipt : receipt.withClassification(match);
     }
 
+    private Receipt withSupplierTaxClassification(Receipt receipt) {
+        if (receipt.id() != null || !"UNCLASSIFIED".equals(receipt.supplierTaxClassification())) return receipt;
+        return suppliers.findById(receipt.supplierId())
+                .map(supplier -> receipt.withSupplierTaxClassification(supplier.taxClassification()))
+                .orElse(receipt);
+    }
+
     /** Saves a new import only after revalidating the administrator and company context. */
     public Receipt saveApprovedImport(Receipt r, UUID verifiedCompanyId) {
         User user = who.get();
@@ -84,8 +91,9 @@ public final class ReceiptService {
             throw new SecurityException("Your administrator account has no valid company context. Sign in again or contact an administrator.");
         }
         if (r.id() != null) throw new ValidationException("AI receipt imports can only create new receipts.");
-        precheck(r);
-        return receipts.saveApprovedImport(r);
+        Receipt classified = withSupplierTaxClassification(r);
+        precheck(classified);
+        return receipts.saveApprovedImport(classified);
     }
 
     /** Links uploaded import attachments after a server-confirmed receipt insert. */
@@ -176,6 +184,10 @@ public final class ReceiptService {
         }
         if (r.discount().signum() < 0 || r.vat().signum() < 0 || r.additionalCharges().signum() < 0) {
             throw new ValidationException("Discount, VAT and additional charges cannot be negative.");
+        }
+        if (("NON_VAT".equals(r.supplierTaxClassification()) || "VAT_EXEMPT".equals(r.supplierTaxClassification()))
+                && r.vat().signum() > 0) {
+            throw new ValidationException("VAT cannot be recorded for a Non-VAT or VAT-exempt supplier.");
         }
         if (r.ewtRate().signum() < 0 || r.ewtRate().compareTo(new BigDecimal("100")) > 0) {
             throw new ValidationException("EWT percentage must be from 0 to 100.");

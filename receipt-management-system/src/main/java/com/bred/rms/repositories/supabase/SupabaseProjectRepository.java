@@ -1,5 +1,6 @@
 package com.bred.rms.repositories.supabase;
 
+import java.math.BigDecimal;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.bred.rms.models.Project;
 import com.bred.rms.repositories.ProjectRepository;
@@ -40,6 +41,8 @@ public final class SupabaseProjectRepository implements ProjectRepository {
         row.put("name", p.name().trim());
         row.put("code", p.code().trim());
         row.put("fund_source", p.fundSource() == null ? "" : p.fundSource().trim());
+        row.put("contract_amount", p.contractAmount());
+        row.put("revised_contract_amount", p.revisedContractAmount());
         try {
             JsonNode saved = p.id() == null ? rest.insert("projects", row) : rest.patch("projects", "id=eq." + p.id(), row);
             if (!saved.isArray() || saved.isEmpty()) throw new RepositoryException("You don't have permission to do that.", false);
@@ -55,6 +58,10 @@ public final class SupabaseProjectRepository implements ProjectRepository {
     }
 
     private static Project map(JsonNode n) {
-        return new Project(Json.uuid(n, "id"), Json.text(n, "name"), Json.text(n, "code"), Json.text(n, "fund_source"));
+        BigDecimal contractAmount = Json.decimal(n, "contract_amount");
+        BigDecimal revisedContractAmount = n.has("revised_contract_amount") && !n.path("revised_contract_amount").isNull()
+                ? Json.decimal(n, "revised_contract_amount") : contractAmount;
+        return new Project(Json.uuid(n, "id"), Json.text(n, "name"), Json.text(n, "code"),
+                Json.text(n, "fund_source"), contractAmount, revisedContractAmount);
     }
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from '
 import {
   AlertCircle,
   ClipboardList,
+  CircleDollarSign,
   Files,
   FolderKanban,
   HardHat,
@@ -17,6 +18,9 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
+import { ConstructionBillingWorkspace } from './ConstructionBillingWorkspace';
+import { ModalDialog } from './ModalDialog';
+import { RoyaltiesWorkspace } from './RoyaltiesWorkspace';
 import {
   loadConstructionPage,
   saveModuleRecord,
@@ -34,6 +38,10 @@ const categoryIcons: Record<string, LucideIcon> = {
   'Workforce and Equipment': UsersRound,
   'Safety and Quality': ShieldCheck,
   'Documents and Closeout': Files,
+};
+
+const tabIcons: Record<string, LucideIcon> = {
+  royalty_records: CircleDollarSign,
 };
 
 const defaultTable = 'project_contracts';
@@ -175,6 +183,41 @@ export function ConstructionWorkspace() {
     }
   }
 
+  async function runBillingAction(
+    action: 'create-billing' | 'amend-billing' | 'save-billing-configuration' | 'decide-billing-adjustment'
+      | 'decide-billing' | 'reverse-billing' | 'attach-billing-documents'
+      | 'record-billing-payment' | 'refund-billing-payment'
+      | 'record-withholding-remittance' | 'release-billing-retention',
+    values: Record<string, unknown>,
+    id?: string,
+  ): Promise<ModulePageData> {
+    setSaving(true);
+    try {
+      const updated = await saveModuleRecord('CONSTRUCTION', action,
+        { ...values, table: 'project_billings' }, id);
+      setPage(updated);
+      return updated;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function runRoyaltyAction(
+    action: 'save-royalty' | 'save-royalty-configuration' | 'record-royalty-return',
+    values: Record<string, unknown>,
+    id?: string,
+  ): Promise<ModulePageData> {
+    setSaving(true);
+    try {
+      const updated = await saveModuleRecord('CONSTRUCTION', action,
+        { ...values, table: 'royalty_records' }, id);
+      setPage(updated);
+      return updated;
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function deleteRecord(row: ModuleRecord) {
     if (!window.confirm(`Delete this ${page?.title.toLocaleLowerCase()} record?`)) return;
     setSaving(true);
@@ -258,7 +301,7 @@ export function ConstructionWorkspace() {
         </button>
       </header>
 
-      {error && (
+      {error && !(editingId !== null || Object.keys(formValues).length > 0) && (
         <div className="notice notice-error construction-notice" role="alert">
           <AlertCircle aria-hidden="true" size={18} />
           <span>{error}</span>
@@ -359,21 +402,30 @@ export function ConstructionWorkspace() {
         <div className="construction-main">
           {activeCategory && (
             <nav className="construction-tabs" aria-label={`${activeCategory.title} sections`}>
-              {visibleTabs.map((tab) => (
-                <button
-                  type="button"
-                  className={`construction-tab${selectedTable === tab.table ? ' is-selected' : ''}`}
-                  key={tab.table}
-                  aria-pressed={selectedTable === tab.table}
-                  onClick={() => chooseTab(tab.table)}
-                >
-                  <ClipboardList aria-hidden="true" size={15} />
-                  {tab.title}
-                </button>
-              ))}
+              {visibleTabs.map((tab) => {
+                const Icon = tabIcons[tab.table] ?? ClipboardList;
+                return (
+                  <button
+                    type="button"
+                    className={`construction-tab${selectedTable === tab.table ? ' is-selected' : ''}`}
+                    key={tab.table}
+                    aria-pressed={selectedTable === tab.table}
+                    onClick={() => chooseTab(tab.table)}
+                  >
+                    <Icon aria-hidden="true" size={15} />
+                    {tab.title}
+                  </button>
+                );
+              })}
             </nav>
           )}
 
+          {selectedTable === 'project_billings' && page ? (
+            <ConstructionBillingWorkspace page={page} saving={saving} onAction={runBillingAction} />
+          ) : selectedTable === 'royalty_records' && page ? (
+            <RoyaltiesWorkspace page={page} saving={saving} onAction={runRoyaltyAction} />
+          ) : (
+          <>
           <section className="panel construction-record-panel" aria-labelledby="construction-record-title">
             <div className="panel-heading construction-record-heading">
               <div>
@@ -392,7 +444,7 @@ export function ConstructionWorkspace() {
                     aria-label="Search records in this section"
                   />
                 </label>
-                {page?.canCreate && (
+                {page?.canCreate && selectedTable !== 'project_billings' && (
                   <button className="button button-primary" type="button" onClick={beginCreate} disabled={saving}>
                     <Plus aria-hidden="true" size={16} /> Add record
                   </button>
@@ -468,43 +520,57 @@ export function ConstructionWorkspace() {
           </section>
 
           {page?.fields.length && (editingId !== null || Object.keys(formValues).length > 0) ? (
-            <section className="panel construction-form-panel" aria-labelledby="construction-form-title">
-              <div className="panel-heading">
-                <div>
-                  <h3 id="construction-form-title">{editingId ? `Edit ${page.title}` : `New ${page.title}`}</h3>
-                  <p>Changes are validated and saved by BRED.</p>
-                </div>
-                <button
-                  className="icon-button"
-                  type="button"
-                  aria-label="Close construction form"
-                  onClick={() => { setEditingId(null); setFormValues({}); }}
-                >
-                  <X aria-hidden="true" size={18} />
-                </button>
-              </div>
-              <form className="module-form construction-form" onSubmit={(event) => void submit(event)}>
-                {page.fields.map((field) => (
-                  <label className={`module-field${field.type === 'textarea' ? ' module-field-wide' : ''}`} key={field.key}>
-                    <span>{field.label}{field.required && <strong aria-hidden="true"> *</strong>}</span>
-                    {renderField(field)}
-                  </label>
-                ))}
-                <div className="module-form-actions">
+            <ModalDialog
+              labelledBy="construction-form-title"
+              onClose={() => {
+                if (saving) return;
+                setEditingId(null);
+                setFormValues({});
+              }}
+            >
+              <section className="panel construction-form-panel" aria-labelledby="construction-form-title">
+                <div className="panel-heading">
+                  <div>
+                    <h3 id="construction-form-title">{editingId ? `Edit ${page.title}` : `New ${page.title}`}</h3>
+                    <p>Changes are validated and saved by BRED.</p>
+                  </div>
                   <button
-                    className="button button-secondary"
+                    className="icon-button"
                     type="button"
+                    aria-label="Close construction form"
+                    disabled={saving}
                     onClick={() => { setEditingId(null); setFormValues({}); }}
                   >
-                    Cancel
-                  </button>
-                  <button className="button button-primary" type="submit" disabled={saving}>
-                    {saving ? 'Saving…' : 'Save record'}
+                    <X aria-hidden="true" size={18} />
                   </button>
                 </div>
-              </form>
-            </section>
+                <form className="module-form construction-form" onSubmit={(event) => void submit(event)}>
+                  {page.fields.map((field) => (
+                    <label className={`module-field${field.type === 'textarea' ? ' module-field-wide' : ''}`} key={field.key}>
+                      <span>{field.label}{field.required && <strong aria-hidden="true"> *</strong>}</span>
+                      {renderField(field)}
+                    </label>
+                  ))}
+                  {error && <p className="module-form-error" role="alert">{error}</p>}
+                  <div className="module-form-actions">
+                    <button
+                      className="button button-secondary"
+                      type="button"
+                      disabled={saving}
+                      onClick={() => { setEditingId(null); setFormValues({}); }}
+                    >
+                      Cancel
+                    </button>
+                    <button className="button button-primary" type="submit" disabled={saving}>
+                      {saving ? 'Saving…' : 'Save record'}
+                    </button>
+                  </div>
+                </form>
+              </section>
+            </ModalDialog>
           ) : null}
+          </>
+          )}
         </div>
       </div>
     </section>

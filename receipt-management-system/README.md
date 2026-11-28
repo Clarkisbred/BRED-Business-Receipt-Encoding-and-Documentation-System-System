@@ -29,7 +29,7 @@ until an administrator approves them in **Users**. An administrator may also con
 
 ## Getting started
 1. Install Java 21 or newer and Maven.
-2. From this directory, run `mvn -q exec:java` (or `mvn -q package`, then `java -jar target/bred-2.0.0.jar`). In VS Code, use the Java extension's Run/Debug action for `com.bred.rms.Main` after Maven has built the project. Do not use Code Runner's **Run Code** action, which compiles only `Main.java` and omits the bundled web assets.
+2. From this directory, run `mvn -q generate-resources exec:java` (or `mvn -q package`, then `java -jar target/bred-2.0.0.jar`). In VS Code, use the Java extension's Run/Debug action for `com.bred.rms.Main` after Maven has built the project. Do not use Code Runner's **Run Code** action, which compiles only `Main.java` and omits the bundled web assets.
 3. Sign in with the Supabase admin account created during setup.
 4. Add a supplier, then a receipt. Create more accounts (Admin or Encoder) under **Users**.
 

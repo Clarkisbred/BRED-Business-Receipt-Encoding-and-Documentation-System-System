@@ -253,7 +253,7 @@ After changing the function code, deploy `ducky-ai` again. For an unexpected cha
 
 ## 6. Run
 ```
-mvn -q exec:java                  # run from source
+mvn -q generate-resources exec:java # build web resources, then run from source
 mvn -q package                    # or build a single jar…
 java -jar target/bred-0.1.0-SNAPSHOT.jar
 ```

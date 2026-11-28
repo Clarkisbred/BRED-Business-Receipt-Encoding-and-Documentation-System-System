@@ -110,6 +110,28 @@ public final class ConstructionCalculations {
         return money(cashReceived).add(money(withholding)).compareTo(money(billingAmountDue)) == 0;
     }
 
+    public static com.bred.rms.models.ConstructionModels.BillingWithholdingCalculation
+            billingWithholding(BigDecimal billingAmount, BigDecimal finalVatRate, BigDecimal incomeTaxRate) {
+        BigDecimal amount = money(billingAmount);
+        BigDecimal finalVat = finalVatRate == null ? BigDecimal.ZERO : finalVatRate;
+        BigDecimal incomeTax = incomeTaxRate == null ? BigDecimal.ZERO : incomeTaxRate;
+        if (amount.signum() < 0) throw new IllegalArgumentException("Billing amount cannot be negative.");
+        if (finalVat.signum() < 0 || finalVat.compareTo(BigDecimal.valueOf(100)) > 0
+                || incomeTax.signum() < 0 || incomeTax.compareTo(BigDecimal.valueOf(100)) > 0) {
+            throw new IllegalArgumentException("Withholding rates must be between 0 and 100.");
+        }
+        BigDecimal base = amount.divide(new BigDecimal("1.12"), 2, RoundingMode.HALF_UP);
+        BigDecimal vatWithholding = money(base.multiply(finalVat)
+                .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP));
+        BigDecimal incomeWithholding = money(base.multiply(incomeTax)
+                .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP));
+        BigDecimal total = money(vatWithholding.add(incomeWithholding));
+        BigDecimal net = money(amount.subtract(total));
+        if (net.signum() < 0) throw new IllegalArgumentException("Withholding cannot exceed the billing amount.");
+        return new com.bred.rms.models.ConstructionModels.BillingWithholdingCalculation(
+                amount, base, vatWithholding, incomeWithholding, total, net);
+    }
+
     public static BigDecimal equipmentCost(BigDecimal rental, BigDecimal fuel, BigDecimal maintenance) {
         return money(rental).add(money(fuel)).add(money(maintenance));
     }

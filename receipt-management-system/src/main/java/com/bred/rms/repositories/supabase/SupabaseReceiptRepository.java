@@ -96,6 +96,7 @@ public final class SupabaseReceiptRepository implements ReceiptRepository {
         p.put("payment_method", r.paymentMethod());
         p.put("ewt_rate", r.ewtRate());
         p.put("classification", r.classification());
+        p.put("supplier_tax_classification", r.supplierTaxClassification());
         List<Map<String, Object>> items = new ArrayList<>();
         for (ReceiptItem i : r.items()) {
             Map<String, Object> m = new LinkedHashMap<>();
@@ -142,6 +143,8 @@ public final class SupabaseReceiptRepository implements ReceiptRepository {
                 Json.uuid(row, "company_id"), Json.text(row, "notes"),
                 row.hasNonNull("payment_method") ? Json.text(row, "payment_method") : "Cash",
                 Json.decimal(row, "ewt_rate"),
-                row.hasNonNull("classification") ? Json.text(row, "classification") : "Unclassified");
+                row.hasNonNull("classification") ? Json.text(row, "classification") : "Unclassified",
+                row.hasNonNull("supplier_tax_classification")
+                        ? Json.text(row, "supplier_tax_classification") : "UNCLASSIFIED");
     }
 }

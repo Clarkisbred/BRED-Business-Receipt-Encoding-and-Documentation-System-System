@@ -328,7 +328,8 @@ public final class LocalDatabase {
             @Override public Supplier save(Supplier v) {
                 return write(s -> {
                     boolean isNew = v.id() == null;
-                    Supplier stored = new Supplier(isNew ? UUID.randomUUID() : v.id(), v.businessName(), v.tin(), v.address(), v.contactNumber());
+                    Supplier stored = new Supplier(isNew ? UUID.randomUUID() : v.id(), v.businessName(), v.tin(),
+                            v.address(), v.contactNumber(), v.taxClassification());
                     s.suppliers.removeIf(x -> x.id().equals(stored.id()));
                     s.suppliers.add(stored);
                     log(s, isNew ? "suppliers.insert" : "suppliers.update", stored.businessName());
@@ -359,7 +360,8 @@ public final class LocalDatabase {
             @Override public Project save(Project v) {
                 return write(s -> {
                     boolean isNew = v.id() == null;
-                    Project stored = new Project(isNew ? UUID.randomUUID() : v.id(), v.name(), v.code(), v.fundSource());
+                    Project stored = new Project(isNew ? UUID.randomUUID() : v.id(), v.name(), v.code(),
+                            v.fundSource(), v.contractAmount(), v.revisedContractAmount());
                     s.projects.removeIf(x -> x.id().equals(stored.id()));
                     s.projects.add(stored);
                     log(s, isNew ? "projects.insert" : "projects.update", stored.name());
@@ -622,10 +624,14 @@ public final class LocalDatabase {
             }
             for (JsonNode n : root.path("suppliers")) {
                 s.suppliers.add(new Supplier(UUID.fromString(n.path("id").asText()), n.path("businessName").asText(), n.path("tin").asText(),
-                        n.path("address").asText(), n.path("contactNumber").asText()));
+                        n.path("address").asText(), n.path("contactNumber").asText(),
+                        n.path("taxClassification").asText("UNCLASSIFIED")));
             }
             for (JsonNode n : root.path("projects")) {
-                s.projects.add(new Project(UUID.fromString(n.path("id").asText()), n.path("name").asText(), n.path("code").asText(), n.path("fundSource").asText()));
+                s.projects.add(new Project(UUID.fromString(n.path("id").asText()),
+                        n.path("name").asText(), n.path("code").asText(), n.path("fundSource").asText(),
+                        n.path("contractAmount").isNumber() ? n.path("contractAmount").decimalValue() : java.math.BigDecimal.ZERO,
+                        n.path("revisedContractAmount").isNumber() ? n.path("revisedContractAmount").decimalValue() : java.math.BigDecimal.ZERO));
             }
             for (JsonNode n : root.path("receipts")) s.receipts.add(readReceipt(n, s.accounts, defaultCompany));
             for (JsonNode n : root.path("activity")) {
@@ -683,7 +689,8 @@ public final class LocalDatabase {
                 new BigDecimal(n.path("discount").asText("0")), new BigDecimal(n.path("vat").asText("0")), new BigDecimal(n.path("additionalCharges").asText("0")),
                 atts, encodedBy, Instant.parse(n.path("createdAt").asText()), Instant.parse(n.path("modifiedAt").asText()),
                 companyId, n.path("notes").asText(""), n.path("paymentMethod").asText("Cash"),
-                new BigDecimal(n.path("ewtRate").asText("0")), n.path("classification").asText("Unclassified"));
+                new BigDecimal(n.path("ewtRate").asText("0")), n.path("classification").asText("Unclassified"),
+                n.path("supplierTaxClassification").asText("UNCLASSIFIED"));
     }
 
     private void save() {
@@ -705,11 +712,14 @@ public final class LocalDatabase {
         ArrayNode suppliers = root.putArray("suppliers");
         for (Supplier s : state.suppliers) {
             suppliers.addObject().put("id", s.id().toString()).put("businessName", s.businessName()).put("tin", s.tin())
-                    .put("address", s.address()).put("contactNumber", s.contactNumber());
+                    .put("address", s.address()).put("contactNumber", s.contactNumber())
+                    .put("taxClassification", s.taxClassification());
         }
         ArrayNode projects = root.putArray("projects");
         for (Project p : state.projects) {
-            projects.addObject().put("id", p.id().toString()).put("name", p.name()).put("code", p.code()).put("fundSource", p.fundSource());
+            projects.addObject().put("id", p.id().toString()).put("name", p.name()).put("code", p.code())
+                    .put("fundSource", p.fundSource()).put("contractAmount", p.contractAmount())
+                    .put("revisedContractAmount", p.revisedContractAmount());
         }
         ArrayNode receipts = root.putArray("receipts");
         for (Receipt r : state.receipts) {
@@ -724,7 +734,8 @@ public final class LocalDatabase {
             }
             n.put("discount", r.discount().toPlainString()).put("vat", r.vat().toPlainString()).put("additionalCharges", r.additionalCharges().toPlainString());
             n.put("notes", r.notes()).put("paymentMethod", r.paymentMethod()).put("ewtRate", r.ewtRate().toPlainString())
-                    .put("classification", r.classification());
+                    .put("classification", r.classification())
+                    .put("supplierTaxClassification", r.supplierTaxClassification());
             ArrayNode atts = n.putArray("attachments");
             for (Attachment a : r.attachments()) atts.addObject().put("fileName", a.fileName()).put("storagePath", a.storagePath());
             if (r.encodedBy() != null) n.put("encodedBy", r.encodedBy().toString());

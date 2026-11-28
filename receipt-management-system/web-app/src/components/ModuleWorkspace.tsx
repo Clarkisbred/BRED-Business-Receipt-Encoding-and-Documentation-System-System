@@ -18,6 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { ProfileAvatar } from './IdentityAvatar';
+import { ModalDialog } from './ModalDialog';
 import { ReceiptEntryForm } from './ReceiptEntryForm';
 import { booleanValue, displayValue, inputValue } from '../utils/moduleValues';
 import { formatPhilippineTin } from '../utils/tin';
@@ -82,6 +83,31 @@ function defaultValue(field: ModuleField): string | number | boolean {
   if (field.value !== undefined && displayValue(field.value) !== '') return field.value;
   if (field.type === 'checkbox') return false;
   return '';
+}
+
+function formatAmountInput(value: unknown): string {
+  const raw = displayValue(value).replace(/[,\s]/g, '');
+  if (!raw) return '';
+  const negative = raw.startsWith('-');
+  const unsigned = negative ? raw.slice(1) : raw;
+  const [whole = '', decimal = ''] = unsigned.split('.');
+  const digits = whole.replace(/\D/g, '');
+  if (!digits) return negative ? '-' : '';
+  const formattedWhole = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const formattedDecimal = unsigned.includes('.') ? `.${decimal.replace(/\D/g, '').slice(0, 2)}` : '';
+  return `${negative ? '-' : ''}${formattedWhole}${formattedDecimal}`;
+}
+
+function pesoDisplay(value: unknown): string {
+  const normalized = displayValue(value).replace(/[,\s]/g, '');
+  const amount = Number(normalized);
+  if (!normalized || !Number.isFinite(amount)) return displayValue(value);
+  return new Intl.NumberFormat('en-PH', {
+    style: 'currency',
+    currency: 'PHP',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(amount);
 }
 
 function LoadingRows() {
@@ -302,7 +328,14 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
     setSaving(true);
     setError(null);
     try {
-      const updated = await saveModuleRecord(module, data.createAction, formValues, editingId ?? undefined);
+      const payload = module === 'PROJECTS'
+        ? Object.fromEntries(Object.entries(formValues).filter(([key, value]) => {
+            if (editingId) return key !== 'contractAmount';
+            if (key === 'revisedContractAmount') return false;
+            return value !== '' || key === 'name' || key === 'code';
+          }))
+        : formValues;
+      const updated = await saveModuleRecord(module, data.createAction, payload, editingId ?? undefined);
       setData(updated);
       setEditingId(null);
       setFormValues({});
@@ -482,6 +515,23 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
       disabled: saving,
     };
 
+    if (module === 'PROJECTS'
+      && (field.key === 'contractAmount' || field.key === 'revisedContractAmount')) {
+      return (
+        <input
+          {...common}
+          type="text"
+          inputMode="decimal"
+          placeholder="0.00"
+          value={formatAmountInput(textValue)}
+          onChange={(event) => setFormValues((previous) => ({
+            ...previous,
+            [field.key]: formatAmountInput(event.target.value),
+          }))}
+        />
+      );
+    }
+
     if (field.type === 'textarea') {
       return (
         <textarea
@@ -604,12 +654,35 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
               <span className="stat-label">{metric.label}</span>
               <strong className="stat-value">{metric.value}</strong>
               {metric.note && <span className="stat-note">{metric.note}</span>}
+              {metric.chart && metric.chart.length > 0 && (
+                <div className="module-metric-chart" role="img" aria-label={`${metric.label} chart`}>
+                  {(() => {
+                    const chartValues = metric.chart?.map((item) => item.value) ?? [];
+                    const chartMax = Math.max(...chartValues.map((value) => Math.abs(value)), 1);
+                    return (metric.chart ?? []).map((point) => {
+                      const positive = point.value >= 0;
+                      return (
+                        <span className="module-metric-chart-item" key={point.label} title={`${point.label}: ${point.value}`}>
+                          <span
+                            className={`module-metric-chart-bar ${positive ? 'is-positive' : 'is-negative'}`}
+                            style={{ height: `${Math.max(8, (Math.abs(point.value) / chartMax) * 100)}%` }}
+                          />
+                          <small>{point.label}</small>
+                        </span>
+                      );
+                    });
+                  })()}
+                </div>
+              )}
             </article>
           ))}
         </div>
       )}
 
-      {error && <div className="form-message" role="alert">{error}</div>}
+      {error
+        && !(module !== 'SETTINGS' && module !== 'RECEIPTS' && data.fields.length > 0
+          && (editingId !== null || Object.keys(formValues).length > 0))
+        && <div className="form-message" role="alert">{error}</div>}
       {module === 'USERS' && userActionNotice && (
         <p className={`settings-notice is-${userActionNotice.kind}`} role={userActionNotice.kind === 'error' ? 'alert' : 'status'}>
           {userActionNotice.message}
@@ -1073,15 +1146,24 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
       )}
 
       {module === 'RECEIPTS' && Object.keys(formValues).length > 0 && (
-        <ReceiptEntryForm
-          key={editingId ?? 'new'}
-          data={data}
-          saving={saving}
-          {...(editedReceipt ? { receipt: editedReceipt } : {})}
-          onSavingChange={setSaving}
-          onCancel={() => { setEditingId(null); setFormValues({}); }}
-          onSaved={(updated) => { setData(updated); setEditingId(null); setFormValues({}); }}
-        />
+        <ModalDialog
+          labelledBy="receipt-entry-title"
+          onClose={() => {
+            if (saving) return;
+            setEditingId(null);
+            setFormValues({});
+          }}
+        >
+          <ReceiptEntryForm
+            key={editingId ?? 'new'}
+            data={data}
+            saving={saving}
+            {...(editedReceipt ? { receipt: editedReceipt } : {})}
+            onSavingChange={setSaving}
+            onCancel={() => { setEditingId(null); setFormValues({}); }}
+            onSaved={(updated) => { setData(updated); setEditingId(null); setFormValues({}); }}
+          />
+        </ModalDialog>
       )}
 
       {module === 'RECEIPTS' && (
@@ -1114,33 +1196,46 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
 
       {module !== 'SETTINGS' && module !== 'RECEIPTS' && data.fields.length > 0
         && (editingId !== null || Object.keys(formValues).length > 0) && (
-        <section className="panel module-form-panel" aria-labelledby="module-form-title">
-          <div className="panel-heading">
-            <div>
-              <h3 id="module-form-title">{editingId ? 'Edit record' : data.primaryActionLabel}</h3>
-              <p>Changes are validated and saved by BRED.</p>
-            </div>
-            <button className="icon-button" type="button" aria-label="Close form" onClick={() => { setEditingId(null); setFormValues({}); }}>
-              <X aria-hidden="true" size={18} />
-            </button>
-          </div>
-          <form className="module-form" onSubmit={(event) => void submit(event)}>
-            {data.fields.map((field) => (
-              <label className={field.type === 'textarea' ? 'module-field module-field-wide' : 'module-field'} key={field.key}>
-                <span>{field.label}{field.required && <strong aria-hidden="true"> *</strong>}</span>
-                {renderField(field)}
-              </label>
-            ))}
-            <div className="module-form-actions">
-              <button className="button button-secondary" type="button" onClick={() => { setEditingId(null); setFormValues({}); }}>
-                Cancel
-              </button>
-              <button className="button button-primary" type="submit" disabled={saving}>
-                {saving ? 'Saving…' : data.submitLabel}
+        <ModalDialog
+          labelledBy="module-form-title"
+          onClose={() => {
+            if (saving) return;
+            setEditingId(null);
+            setFormValues({});
+          }}
+        >
+          <section className="panel module-form-panel" aria-labelledby="module-form-title">
+            <div className="panel-heading">
+              <div>
+                <h3 id="module-form-title">{editingId ? 'Edit record' : data.primaryActionLabel}</h3>
+                <p>Changes are validated and saved by BRED.</p>
+              </div>
+              <button className="icon-button" type="button" aria-label="Close form" disabled={saving} onClick={() => { setEditingId(null); setFormValues({}); }}>
+                <X aria-hidden="true" size={18} />
               </button>
             </div>
-          </form>
-        </section>
+            <form className="module-form" onSubmit={(event) => void submit(event)}>
+              {data.fields
+                .filter((field) => module !== 'PROJECTS'
+                  || (editingId ? field.key !== 'contractAmount' : field.key !== 'revisedContractAmount'))
+                .map((field) => (
+                <label className={field.type === 'textarea' ? 'module-field module-field-wide' : 'module-field'} key={field.key}>
+                  <span>{field.label}{field.required && <strong aria-hidden="true"> *</strong>}</span>
+                  {renderField(field)}
+                </label>
+              ))}
+              {error && <div className="form-message" role="alert">{error}</div>}
+              <div className="module-form-actions">
+                <button className="button button-secondary" type="button" disabled={saving} onClick={() => { setEditingId(null); setFormValues({}); }}>
+                  Cancel
+                </button>
+                <button className="button button-primary" type="submit" disabled={saving}>
+                  {saving ? 'Saving…' : data.submitLabel}
+                </button>
+              </div>
+            </form>
+          </section>
+        </ModalDialog>
       )}
 
       {module !== 'SETTINGS' && <div className={`module-record-layout${selectedReceipt ? ' has-receipt-detail' : ''}`}>
@@ -1205,6 +1300,9 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
                               <span className={`module-state-pill is-${statusTone(value)}`}>{displayValue(value)}</span>
                             ) : module === 'SUPPLIERS' && column.key === 'tin' ? (
                               formatPhilippineTin(displayValue(value))
+                            ) : module === 'PROJECTS'
+                              && ['contractAmount', 'revisedContractAmount', 'revisionEffect', 'income', 'billings', 'spend', 'profitLoss'].includes(column.key) ? (
+                              pesoDisplay(value)
                             ) : (
                               displayValue(value)
                             )}
@@ -1213,7 +1311,9 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
                       })}
                       {(data.canEdit || data.canDelete) && (
                         <td className="module-row-actions">
-                          {data.canEdit && <button className="text-button" type="button" onClick={() => beginEdit(row.id)}>Edit</button>}
+                          {data.canEdit && <button className="text-button" type="button"
+                            aria-label={module === 'PROJECTS' ? `Edit ${displayValue(row.values.name)}` : 'Edit'}
+                            onClick={() => beginEdit(row.id)}>Edit</button>}
                           {module === 'USERS' && data.canCreate && (
                             <button
                               className="text-button"

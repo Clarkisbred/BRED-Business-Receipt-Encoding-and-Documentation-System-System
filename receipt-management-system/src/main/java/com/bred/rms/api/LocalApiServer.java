@@ -56,8 +56,11 @@ public final class LocalApiServer implements AutoCloseable {
                     List.of(), List.of(), List.of(), false);
         }
     }
-    public record ModuleOption(String label, String value, String description) {
-        public ModuleOption(String label, String value) { this(label, value, ""); }
+    public record ModuleOption(String label, String value, String description, String taxClassification) {
+        public ModuleOption(String label, String value, String description) {
+            this(label, value, description, "");
+        }
+        public ModuleOption(String label, String value) { this(label, value, "", ""); }
     }
     public record ModuleField(String key, String label, String type, boolean required,
                               List<ModuleOption> options, Object value) { }
@@ -79,7 +82,55 @@ public final class LocalApiServer implements AutoCloseable {
                                  List<ModuleColumn> columns, List<ModuleField> fields, List<ModuleRecord> rows,
                                  boolean canCreate, boolean canEdit, boolean canDelete,
                                  String primaryActionLabel, String submitLabel, String createAction,
-                                 List<ConstructionCategory> constructionCategories) {
+                                 List<ConstructionCategory> constructionCategories,
+                                 List<Map<String, Object>> billingConfigurations,
+                                 List<Map<String, Object>> billingRetentionReleases,
+                                 List<Map<String, Object>> billingLegacyRetention,
+                                 List<Map<String, Object>> billingMobilizationBalances,
+                                 Map<String, Object> royaltyConfiguration,
+                                 List<Map<String, Object>> royaltyContracts,
+                                 List<Map<String, Object>> royaltySuppliers,
+                                 List<Map<String, Object>> royaltyReturns,
+                                 List<Map<String, Object>> royaltyEvents) {
+        public ModulePageData(String key, String title, String description, List<ModuleMetric> metrics,
+                              List<ModuleColumn> columns, List<ModuleField> fields, List<ModuleRecord> rows,
+                              boolean canCreate, boolean canEdit, boolean canDelete,
+                              String primaryActionLabel, String submitLabel, String createAction,
+                              List<ConstructionCategory> constructionCategories,
+                              List<Map<String, Object>> billingConfigurations,
+                              List<Map<String, Object>> billingRetentionReleases,
+                              List<Map<String, Object>> billingLegacyRetention,
+                              List<Map<String, Object>> billingMobilizationBalances) {
+            this(key, title, description, metrics, columns, fields, rows, canCreate, canEdit, canDelete,
+                    primaryActionLabel, submitLabel, createAction, constructionCategories,
+                    billingConfigurations, billingRetentionReleases, billingLegacyRetention,
+                    billingMobilizationBalances, Map.of(), List.of(), List.of(), List.of(), List.of());
+        }
+
+        public ModulePageData(String key, String title, String description, List<ModuleMetric> metrics,
+                              List<ModuleColumn> columns, List<ModuleField> fields, List<ModuleRecord> rows,
+                              boolean canCreate, boolean canEdit, boolean canDelete,
+                              String primaryActionLabel, String submitLabel, String createAction,
+                              List<ConstructionCategory> constructionCategories,
+                              List<Map<String, Object>> billingConfigurations,
+                              List<Map<String, Object>> billingRetentionReleases) {
+            this(key, title, description, metrics, columns, fields, rows, canCreate, canEdit, canDelete,
+                    primaryActionLabel, submitLabel, createAction, constructionCategories,
+                    billingConfigurations, billingRetentionReleases, List.of(), List.of(),
+                    Map.of(), List.of(), List.of(), List.of(), List.of());
+        }
+
+        public ModulePageData(String key, String title, String description, List<ModuleMetric> metrics,
+                              List<ModuleColumn> columns, List<ModuleField> fields, List<ModuleRecord> rows,
+                              boolean canCreate, boolean canEdit, boolean canDelete,
+                              String primaryActionLabel, String submitLabel, String createAction,
+                              List<ConstructionCategory> constructionCategories) {
+            this(key, title, description, metrics, columns, fields, rows, canCreate, canEdit, canDelete,
+                    primaryActionLabel, submitLabel, createAction, constructionCategories,
+                    List.of(), List.of(), List.of(), List.of(),
+                    Map.of(), List.of(), List.of(), List.of(), List.of());
+        }
+
         public ModulePageData(String key, String title, String description, List<ModuleMetric> metrics,
                               List<ModuleColumn> columns, List<ModuleField> fields, List<ModuleRecord> rows,
                               boolean canCreate, boolean canEdit, boolean canDelete,
@@ -395,7 +446,7 @@ public final class LocalApiServer implements AutoCloseable {
                 if ("GET".equals(method)) {
                     sendJson(exchange, 200, backend.modulePage(module, table));
                 } else if ("POST".equals(method)) {
-                    JsonNode request = readJson(exchange, module == Module.RECEIPTS
+                    JsonNode request = readJson(exchange, module == Module.RECEIPTS || module == Module.CONSTRUCTION
                             ? MAX_RECEIPT_REQUEST_BYTES : MAX_REQUEST_BYTES);
                     String action = request.path("action").asText("");
                     String id = request.path("id").isTextual() ? request.path("id").asText() : null;

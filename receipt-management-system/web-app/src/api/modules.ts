@@ -5,6 +5,7 @@ export interface ModuleOption {
   label: string;
   value: string;
   description?: string;
+  taxClassification?: string;
 }
 
 export interface ModuleField {
@@ -59,6 +60,15 @@ export interface ModulePageData {
   submitLabel: string;
   createAction: 'save' | 'send' | 'ask';
   constructionCategories?: ConstructionCategory[];
+  billingConfigurations?: Array<Record<string, unknown>>;
+  billingRetentionReleases?: Array<Record<string, unknown>>;
+  billingLegacyRetention?: Array<Record<string, unknown>>;
+  billingMobilizationBalances?: Array<Record<string, unknown>>;
+  royaltyConfiguration?: Record<string, unknown>;
+  royaltyContracts?: Array<Record<string, unknown>>;
+  royaltySuppliers?: Array<Record<string, unknown>>;
+  royaltyReturns?: Array<Record<string, unknown>>;
+  royaltyEvents?: Array<Record<string, unknown>>;
 }
 
 export interface MapSearchResult {
@@ -84,7 +94,12 @@ export async function searchMapLocations(query: string): Promise<MapSearchResult
 
 export async function saveModuleRecord(
   module: ModuleKey,
-  action: 'save' | 'delete' | 'send' | 'ask' | 'report' | 'publish-release' | 'send-password-reset',
+  action: 'save' | 'delete' | 'send' | 'ask' | 'report' | 'publish-release' | 'send-password-reset'
+    | 'create-billing' | 'amend-billing' | 'save-billing-configuration' | 'decide-billing-adjustment'
+    | 'decide-billing' | 'reverse-billing' | 'attach-billing-documents'
+    | 'record-billing-payment' | 'refund-billing-payment' | 'record-withholding-remittance'
+    | 'release-billing-retention' | 'save-royalty' | 'save-royalty-configuration'
+    | 'record-royalty-return',
   values: Record<string, unknown>,
   id?: string,
 ): Promise<ModulePageData> {

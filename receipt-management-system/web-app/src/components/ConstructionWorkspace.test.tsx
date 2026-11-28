@@ -17,7 +17,10 @@ const categories = [
   },
   {
     title: 'Billing and Finance',
-    tabs: [{ title: 'Payables', table: 'project_payables' }],
+    tabs: [
+      { title: 'Payables', table: 'project_payables' },
+      { title: 'Royalties', table: 'royalty_records' },
+    ],
   },
 ];
 
@@ -55,12 +58,21 @@ const payablesPage: ModulePageData = {
   rows: [{ id: 'payable-1', values: { reference: 'Concrete invoice', amount: null } }],
 };
 
+const royaltiesPage: ModulePageData = {
+  ...payablesPage,
+  title: 'Royalties',
+  description: 'Manage royalty records.',
+  columns: [],
+  fields: [],
+  rows: [],
+};
+
 describe('ConstructionWorkspace', () => {
   afterEach(() => cleanup());
 
   beforeEach(() => {
     loadConstructionPage.mockReset().mockImplementation((table: string) => Promise.resolve(
-      table === 'project_payables' ? payablesPage : contractsPage,
+      table === 'project_payables' ? payablesPage : table === 'royalty_records' ? royaltiesPage : contractsPage,
     ));
     saveModuleRecord.mockReset().mockResolvedValue({
       ...contractsPage,
@@ -86,9 +98,11 @@ describe('ConstructionWorkspace', () => {
     render(<ConstructionWorkspace />);
     await screen.findByText('No contracts records yet');
     fireEvent.click(screen.getByRole('button', { name: 'Add record' }));
+    expect(screen.getByRole('dialog', { name: 'New Contracts' })).toBeInTheDocument();
     fireEvent.change(screen.getByRole('textbox', { name: /Contract name/ }), {
       target: { value: 'North site contract' },
     });
+
     fireEvent.click(screen.getByRole('button', { name: 'Save record' }));
 
     await waitFor(() => expect(saveModuleRecord).toHaveBeenCalledWith(
@@ -98,6 +112,18 @@ describe('ConstructionWorkspace', () => {
       undefined,
     ));
     expect(await screen.findByText('North site contract')).toBeInTheDocument();
+  });
+
+  it('opens Royalties under the existing Billing and Finance category', async () => {
+    render(<ConstructionWorkspace />);
+    await screen.findByText('No contracts records yet');
+    fireEvent.click(screen.getByRole('button', { name: /Billing and Finance/ }));
+    await screen.findByText('Concrete invoice');
+    fireEvent.click(screen.getByRole('button', { name: 'Royalties' }));
+
+    expect(await screen.findByRole('heading', { name: 'Royalties' })).toBeInTheDocument();
+    expect(loadConstructionPage).toHaveBeenLastCalledWith('royalty_records');
+    expect(screen.getByRole('button', { name: 'Company settings' })).toBeInTheDocument();
   });
 
   it('renders an explicit recoverable load error', async () => {

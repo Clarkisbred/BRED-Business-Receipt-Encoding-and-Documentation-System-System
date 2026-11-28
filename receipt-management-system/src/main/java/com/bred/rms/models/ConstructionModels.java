@@ -41,6 +41,13 @@ public final class ConstructionModels {
 
     public record BillingSubmissionCheck(boolean canSubmit, List<String> missingAttachments) {}
 
+    public record BillingWithholdingCalculation(BigDecimal billingAmount,
+                                                BigDecimal vatExclusiveBase,
+                                                BigDecimal finalVatWithholding,
+                                                BigDecimal incomeTaxWithholding,
+                                                BigDecimal totalWithholding,
+                                                BigDecimal netBilling) {}
+
     public record ProjectProfitLoss(BigDecimal revenue, BigDecimal expenses,
                                     BigDecimal profit, BigDecimal marginPercent, String status) {}
 

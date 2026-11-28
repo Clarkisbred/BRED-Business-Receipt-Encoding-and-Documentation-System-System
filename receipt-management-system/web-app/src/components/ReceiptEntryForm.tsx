@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Plus, X } from 'lucide-react';
+import { ChevronDown, Plus, X } from 'lucide-react';
 import Decimal from 'decimal.js';
 import { loadModulePage, saveModuleRecord, type ModulePageData, type ModuleRecord } from '../api/modules';
 import { formatPhilippineTin } from '../utils/tin';
@@ -59,6 +59,7 @@ interface NewSupplier {
   tin: string;
   address: string;
   contactNumber: string;
+  taxClassification: string;
 }
 
 interface ExistingAttachment {
@@ -104,10 +105,15 @@ export function ReceiptEntryForm({ data, saving, receipt, onSavingChange, onCanc
   const [date, setDate] = useState(() => valueText(receipt?.values.date, todayValue()));
   const [type, setType] = useState(() => valueText(receipt?.values.typeValue, 'official_receipt'));
   const [supplierId, setSupplierId] = useState(() => valueText(receipt?.values.supplierId));
+  const [supplierTaxClassification, setSupplierTaxClassification] = useState(
+    () => valueText(receipt?.values.supplierTaxClassification, 'UNCLASSIFIED').toLocaleUpperCase(),
+  );
   const [projectId, setProjectId] = useState(() => valueText(receipt?.values.projectId));
   const [classification, setClassification] = useState(
     () => valueText(receipt?.values.classification).toLocaleUpperCase(),
   );
+  const [classificationMenuOpen, setClassificationMenuOpen] = useState(false);
+  const [activeClassificationIndex, setActiveClassificationIndex] = useState(-1);
   const [paymentMethod, setPaymentMethod] = useState(() => valueText(receipt?.values.paymentMethod, 'Cash'));
   const [notes, setNotes] = useState(() => valueText(receipt?.values.notes));
   const [discount, setDiscount] = useState(() => valueText(receipt?.values.discountValue, '0'));
@@ -125,6 +131,7 @@ export function ReceiptEntryForm({ data, saving, receipt, onSavingChange, onCanc
     tin: '',
     address: '',
     contactNumber: '',
+    taxClassification: 'UNCLASSIFIED',
   });
   const [addingSupplier, setAddingSupplier] = useState(false);
 
@@ -136,18 +143,26 @@ export function ReceiptEntryForm({ data, saving, receipt, onSavingChange, onCanc
     .filter((value) => value && value !== 'UNCLASSIFIED')
     .map((value) => [value.toLocaleLowerCase(), value] as const)).values()]
     .sort((left, right) => left.localeCompare(right));
+  const matchingClassifications = classificationOptions.filter((option) => (
+    !classification.trim() || option.includes(classification.trim().toLocaleUpperCase())
+  ));
   const supplier = supplierOptions.find((option) => option.value === supplierId);
   const subtotal = useMemo(() => items.reduce(
     (sum, item) => sum.plus(amount(item.quantity).mul(amount(item.unitPrice))
       .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)),
     new Decimal(0),
   ).toDecimalPlaces(2, Decimal.ROUND_HALF_UP), [items]);
-  const calculatedVat = Decimal.max(subtotal.minus(amount(discount)), 0).mul('0.12')
-    .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+  const vatApplicable = supplierTaxClassification === 'VAT_REGISTERED';
+  const vatBlocked = supplierTaxClassification === 'NON_VAT' || supplierTaxClassification === 'VAT_EXEMPT';
+  const calculatedVat = vatApplicable
+    ? Decimal.max(subtotal.minus(amount(discount)), 0).mul('0.12')
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+    : new Decimal(0);
   const ewtPercent = amount(ewtRate);
   const grandTotal = subtotal.minus(amount(discount)).plus(amount(vat)).plus(amount(additionalCharges))
     .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
-  const ewtAmount = grandTotal.div('1.12').mul(ewtPercent).div(100)
+  const ewtBase = vatApplicable ? Decimal.max(grandTotal.minus(amount(vat)), 0) : grandTotal;
+  const ewtAmount = ewtBase.mul(ewtPercent).div(100)
     .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
   const netTotal = grandTotal.minus(ewtAmount).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
@@ -201,6 +216,7 @@ export function ReceiptEntryForm({ data, saving, receipt, onSavingChange, onCanc
         tin: newSupplier.tin,
         address: newSupplier.address,
         contactNumber: newSupplier.contactNumber,
+        taxClassification: newSupplier.taxClassification,
       });
       const match = savedSuppliers.rows.find((row) => (
         row.values.businessName === newSupplier.businessName.trim()
@@ -209,8 +225,9 @@ export function ReceiptEntryForm({ data, saving, receipt, onSavingChange, onCanc
       if (!match) throw new Error('Supplier was saved, but BRED could not select it. Refresh the supplier list.');
       setPage(await loadModulePage('RECEIPTS'));
       setSupplierId(match.id);
+      setSupplierTaxClassification(valueText(match.values.taxClassification, 'UNCLASSIFIED').toLocaleUpperCase());
       setSupplierDialog(false);
-      setNewSupplier({ businessName: '', tin: '', address: '', contactNumber: '' });
+      setNewSupplier({ businessName: '', tin: '', address: '', contactNumber: '', taxClassification: 'UNCLASSIFIED' });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'BRED could not save this supplier.');
     } finally {
@@ -249,6 +266,10 @@ export function ReceiptEntryForm({ data, saving, receipt, onSavingChange, onCanc
       setError('EWT percentage must be from 0 to 100.');
       return;
     }
+    if (vatBlocked && amount(vat).greaterThan(0)) {
+      setError('VAT cannot be recorded for a Non-VAT or VAT-exempt supplier.');
+      return;
+    }
     onSavingChange(true);
     try {
       const attachments = await Promise.all(files.map(async (file) => ({
@@ -260,6 +281,7 @@ export function ReceiptEntryForm({ data, saving, receipt, onSavingChange, onCanc
         date,
         type,
         supplierId,
+        supplierTaxClassification,
         projectId,
         classification: classification.trim().toLocaleUpperCase(),
         paymentMethod,
@@ -304,16 +326,101 @@ export function ReceiptEntryForm({ data, saving, receipt, onSavingChange, onCanc
           </label>
           <label className="module-field">
             <span>Category <strong aria-hidden="true">*</strong></span>
-            <input
-              required
-              list="receipt-classifications"
-              value={classification}
-              onChange={(event) => setClassification(event.target.value.toLocaleUpperCase())}
-              disabled={saving}
-            />
-            <datalist id="receipt-classifications">
-              {classificationOptions.map((option) => <option value={option} key={option} />)}
-            </datalist>
+            <div
+              className={`receipt-category-control${classificationMenuOpen ? ' is-open' : ''}`}
+              onBlur={(event) => {
+                if (!(event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget))) {
+                  setClassificationMenuOpen(false);
+                  setActiveClassificationIndex(-1);
+                }
+              }}
+            >
+              <input
+                required
+                role="combobox"
+                aria-label="Category"
+                aria-autocomplete="list"
+                aria-haspopup="listbox"
+                aria-expanded={classificationMenuOpen}
+                aria-controls="receipt-classification-options"
+                aria-activedescendant={classificationMenuOpen && activeClassificationIndex >= 0
+                  ? `receipt-classification-option-${activeClassificationIndex}`
+                  : undefined}
+                value={classification}
+                onFocus={() => setClassificationMenuOpen(true)}
+                onChange={(event) => {
+                  setClassification(event.target.value.toLocaleUpperCase());
+                  setClassificationMenuOpen(true);
+                  setActiveClassificationIndex(-1);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'ArrowDown' && matchingClassifications.length > 0) {
+                    event.preventDefault();
+                    setClassificationMenuOpen(true);
+                    setActiveClassificationIndex((current) => Math.min(current + 1, matchingClassifications.length - 1));
+                  } else if (event.key === 'ArrowUp' && matchingClassifications.length > 0) {
+                    event.preventDefault();
+                    setClassificationMenuOpen(true);
+                    setActiveClassificationIndex((current) => (
+                      current <= 0 ? matchingClassifications.length - 1 : current - 1
+                    ));
+                  } else if (event.key === 'Enter' && classificationMenuOpen && activeClassificationIndex >= 0) {
+                    event.preventDefault();
+                    const selected = matchingClassifications[activeClassificationIndex];
+                    if (selected) setClassification(selected);
+                    setClassificationMenuOpen(false);
+                    setActiveClassificationIndex(-1);
+                  } else if (event.key === 'Escape') {
+                    setClassificationMenuOpen(false);
+                    setActiveClassificationIndex(-1);
+                  }
+                }}
+                disabled={saving}
+              />
+              <button
+                className="receipt-category-toggle"
+                type="button"
+                aria-label={classificationMenuOpen ? 'Hide category suggestions' : 'Show category suggestions'}
+                aria-expanded={classificationMenuOpen}
+                aria-controls="receipt-classification-options"
+                onClick={() => {
+                  setClassificationMenuOpen((open) => !open);
+                  setActiveClassificationIndex(-1);
+                }}
+                disabled={saving}
+              >
+                <ChevronDown aria-hidden="true" size={16} />
+              </button>
+              {classificationMenuOpen && (
+                <div
+                  className="receipt-category-options"
+                  id="receipt-classification-options"
+                  role="listbox"
+                  aria-label="Category suggestions"
+                >
+                  {matchingClassifications.length > 0 ? matchingClassifications.map((option, index) => (
+                    <button
+                      className={`receipt-category-option${classification.toLocaleUpperCase() === option ? ' is-selected' : ''}${activeClassificationIndex === index ? ' is-active' : ''}`}
+                      id={`receipt-classification-option-${index}`}
+                      type="button"
+                      role="option"
+                      aria-selected={classification.toLocaleUpperCase() === option}
+                      key={option}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        setClassification(option);
+                        setClassificationMenuOpen(false);
+                        setActiveClassificationIndex(-1);
+                      }}
+                    >
+                      {option}
+                    </button>
+                  )) : (
+                    <p className="receipt-category-empty">No saved categories. Keep typing to add a new one.</p>
+                  )}
+                </div>
+              )}
+            </div>
           </label>
           <label className="module-field">
             <span>Date <strong aria-hidden="true">*</strong></span>
@@ -334,7 +441,12 @@ export function ReceiptEntryForm({ data, saving, receipt, onSavingChange, onCanc
           </label>
           <label className="module-field receipt-entry-supplier">
             <span>Supplier <strong aria-hidden="true">*</strong></span>
-            <select required value={supplierId} onChange={(event) => setSupplierId(event.target.value)} disabled={saving}>
+            <select required value={supplierId} onChange={(event) => {
+              const nextId = event.target.value;
+              const nextSupplier = supplierOptions.find((option) => option.value === nextId);
+              setSupplierId(nextId);
+              setSupplierTaxClassification(valueText(nextSupplier?.taxClassification, 'UNCLASSIFIED').toLocaleUpperCase());
+            }} disabled={saving}>
               <option value="">Select a supplier…</option>
               {supplierOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
             </select>
@@ -346,8 +458,18 @@ export function ReceiptEntryForm({ data, saving, receipt, onSavingChange, onCanc
             <div className="receipt-supplier-details">
               <span>{formatPhilippineTin(supplier.description?.match(/TIN ([^·]+)/)?.[1]?.trim() ?? '')}</span>
               {supplier.description?.includes(' · ') && <span>{supplier.description.split(' · ').slice(1).join(' · ')}</span>}
+              <span>{valueText(supplier.taxClassification, 'UNCLASSIFIED').replaceAll('_', ' ')}</span>
             </div>
           )}
+          <label className="module-field">
+            <span>Supplier tax classification (transaction snapshot)</span>
+            <select value={supplierTaxClassification} onChange={(event) => setSupplierTaxClassification(event.target.value)} disabled={saving}>
+              <option value="VAT_REGISTERED">VAT Registered</option>
+              <option value="NON_VAT">Non-VAT</option>
+              <option value="VAT_EXEMPT">VAT-exempt</option>
+              <option value="UNCLASSIFIED">Unclassified</option>
+            </select>
+          </label>
           <label className="module-field">
             <span>Account</span>
             <select value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} disabled={saving}>
@@ -411,8 +533,8 @@ export function ReceiptEntryForm({ data, saving, receipt, onSavingChange, onCanc
 
           <section className="receipt-totals" aria-label="Receipt totals">
             <label className="module-field"><span>Discount (₱)</span><input type="number" min="0" step="0.01" value={discount} onChange={(event) => setDiscount(event.target.value)} disabled={saving} /></label>
-            <label className="module-field"><span>VAT (₱)</span><input type="number" min="0" step="0.01" value={vat} onChange={(event) => { setVatAuto(false); setVat(event.target.value); }} disabled={saving} /></label>
-            <button className="button button-secondary receipt-vat-recompute" type="button" onClick={() => setVatAuto(true)} disabled={saving}>Recompute 12%</button>
+            <label className="module-field"><span>Input VAT (₱)</span><input type="number" min="0" step="0.01" value={vat} onChange={(event) => { setVatAuto(false); setVat(event.target.value); }} disabled={saving || vatBlocked} /></label>
+            <button className="button button-secondary receipt-vat-recompute" type="button" onClick={() => setVatAuto(true)} disabled={saving || vatBlocked}>Recompute VAT at 12%</button>
             <label className="module-field"><span>Additional charges (₱)</span><input type="number" min="0" step="0.01" value={additionalCharges} onChange={(event) => setAdditionalCharges(event.target.value)} disabled={saving} /></label>
             <div className="receipt-ewt-control">
               <span>EWT</span>
@@ -455,6 +577,14 @@ export function ReceiptEntryForm({ data, saving, receipt, onSavingChange, onCanc
               <label className="module-field module-field-wide"><span>TIN <strong aria-hidden="true">*</strong></span><input required inputMode="numeric" autoComplete="off" maxLength={17} placeholder="###-###-###-######" value={newSupplier.tin} onChange={(event) => setNewSupplier((current) => ({ ...current, tin: formatPhilippineTin(event.target.value) }))} disabled={addingSupplier} /></label>
               <label className="module-field module-field-wide"><span>Address</span><input value={newSupplier.address} onChange={(event) => setNewSupplier((current) => ({ ...current, address: event.target.value }))} disabled={addingSupplier} /></label>
               <label className="module-field module-field-wide"><span>Contact number</span><input value={newSupplier.contactNumber} onChange={(event) => setNewSupplier((current) => ({ ...current, contactNumber: event.target.value }))} disabled={addingSupplier} /></label>
+              <label className="module-field module-field-wide"><span>Tax classification</span>
+                <select value={newSupplier.taxClassification} onChange={(event) => setNewSupplier((current) => ({ ...current, taxClassification: event.target.value }))} disabled={addingSupplier}>
+                  <option value="VAT_REGISTERED">VAT Registered</option>
+                  <option value="NON_VAT">Non-VAT</option>
+                  <option value="VAT_EXEMPT">VAT-exempt</option>
+                  <option value="UNCLASSIFIED">Unclassified</option>
+                </select>
+              </label>
               <div className="module-form-actions">
                 <button className="button button-secondary" type="button" onClick={() => setSupplierDialog(false)} disabled={addingSupplier}>Cancel</button>
                 <button className="button button-primary" type="submit" disabled={addingSupplier}>{addingSupplier ? 'Saving…' : 'Save supplier'}</button>

@@ -7,6 +7,7 @@ import com.bred.rms.repositories.ReceiptRepository;
 import com.bred.rms.repositories.ProjectRepository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 /** Project rules: required fields, unique code, and delete only when no receipt uses it (admin only). */
@@ -44,5 +45,10 @@ public final class ProjectService {
         long used = receipts.findAll().stream().filter((Receipt r) -> id.equals(r.projectId())).count();
         if (used > 0) throw new ValidationException("Cannot delete: " + used + " receipt(s) use this project.");
         repo.delete(id);
+    }
+
+    public Optional<Receipt> findById(UUID projectId) {
+        // TODO Auto-generated method stub
+        throw new UnsupportedOperationException("Unimplemented method 'findById'");
     }
 }

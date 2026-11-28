@@ -41,6 +41,7 @@ public final class SupabaseSupplierRepository implements SupplierRepository {
         row.put("tin", s.tin().trim());
         row.put("address", s.address() == null ? "" : s.address().trim());
         row.put("contact_number", s.contactNumber() == null ? "" : s.contactNumber().trim());
+        row.put("tax_classification", s.taxClassification());
         try {
             JsonNode saved = s.id() == null ? rest.insert("suppliers", row) : rest.patch("suppliers", "id=eq." + s.id(), row);
             if (!saved.isArray() || saved.isEmpty()) throw new RepositoryException("You don't have permission to do that.", false);
@@ -57,6 +58,7 @@ public final class SupabaseSupplierRepository implements SupplierRepository {
 
     private static Supplier map(JsonNode n) {
         return new Supplier(Json.uuid(n, "id"), Json.text(n, "business_name"), Json.text(n, "tin"),
-                Json.text(n, "address"), Json.text(n, "contact_number"));
+                Json.text(n, "address"), Json.text(n, "contact_number"),
+                n.hasNonNull("tax_classification") ? Json.text(n, "tax_classification") : "UNCLASSIFIED");
     }
 }

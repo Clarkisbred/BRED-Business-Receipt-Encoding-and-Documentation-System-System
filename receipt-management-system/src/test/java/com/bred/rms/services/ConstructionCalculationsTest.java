@@ -10,6 +10,42 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class ConstructionCalculationsTest {
     @Test
+    void exactBillingWithholdingCalculation() {
+        ConstructionModels.BillingWithholdingCalculation result =
+                ConstructionCalculations.billingWithholding(
+                        new BigDecimal("1174587.71"), new BigDecimal("5"), new BigDecimal("2"));
+        assertEquals(new BigDecimal("1048739.03"), result.vatExclusiveBase());
+        assertEquals(new BigDecimal("52436.95"), result.finalVatWithholding());
+        assertEquals(new BigDecimal("20974.78"), result.incomeTaxWithholding());
+        assertEquals(new BigDecimal("73411.73"), result.totalWithholding());
+        assertEquals(new BigDecimal("1101175.98"), result.netBilling());
+    }
+
+    @Test
+    void billingWithholdingHandlesZeroAndDifferentRates() {
+        ConstructionModels.BillingWithholdingCalculation zero =
+                ConstructionCalculations.billingWithholding(BigDecimal.ZERO,
+                        new BigDecimal("5"), new BigDecimal("2"));
+        assertEquals(BigDecimal.ZERO.setScale(2), zero.vatExclusiveBase());
+        assertEquals(BigDecimal.ZERO.setScale(2), zero.totalWithholding());
+        assertEquals(BigDecimal.ZERO.setScale(2), zero.netBilling());
+
+        ConstructionModels.BillingWithholdingCalculation different =
+                ConstructionCalculations.billingWithholding(
+                        new BigDecimal("112000.00"), new BigDecimal("10"), new BigDecimal("3"));
+        assertEquals(new BigDecimal("100000.00"), different.vatExclusiveBase());
+        assertEquals(new BigDecimal("10000.00"), different.finalVatWithholding());
+        assertEquals(new BigDecimal("3000.00"), different.incomeTaxWithholding());
+        assertEquals(new BigDecimal("99000.00"), different.netBilling());
+
+        assertThrows(IllegalArgumentException.class,
+                () -> ConstructionCalculations.billingWithholding(
+                        new BigDecimal("-1"), new BigDecimal("5"), new BigDecimal("2")));
+        assertThrows(IllegalArgumentException.class,
+                () -> ConstructionCalculations.billingWithholding(
+                        new BigDecimal("100"), new BigDecimal("101"), new BigDecimal("2")));
+    }
+    @Test
     void advanceRecoveryNeverExceedsBalance() {
         assertEquals(new BigDecimal("3.00"),
                 ConstructionCalculations.capRecovery(new BigDecimal("5.00"), new BigDecimal("3.00")));

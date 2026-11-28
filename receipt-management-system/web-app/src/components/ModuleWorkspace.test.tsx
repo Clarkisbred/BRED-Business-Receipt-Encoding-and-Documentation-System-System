@@ -15,10 +15,17 @@ const projectPage: ModulePageData = {
   key: 'PROJECTS',
   title: 'Projects',
   description: 'Manage project records.',
-  metrics: [{ label: 'Total projects', value: '1' }],
-  columns: [{ key: 'name', label: 'Project' }, { key: 'code', label: 'Code' }],
-  fields: [{ key: 'name', label: 'Project name', type: 'text', required: true }],
-  rows: [{ id: 'project-1', values: { name: 'North site', code: 'N-01' } }],
+  metrics: [
+    { label: 'Total projects', value: '1' },
+    { label: 'Project income', value: '₱500,000.00', note: 'Approved and recorded billings' },
+  ],
+  columns: [{ key: 'name', label: 'Project' }, { key: 'code', label: 'Code' }, { key: 'income', label: 'Project income', numeric: true }],
+  fields: [
+    { key: 'name', label: 'Project name', type: 'text', required: true },
+    { key: 'contractAmount', label: 'Contract amount', type: 'number', required: false },
+    { key: 'revisedContractAmount', label: 'Revised contract amount', type: 'number', required: false },
+  ],
+  rows: [{ id: 'project-1', values: { name: 'North site', code: 'N-01', contractAmount: '500000', revisedContractAmount: '500000', income: '₱500,000.00' } }],
   canCreate: true,
   canEdit: true,
   canDelete: false,
@@ -247,6 +254,7 @@ describe('ModuleWorkspace', () => {
     await screen.findByText('North site');
 
     fireEvent.click(screen.getByRole('button', { name: 'New project' }));
+    expect(screen.getByRole('dialog', { name: 'New project' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/Project name/), {
       target: { value: 'South site' },
     });
@@ -259,6 +267,42 @@ describe('ModuleWorkspace', () => {
       undefined,
     ));
     expect(await screen.findByText('South site')).toBeInTheDocument();
+  });
+
+  it('closes the project form on Escape and returns focus to its opener', async () => {
+    render(<ModuleWorkspace module="PROJECTS" />);
+    await screen.findByText('North site');
+
+    const openButton = screen.getByRole('button', { name: 'New project' });
+    openButton.focus();
+    fireEvent.click(openButton);
+    expect(screen.getByRole('dialog', { name: 'New project' })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog', { name: 'New project' })).not.toBeInTheDocument();
+    expect(openButton).toHaveFocus();
+  });
+
+  it('formats project amounts and submits an editable revised contract amount', async () => {
+    render(<ModuleWorkspace module="PROJECTS" />);
+    await screen.findByText('North site');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit North site' }));
+    expect(screen.getByRole('dialog', { name: 'Edit record' })).toBeInTheDocument();
+    const revisedInput = screen.getByLabelText(/Revised contract amount/);
+    fireEvent.change(revisedInput, { target: { value: '1250000' } });
+    expect(revisedInput).toHaveValue('1,250,000');
+    fireEvent.click(screen.getByRole('button', { name: 'Save project' }));
+
+    await waitFor(() => expect(saveModuleRecord).toHaveBeenCalledWith(
+      'PROJECTS',
+      'save',
+      expect.objectContaining({
+        revisedContractAmount: '1,250,000',
+      }),
+      'project-1',
+    ));
   });
 
   it('lets the Creator send a password reset email from Users', async () => {
@@ -421,10 +465,13 @@ describe('ModuleWorkspace', () => {
 
     await screen.findByText('Receipts');
     fireEvent.click(screen.getByRole('button', { name: /New receipt/ }));
+    expect(screen.getByRole('dialog', { name: 'New receipt' })).toBeInTheDocument();
     fireEvent.change(screen.getByLabelText(/Receipt number/), { target: { value: 'OR-300' } });
-    fireEvent.change(screen.getByRole('combobox', { name: /Supplier/ }), { target: { value: 'supplier-1' } });
-    fireEvent.change(screen.getByLabelText(/Category/), { target: { value: 'materials' } });
-    expect(screen.getByLabelText(/Category/)).toHaveValue('MATERIALS');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Supplier' }), { target: { value: 'supplier-1' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: 'materials' } });
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Category' }), { key: 'ArrowDown' });
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Category' }), { key: 'Enter' });
+    expect(screen.getByRole('combobox', { name: 'Category' })).toHaveValue('MATERIALS');
     fireEvent.change(screen.getByLabelText('Item 1 description'), { target: { value: 'Cement' } });
     fireEvent.change(screen.getByLabelText('Item 1 quantity'), { target: { value: '2' } });
     fireEvent.change(screen.getByLabelText('Item 1 unit'), { target: { value: 'kg' } });
@@ -457,7 +504,10 @@ describe('ModuleWorkspace', () => {
       undefined,
     ));
     fireEvent.click(await screen.findByRole('button', { name: /New receipt/ }));
-    expect(document.querySelector('#receipt-classifications option[value="FUEL"]')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show category suggestions' }));
+    expect(screen.getByRole('option', { name: 'FUEL' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('option', { name: 'FUEL' }));
+    expect(screen.getByRole('combobox', { name: 'Category' })).toHaveValue('FUEL');
   });
 
   it('edits receipt items and removes saved attachments', async () => {
@@ -491,8 +541,8 @@ describe('ModuleWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     expect(screen.getByRole('heading', { name: 'Edit receipt' })).toBeInTheDocument();
     expect(screen.getByLabelText('Item 1 unit price')).toHaveValue(500);
-    fireEvent.change(screen.getByLabelText(/Category/), { target: { value: 'materials' } });
-    expect(screen.getByLabelText(/Category/)).toHaveValue('MATERIALS');
+    fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: 'materials' } });
+    expect(screen.getByRole('combobox', { name: 'Category' })).toHaveValue('MATERIALS');
     fireEvent.change(screen.getByLabelText('Item 1 unit price'), { target: { value: '600' } });
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));

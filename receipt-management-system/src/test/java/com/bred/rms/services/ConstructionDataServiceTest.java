@@ -17,8 +17,15 @@ class ConstructionDataServiceTest {
                      {"project_id":"22222222-0000-0000-0000-000000000001",
                       "gross_amount":50,"net_amount":50,"collected_amount":20,"status":"Certified"},
                      {"project_id":"22222222-0000-0000-0000-000000000002",
-                      "gross_amount":80,"net_amount":80,"collected_amount":100,"status":"Certified"}]
+                      "gross_amount":80,"net_amount":80,"collected_amount":100,"status":"Certified"},
+                     {"project_id":"22222222-0000-0000-0000-000000000002",
+                      "gross_amount":1000,"net_amount":1000,"collected_amount":0,"status":"Draft"},
+                     {"project_id":"22222222-0000-0000-0000-000000000002",
+                      "gross_amount":2000,"net_amount":2000,"collected_amount":0,"status":"Cancelled"}]
                     """);
+            env.fake.on("GET", "/rest/v1/project_billing_adjustments", 200, "[]");
+            env.fake.on("GET", "/rest/v1/project_billing_retention_releases", 200, "[]");
+            env.fake.on("GET", "/rest/v1/retention_ledger", 200, "[]");
 
             var analytics = new ConstructionDataService(env.rest).billingAnalytics();
 
@@ -31,6 +38,31 @@ class ConstructionDataServiceTest {
             assertEquals(0, new BigDecimal("60").compareTo(analytics.byProject().get(0).collected()));
             assertEquals(0, new BigDecimal("80").compareTo(analytics.byProject().get(0).receivable()));
             assertEquals(0, BigDecimal.ZERO.compareTo(analytics.byProject().get(1).receivable()));
+        }
+    }
+
+    @Test
+    void retentionReleasesCountAsCollectionsWithoutReducingReceivablesTwice() {
+        try (TestEnv env = new TestEnv()) {
+            env.fake.on("GET", "/rest/v1/project_billings", 200, """
+                    [{"id":"billing-1","project_id":"project-1","gross_amount":1000,
+                      "net_amount":900,"collected_amount":100,"status":"Approved"}]
+                    """);
+            env.fake.on("GET", "/rest/v1/project_billing_adjustments", 200, """
+                    [{"billing_id":"billing-1","adjustment_type":"retention",
+                      "approval_status":"Approved","amount":100}]
+                    """);
+            env.fake.on("GET", "/rest/v1/project_billing_retention_releases", 200, """
+                    [{"project_id":"project-1","amount":40}]
+                    """);
+            env.fake.on("GET", "/rest/v1/retention_ledger", 200, "[]");
+
+            var analytics = new ConstructionDataService(env.rest).billingAnalytics();
+
+            assertEquals(0, new BigDecimal("140").compareTo(analytics.summary().collected()));
+            assertEquals(0, new BigDecimal("860").compareTo(analytics.summary().receivable()));
+            assertEquals(0, new BigDecimal("140").compareTo(analytics.byProject().get(0).collected()));
+            assertEquals(0, new BigDecimal("860").compareTo(analytics.byProject().get(0).receivable()));
         }
     }
 

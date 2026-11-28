@@ -21,18 +21,21 @@ import com.bred.rms.repositories.AttachmentException;
 import com.bred.rms.repositories.AttachmentRules;
 import com.bred.rms.security.Module;
 import com.bred.rms.services.ReceiptQuery;
+import com.bred.rms.supabase.SupabaseException;
 import com.bred.rms.ui.construction.ConstructionPanel;
 import com.bred.rms.ui.theme.ThemeManager;
 import com.bred.rms.ui.map.NominatimGeocoder;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
 
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.Base64;
 import java.util.HashSet;
@@ -103,6 +106,16 @@ final class ReactWorkspaceService {
             }
             return load(module);
         }
+        if (module == Module.CONSTRUCTION && isBillingAction(action)) {
+            JsonNode input = values == null || !values.isObject() ? null : values;
+            if (input == null) throw new IllegalArgumentException("The billing request must be an object.");
+            return applyBillingAction(action, id, input);
+        }
+        if (module == Module.CONSTRUCTION && isRoyaltyAction(action)) {
+            JsonNode input = values == null || !values.isObject() ? null : values;
+            if (input == null) throw new IllegalArgumentException("The royalty request must be an object.");
+            return applyRoyaltyAction(action, id, input);
+        }
         if (!"save".equals(action) && !"send".equals(action) && !"ask".equals(action)
                 && !"report".equals(action) && !"publish-release".equals(action)) {
             throw new IllegalArgumentException("Choose a supported workspace action.");
@@ -161,22 +174,93 @@ final class ReactWorkspaceService {
             spend.merge(receipt.projectId(), receipt.grandTotal(), BigDecimal::add);
             counts.merge(receipt.projectId(), 1, Integer::sum);
         }
-        List<LocalApiServer.ModuleRecord> rows = projects.stream().map(project -> record(
+        Map<UUID, BigDecimal> income = new LinkedHashMap<>();
+        Map<UUID, Integer> billingCounts = new LinkedHashMap<>();
+        Map<UUID, BigDecimal> revisedContract = new LinkedHashMap<>();
+        projects.forEach(project -> {
+            revisedContract.put(project.id(), project.revisedContractAmount().signum() > 0
+                    ? project.revisedContractAmount() : project.contractAmount());
+            income.put(project.id(), BigDecimal.ZERO);
+        });
+        if (context.supabaseRest != null) {
+            try {
+                for (JsonNode billing : context.supabaseRest.selectAll("project_billings",
+                        "select=project_id,net_amount,status&status=neq.Cancelled")) {
+                    UUID projectId = uuidOrNull(billing.path("project_id").asText());
+                    if (projectId == null) continue;
+                    BigDecimal amount = billing.path("net_amount").isNumber()
+                            ? billing.path("net_amount").decimalValue() : BigDecimal.ZERO;
+                    income.merge(projectId, amount, BigDecimal::add);
+                    billingCounts.merge(projectId, 1, Integer::sum);
+                }
+                for (JsonNode variation : context.supabaseRest.selectAll("project_variation_orders",
+                        "select=project_id,amount_effect&status=eq.Approved")) {
+                    UUID projectId = uuidOrNull(variation.path("project_id").asText());
+                    if (projectId == null) continue;
+                    BigDecimal effect = variation.path("amount_effect").isNumber()
+                            ? variation.path("amount_effect").decimalValue() : BigDecimal.ZERO;
+                    Project project = projects.stream().filter(item -> item.id().equals(projectId)).findFirst().orElse(null);
+                    if (project == null || project.revisedContractAmount().signum() == 0) {
+                        revisedContract.merge(projectId, effect, BigDecimal::add);
+                    }
+                }
+            } catch (SupabaseException ignored) {
+                // The project panel still shows receipt spend and original contract values.
+            }
+        }
+        BigDecimal totalIncome = income.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalSpend = spend.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalProfit = totalIncome.subtract(totalSpend);
+        BigDecimal profitPercent = totalIncome.compareTo(BigDecimal.ZERO) == 0
+                ? BigDecimal.ZERO
+                : totalProfit.multiply(BigDecimal.valueOf(100)).divide(totalIncome, 2, java.math.RoundingMode.HALF_UP);
+        List<LocalApiServer.ModuleMetricPoint> profitChart = projects.stream().map(project -> {
+            BigDecimal projectIncome = income.getOrDefault(project.id(), BigDecimal.ZERO);
+            BigDecimal projectProfit = projectIncome.subtract(spend.getOrDefault(project.id(), BigDecimal.ZERO));
+            return new LocalApiServer.ModuleMetricPoint(project.name(), projectProfit);
+        }).toList();
+        List<LocalApiServer.ModuleRecord> rows = projects.stream().map(project -> {
+            BigDecimal projectIncome = income.getOrDefault(project.id(), BigDecimal.ZERO);
+            BigDecimal projectSpend = spend.getOrDefault(project.id(), BigDecimal.ZERO);
+            BigDecimal projectProfit = projectIncome.subtract(projectSpend);
+            BigDecimal revised = revisedContract.getOrDefault(project.id(), project.contractAmount());
+            BigDecimal revisionEffect = revised.subtract(project.contractAmount());
+            return record(
                 project.id().toString(),
                 "name", project.name(),
                 "code", project.code(),
                 "fundSource", project.fundSource(),
+                "contractAmount", money(project.contractAmount()),
+                "revisedContractAmount", money(revised),
+                "revisionEffect", money(revisionEffect),
                 "receiptCount", counts.getOrDefault(project.id(), 0),
-                "spend", money(spend.getOrDefault(project.id(), BigDecimal.ZERO))))
-                .toList();
+                "billingCount", billingCounts.getOrDefault(project.id(), 0),
+                "billings", money(projectIncome),
+                "income", money(projectIncome),
+                "spend", money(projectSpend),
+                "profitLoss", money(projectProfit),
+                "profitLossStatus", projectProfit.signum() >= 0 ? "Profit" : "Loss");
+        }).toList();
         return page(Module.PROJECTS, "Projects", "Manage project records and review receipt activity.",
-                List.of(metric("Total projects", projects.size()), metric("Projects with receipts", counts.size())),
+                List.of(metric("Total projects", projects.size()),
+                        metric("Projects with receipts", counts.size()),
+                        metric("Project income", pesoMoney(totalIncome),
+                                "Approved and recorded billings"),
+                        chartMetric("Profit / Loss", pesoMoney(totalProfit),
+                                profitPercent + "% " + (totalProfit.signum() >= 0 ? "profit margin" : "loss margin"),
+                                profitChart)),
                 List.of(column("name", "Project"), column("code", "Code"),
                         column("fundSource", "Fund source"), column("receiptCount", "Receipts", true),
-                        column("spend", "Receipt spend", true)),
+                        column("billingCount", "Billings", true),
+                        column("income", "Project income", true),
+                        column("spend", "Receipt spend", true),
+                        column("profitLoss", "Profit / Loss", true),
+                        column("revisedContractAmount", "Revised contract", true)),
                 List.of(field("name", "Project name", "text", true),
                         field("code", "Project code", "text", true),
-                        field("fundSource", "Fund source", "text", false)),
+                        field("fundSource", "Fund source", "text", false),
+                        field("contractAmount", "Contract amount", "number", false),
+                        field("revisedContractAmount", "Revised contract amount", "number", false)),
                 rows, true, true, currentRole().canManageCompany(), "New project", "Save project", "save");
     }
 
@@ -187,16 +271,24 @@ final class ReactWorkspaceService {
                 "businessName", supplier.businessName(),
                 "tin", supplier.tin(),
                 "address", supplier.address(),
-                "contactNumber", supplier.contactNumber()))
+                "contactNumber", supplier.contactNumber(),
+                "taxClassification", supplier.taxClassification()))
                 .toList();
         return page(Module.SUPPLIERS, "Suppliers", "Maintain supplier details used by receipts and project records.",
                 List.of(metric("Total suppliers", suppliers.size())),
                 List.of(column("businessName", "Supplier"), column("tin", "TIN"),
+                        column("taxClassification", "Tax classification"),
                         column("address", "Address"), column("contactNumber", "Contact")),
                 List.of(field("businessName", "Business name", "text", true),
                         field("tin", "Tax identification number", "text", true),
                         field("address", "Address", "text", false),
-                        field("contactNumber", "Contact number", "text", false)),
+                        field("contactNumber", "Contact number", "text", false),
+                        field("taxClassification", "Tax classification", "select", true,
+                                List.of(option("VAT Registered", "VAT_REGISTERED"),
+                                        option("Non-VAT", "NON_VAT"),
+                                        option("VAT-exempt", "VAT_EXEMPT"),
+                                        option("Unclassified", "UNCLASSIFIED")),
+                                "UNCLASSIFIED")),
                 rows, true, true, currentRole().canManageCompany(), "New supplier", "Save supplier", "save");
     }
 
@@ -207,8 +299,10 @@ final class ReactWorkspaceService {
         Map<UUID, Project> projects = new LinkedHashMap<>();
         context.projects.findAll().forEach(project -> projects.put(project.id(), project));
         List<LocalApiServer.ModuleOption> supplierOptions = suppliers.values().stream()
-                .map(supplier -> option(supplier.businessName(), supplier.id().toString(),
-                        "TIN " + supplier.tin() + (supplier.address().isBlank() ? "" : " · " + supplier.address())))
+                .map(supplier -> new LocalApiServer.ModuleOption(supplier.businessName(),
+                        supplier.id().toString(),
+                        "TIN " + supplier.tin() + (supplier.address().isBlank() ? "" : " · " + supplier.address()),
+                        supplier.taxClassification()))
                 .toList();
         List<LocalApiServer.ModuleOption> projectOptions = projects.values().stream()
                 .map(project -> option(project.name(), project.id().toString())).toList();
@@ -220,6 +314,7 @@ final class ReactWorkspaceService {
                 "supplierId", receipt.supplierId(),
                 "supplier", suppliers.containsKey(receipt.supplierId())
                         ? suppliers.get(receipt.supplierId()).businessName() : "Unavailable supplier",
+                "supplierTaxClassification", receipt.supplierTaxClassification(),
                 "supplierTin", suppliers.containsKey(receipt.supplierId())
                         ? suppliers.get(receipt.supplierId()).tin() : "",
                 "supplierAddress", suppliers.containsKey(receipt.supplierId())
@@ -270,6 +365,7 @@ final class ReactWorkspaceService {
                                 .reduce(BigDecimal.ZERO, BigDecimal::add)))),
                 List.of(column("receiptNo", "Receipt no."), column("date", "Date"),
                         column("type", "Document type"), column("supplier", "Supplier"),
+                        column("supplierTaxClassification", "Supplier tax class"),
                         column("project", "Project"), column("classification", "Category"),
                         column("netTotal", "Net payable", true)),
                 List.of(field("receiptNo", "Receipt number", "text", true),
@@ -372,12 +468,17 @@ final class ReactWorkspaceService {
         ConstructionPanel.WorkspaceTab tab = table == null || table.isBlank()
                 ? availableTabs.get(0) : ConstructionPanel.workspaceTab(table);
         if (tab == null) throw new IllegalArgumentException("Choose a valid construction section.");
+        if ("royalty_records".equals(tab.table())) return royaltiesPage();
 
         List<JsonNode> sourceRows = context.constructionData.rows(tab.table());
+        Map<String, Map<String, Object>> billingDetails = "project_billings".equals(tab.table())
+                && context.supabaseRest != null
+                ? constructionBillingDetails() : Map.of();
         List<LocalApiServer.ModuleRecord> rows = sourceRows.stream()
                 .map(source -> {
                     Map<String, Object> values = new LinkedHashMap<>();
                     tab.fields().forEach(field -> values.put(field.key(), jsonValue(source.get(field.key()))));
+                    values.putAll(billingDetails.getOrDefault(text(source, "id"), Map.of()));
                     return new LocalApiServer.ModuleRecord(text(source, "id"), values);
                 })
                 .toList();
@@ -399,11 +500,7 @@ final class ReactWorkspaceService {
         costAnalytics.byProject().forEach(project ->
                 varianceByProject.put(project.projectId(), project.variance()));
         var recordBreakdown = constructionRecordBreakdown(sourceRows, tab.title(), projectNames);
-        List<LocalApiServer.ConstructionCategory> categories = ConstructionPanel.workspaceCategories().stream()
-                .map(category -> new LocalApiServer.ConstructionCategory(category.title(),
-                        category.tabs().stream().map(item ->
-                                new LocalApiServer.ConstructionTabInfo(item.title(), item.table())).toList()))
-                .toList();
+        List<LocalApiServer.ConstructionCategory> categories = constructionCategories();
         List<LocalApiServer.ModuleField> fields = tab.fields().stream()
                 .map(field -> {
                     List<LocalApiServer.ModuleOption> options = "project_id".equals(field.key())
@@ -419,6 +516,17 @@ final class ReactWorkspaceService {
                 .map(field -> column(field.key(), field.label(), "NUMBER".equals(field.type())))
                 .toList();
         boolean canWrite = context.supabaseRest != null && currentRole().canManageCompany();
+        boolean billingWorkflow = "project_billings".equals(tab.table());
+        boolean canEdit = canWrite && (!isBillingTable(tab.table()) || billingWorkflow);
+        boolean canDelete = canWrite && !isBillingTable(tab.table());
+        List<Map<String, Object>> billingConfigurations = "project_billings".equals(tab.table())
+                ? projectBillingRows("project_billing_configurations") : List.of();
+        List<Map<String, Object>> billingRetentionReleases = "project_billings".equals(tab.table())
+                ? projectBillingRows("project_billing_retention_releases") : List.of();
+        List<Map<String, Object>> billingLegacyRetention = "project_billings".equals(tab.table())
+                ? projectBillingRows("retention_ledger") : List.of();
+        List<Map<String, Object>> billingMobilizationBalances = "project_billings".equals(tab.table())
+                ? projectBillingRows("advance_payment_recoveries") : List.of();
         return new LocalApiServer.ModulePageData(Module.CONSTRUCTION.name(), tab.title(),
                 "Manage " + tab.title().toLowerCase(java.util.Locale.ROOT) + " records.",
                 List.of(chartMetric("Gross billings", money(summary.grossBillings()), "By project",
@@ -431,9 +539,133 @@ final class ReactWorkspaceService {
                                 projectMetricPoints(varianceByProject, projectNames)),
                         chartMetric(tab.title() + " records", String.valueOf(rows.size()),
                                 recordBreakdown.note(), recordBreakdown.points())),
-                columns, fields, rows, canWrite, canWrite, canWrite,
+                columns, fields, rows, canWrite && (!isBillingTable(tab.table()) || billingWorkflow),
+                canEdit, canDelete,
                 "Add " + tab.title().toLowerCase(java.util.Locale.ROOT),
-                "Save record", "save", categories);
+                "Save record", "save", categories, billingConfigurations, billingRetentionReleases,
+                billingLegacyRetention, billingMobilizationBalances);
+    }
+
+    private LocalApiServer.ModulePageData royaltiesPage() {
+        User user = currentUser();
+        UUID companyId = user.companyId();
+        boolean connected = context.supabaseRest != null;
+        if (connected && companyId == null) {
+            throw new IllegalStateException("Assign this account to a company before opening Royalties.");
+        }
+        boolean canWrite = connected && currentRole().canManageCompany();
+        List<LocalApiServer.ModuleRecord> records = new ArrayList<>();
+        List<Map<String, Object>> contracts = new ArrayList<>();
+        List<Map<String, Object>> suppliers = new ArrayList<>();
+        List<Map<String, Object>> returns = new ArrayList<>();
+        List<Map<String, Object>> events = new ArrayList<>();
+        Map<String, Object> configuration = defaultRoyaltyConfiguration();
+        if (connected) {
+            try {
+                String companyFilter = "&company_id=eq." + companyId;
+                List<Map<String, Object>> savedRecords = royaltyRows(
+                        "royalty_records", "select=*" + companyFilter
+                                + "&order=billing_date.asc,created_at.asc");
+                records.addAll(savedRecords.stream()
+                        .map(row -> new LocalApiServer.ModuleRecord(mapText(row, "id"), row)).toList());
+                List<Map<String, Object>> savedConfiguration = royaltyRows(
+                        "royalty_company_settings", "select=*" + companyFilter);
+                if (!savedConfiguration.isEmpty()) configuration = savedConfiguration.get(0);
+                contracts.addAll(royaltyRows("project_contracts",
+                        "select=id,project_id,client_name,contract_name,contract_amount"
+                                + companyFilter + "&order=contract_name.asc"));
+                returns.addAll(royaltyRows("royalty_returns",
+                        "select=*" + companyFilter + "&order=return_date.asc,created_at.asc"));
+                events.addAll(royaltyRows("royalty_record_events",
+                        "select=*" + companyFilter + "&order=created_at.asc"));
+                suppliers.addAll(royaltyRows("suppliers",
+                        "select=id,business_name,tax_classification" + companyFilter
+                                + "&order=business_name.asc"));
+                List<Map<String, Object>> projects = royaltyRows("projects",
+                        "select=id,name" + companyFilter);
+                Map<String, String> projectNames = new LinkedHashMap<>();
+                projects.forEach(project ->
+                        projectNames.put(mapText(project, "id"), mapText(project, "name")));
+                contracts.forEach(contract ->
+                        contract.put("project_name", projectNames.getOrDefault(
+                                mapText(contract, "project_id"), "Project not available")));
+            } catch (SupabaseException error) {
+                throw new IllegalStateException("Royalty records could not be loaded: " + error.getMessage(), error);
+            }
+        }
+
+        BigDecimal totalBilling = royaltySum(records, "billing_amount");
+        BigDecimal totalRoyalties = royaltySum(records, "royalty_amount");
+        BigDecimal pendingReturn = records.stream()
+                .filter(row -> "pending".equalsIgnoreCase(mapText(row.values(), "status")))
+                .map(row -> amount(row.values(), "outstanding_return"))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalReturned = royaltySum(records, "returned_amount");
+        return new LocalApiServer.ModulePageData(Module.CONSTRUCTION.name(), "Royalties",
+                context.supabaseRest == null
+                        ? "Connect to the Cloud Database to manage company-scoped royalty records."
+                        : "Manage saved royalty records, withholding returns, and company-specific calculation settings.",
+                List.of(metric("Gross billing", money(totalBilling)),
+                        metric("Royalty accrued", money(totalRoyalties)),
+                        metric("Pending returns", money(pendingReturn)),
+                        metric("Amount returned", money(totalReturned)),
+                        metric("Records", records.size())),
+                List.of(column("client_name", "Client"), column("billing_date", "Billing date"),
+                        column("billing_amount", "Billing amount", true),
+                        column("royalty_amount", "Royalty", true),
+                        column("withholding_amount", "Withholding", true),
+                        column("status", "Return status")),
+                List.of(), records, canWrite, canWrite, false, "New royalty record",
+                "Save royalty record", "save", constructionCategories(),
+                List.of(), List.of(), List.of(), List.of(), configuration, contracts, suppliers, returns, events);
+    }
+
+    private List<Map<String, Object>> royaltyRows(String table, String query) throws SupabaseException {
+        return context.supabaseRest.selectAll(table, query).stream()
+                .map(row -> JSON.convertValue(row, new TypeReference<Map<String, Object>>() { }))
+                .toList();
+    }
+
+    private static BigDecimal royaltySum(List<LocalApiServer.ModuleRecord> rows, String key) {
+        return rows.stream().map(row -> amount(row.values(), key))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private static BigDecimal amount(Map<String, Object> values, String key) {
+        Object value = values.get(key);
+        if (value == null) return BigDecimal.ZERO;
+        if (value instanceof BigDecimal decimal) return decimal;
+        return new BigDecimal(value.toString());
+    }
+
+    private static String mapText(Map<String, Object> values, String key) {
+        Object value = values.get(key);
+        return value == null ? "" : value.toString();
+    }
+
+    private static Map<String, Object> defaultRoyaltyConfiguration() {
+        Map<String, Object> defaults = new LinkedHashMap<>();
+        defaults.put("default_vat_rate", null);
+        defaults.put("default_royalty_rate", new BigDecimal("3"));
+        defaults.put("default_royalty_basis", "VAT_EXCLUSIVE");
+        defaults.put("default_withholding_rate", new BigDecimal("2"));
+        defaults.put("default_withholding_basis", "VAT_EXCLUSIVE");
+        defaults.put("default_additional_withholding_rate", null);
+        defaults.put("default_additional_withholding_basis", "VAT_EXCLUSIVE");
+        defaults.put("default_ewt_rate", null);
+        defaults.put("default_ewt_basis", "VAT_EXCLUSIVE");
+        defaults.put("default_retention_rate", null);
+        defaults.put("default_retention_basis", "VAT_EXCLUSIVE");
+        defaults.put("deduction_confirmation_threshold", new BigDecimal("10000"));
+        return defaults;
+    }
+
+    private static List<LocalApiServer.ConstructionCategory> constructionCategories() {
+        return ConstructionPanel.workspaceCategories().stream()
+                .map(category -> new LocalApiServer.ConstructionCategory(category.title(),
+                        category.tabs().stream().map(item ->
+                                new LocalApiServer.ConstructionTabInfo(item.title(), item.table())).toList()))
+                .toList();
     }
 
     private static ConstructionRecordBreakdown constructionRecordBreakdown(
@@ -492,6 +724,12 @@ final class ReactWorkspaceService {
         String table = text(input, "table");
         ConstructionPanel.WorkspaceTab tab = ConstructionPanel.workspaceTab(table);
         if (tab == null) throw new IllegalArgumentException("Choose a valid construction section.");
+        if (isBillingTable(table)) {
+            throw new IllegalArgumentException("Billing records must be managed through the billing workflow.");
+        }
+        if (isRoyaltyTable(table)) {
+            throw new IllegalArgumentException("Royalty records must be managed through the royalty workflow.");
+        }
         requireConstructionWrite();
         UUID recordId = optionalUuid(id);
         Map<String, Object> values = new LinkedHashMap<>();
@@ -515,6 +753,12 @@ final class ReactWorkspaceService {
         String table = text(input, "table");
         ConstructionPanel.WorkspaceTab tab = ConstructionPanel.workspaceTab(table);
         if (tab == null) throw new IllegalArgumentException("Choose a valid construction section.");
+        if (isBillingTable(table)) {
+            throw new IllegalArgumentException("Billing records cannot be deleted. Use the authorized billing reversal workflow.");
+        }
+        if (isRoyaltyTable(table)) {
+            throw new IllegalArgumentException("Royalty records are audit-preserved and cannot be deleted.");
+        }
         requireConstructionWrite();
         context.constructionData.deleteRow(tab.table(), uuid(id, "Choose a record to delete."));
         return construction(tab.table());
@@ -529,10 +773,287 @@ final class ReactWorkspaceService {
         }
     }
 
+    private LocalApiServer.ModulePageData applyBillingAction(String action, String id, JsonNode input) {
+            if (!"project_billings".equals(text(input, "table"))) {
+                throw new IllegalArgumentException("Choose the Billings section to manage billing transactions.");
+            }
+            requireConstructionWrite();
+            if (context.supabaseRest == null) {
+                throw new IllegalStateException("Billing transactions require a Cloud Database connection.");
+            }
+            Map<String, Object> args = new LinkedHashMap<>();
+            try {
+                switch (action) {
+                    case "create-billing" -> {
+                        JsonNode result = context.supabaseRest.rpc("create_project_billing", Map.of("p_payload", input));
+                        if (input.path("attachments").isArray() && !input.path("attachments").isEmpty()) {
+                            uploadBillingDocuments(uuid(result.path("id").asText(), "The billing was saved without a usable record id."),
+                                    input.path("attachments"));
+                        }
+                    }
+                    case "amend-billing" -> {
+                        args.put("p_billing_id", id == null ? text(input, "billing_id") : id);
+                        args.put("p_payload", input);
+                        args.put("p_reason", nullableText(input, "amendment_reason"));
+                        context.supabaseRest.rpc("amend_project_billing", args);
+                    }
+                    case "save-billing-configuration" -> {
+                        args.put("p_project_id", text(input, "project_id"));
+                        args.put("p_contract_id", nullableText(input, "contract_id"));
+                        args.put("p_settings", input.path("settings"));
+                        context.supabaseRest.rpc("save_project_billing_configuration", args);
+                    }
+                    case "decide-billing-adjustment" -> {
+                        args.put("p_adjustment_id", text(input, "adjustment_id"));
+                        args.put("p_approve", input.path("approve").asBoolean(false));
+                        args.put("p_note", nullableText(input, "note"));
+                        context.supabaseRest.rpc("decide_project_billing_adjustment", args);
+                    }
+                    case "decide-billing" -> {
+                        args.put("p_billing_id", id == null ? text(input, "billing_id") : id);
+                        args.put("p_approve", input.path("approve").asBoolean(false));
+                        args.put("p_note", nullableText(input, "note"));
+                        context.supabaseRest.rpc("decide_project_billing", args);
+                    }
+                    case "reverse-billing" -> {
+                        args.put("p_billing_id", id == null ? text(input, "billing_id") : id);
+                        args.put("p_reason", text(input, "reason"));
+                        context.supabaseRest.rpc("reverse_project_billing", args);
+                    }
+                    case "attach-billing-documents" ->
+                            uploadBillingDocuments(uuid(id, "Choose a billing record before attaching documents."),
+                                    input.path("attachments"));
+                    case "record-billing-payment" -> {
+                        args.put("p_billing_id", id == null ? text(input, "billing_id") : id);
+                        args.put("p_amount", decimal(input, "amount"));
+                        args.put("p_payment_date", nullableText(input, "payment_date"));
+                        args.put("p_payment_method", nullableText(input, "payment_method"));
+                        args.put("p_reference_number", nullableText(input, "reference_number"));
+                        args.put("p_bank_reference", nullableText(input, "bank_reference"));
+                        args.put("p_supporting_document_path", nullableText(input, "supporting_document_path"));
+                        args.put("p_remarks", nullableText(input, "remarks"));
+                        args.put("p_idempotency_key", text(input, "idempotency_key"));
+                        context.supabaseRest.rpc("record_project_billing_payment", args);
+                    }
+                    case "refund-billing-payment" -> {
+                        args.put("p_billing_id", id == null ? text(input, "billing_id") : id);
+                        args.put("p_amount", decimal(input, "amount"));
+                        args.put("p_refund_date", nullableText(input, "refund_date"));
+                        args.put("p_reference_number", nullableText(input, "reference_number"));
+                        args.put("p_reason", text(input, "reason"));
+                        args.put("p_idempotency_key", text(input, "idempotency_key"));
+                        context.supabaseRest.rpc("refund_project_billing_payment", args);
+                    }
+                    case "record-withholding-remittance" -> {
+                        args.put("p_billing_id", id == null ? text(input, "billing_id") : id);
+                        args.put("p_amount", decimal(input, "amount"));
+                        args.put("p_remittance_date", nullableText(input, "remittance_date"));
+                        args.put("p_payment_reference", nullableText(input, "payment_reference"));
+                        args.put("p_proof_document_path", nullableText(input, "proof_document_path"));
+                        args.put("p_idempotency_key", text(input, "idempotency_key"));
+                        context.supabaseRest.rpc("record_project_billing_withholding_remittance", args);
+                    }
+                    case "release-billing-retention" -> {
+                        args.put("p_project_id", text(input, "project_id"));
+                        args.put("p_contract_id", nullableText(input, "contract_id"));
+                        args.put("p_amount", decimal(input, "amount"));
+                        args.put("p_release_date", nullableText(input, "release_date"));
+                        args.put("p_reference_number", nullableText(input, "reference_number"));
+                        args.put("p_document_path", nullableText(input, "document_path"));
+                        args.put("p_notes", nullableText(input, "notes"));
+                        args.put("p_idempotency_key", text(input, "idempotency_key"));
+                        context.supabaseRest.rpc("release_project_billing_retention", args);
+                    }
+                    default -> throw new IllegalArgumentException("Choose a supported billing action.");
+                }
+            } catch (SupabaseException error) {
+                throw new IllegalStateException("Billing transaction could not be completed: " + error.getMessage(), error);
+            }
+            return construction("project_billings");
+        }
+
+    private Map<String, Map<String, Object>> constructionBillingDetails() {
+            Map<String, Map<String, Object>> details = new LinkedHashMap<>();
+            addBillingRows(details, "project_billing_lines", "lines", "");
+            addBillingRows(details, "project_billing_adjustments", "adjustments", "&order=created_at.desc");
+            addBillingRows(details, "project_billing_collections", "payments", "&order=created_at.desc");
+            addBillingRows(details, "project_billing_withholding_remittances", "withholding_remittances", "&order=remittance_date.desc");
+            addBillingRows(details, "project_billing_attachments", "attachments", "&order=created_at.desc");
+            addBillingRows(details, "project_billing_events", "activity", "&order=created_at.desc");
+            return details;
+        }
+
+        private void uploadBillingDocuments(UUID billingId, JsonNode documentNodes) throws SupabaseException {
+            if (documentNodes == null || !documentNodes.isArray() || documentNodes.isEmpty()) {
+                throw new IllegalArgumentException("Choose at least one PNG, JPG, or PDF billing document.");
+            }
+            if (documentNodes.size() > 10) {
+                throw new IllegalArgumentException("Attach no more than 10 billing documents at a time.");
+            }
+            long totalBytes = 0;
+            List<String> uploadedPaths = new ArrayList<>();
+            var metadata = JSON.createArrayNode();
+            try {
+                for (JsonNode node : documentNodes) {
+                    String name = text(node, "name").trim();
+                    String contentType = AttachmentRules.contentType(name);
+                    if (name.isBlank() || name.length() > 255 || contentType == null) {
+                        throw new IllegalArgumentException("Billing documents must be PNG, JPG, or PDF files.");
+                    }
+                    UUID requestKey = uuid(text(node, "idempotency_key"),
+                            "A unique key is required for every billing document.");
+                    byte[] bytes;
+                    try {
+                        bytes = Base64.getDecoder().decode(text(node, "data"));
+                    } catch (IllegalArgumentException invalidBase64) {
+                        throw new IllegalArgumentException("A billing document could not be read. Choose it again.");
+                    }
+                    try {
+                        totalBytes += bytes.length;
+                        if (bytes.length == 0 || totalBytes > AttachmentRules.MAX_BYTES) {
+                            throw new IllegalArgumentException("Billing documents must total 10 MB or less.");
+                        }
+                        String safeName = name.replaceAll("[^A-Za-z0-9._-]", "_");
+                        String path = billingId + "/" + requestKey + "-" + safeName;
+                        context.supabaseRest.uploadObject("receipts", path, bytes, contentType, true);
+                        uploadedPaths.add(path);
+                        metadata.addObject()
+                                .put("name", name)
+                                .put("document_path", path)
+                                .put("attachment_type", contentType)
+                                .put("idempotency_key", requestKey.toString());
+                    } finally {
+                        Arrays.fill(bytes, (byte) 0);
+                    }
+                }
+                context.supabaseRest.rpc("attach_project_billing_documents", Map.of(
+                        "p_billing_id", billingId.toString(),
+                        "p_documents", metadata));
+            } catch (SupabaseException failure) {
+                if (failure.status() >= 400 && failure.status() < 500) {
+                    cleanupBillingUploads(uploadedPaths, failure);
+                }
+                throw failure;
+            } catch (RuntimeException failure) {
+                cleanupBillingUploads(uploadedPaths, failure);
+                throw failure;
+            }
+        }
+
+        private void cleanupBillingUploads(List<String> uploadedPaths, Throwable failure) {
+            for (String path : uploadedPaths) {
+                try {
+                    context.supabaseRest.deleteObject("receipts", path);
+                } catch (SupabaseException cleanupFailure) {
+                    failure.addSuppressed(cleanupFailure);
+                }
+            }
+        }
+
+    private void addBillingRows(
+                Map<String, Map<String, Object>> details, String table, String key, String order) {
+            try {
+                for (JsonNode row : context.supabaseRest.selectAll(table, "select=*" + order)) {
+                    String billingId = text(row, "billing_id");
+                    if (billingId.isBlank()) continue;
+                    Map<String, Object> item = JSON.convertValue(row, Map.class);
+                    details.computeIfAbsent(billingId, ignored -> new LinkedHashMap<>())
+                            .computeIfAbsent(key, ignored -> new ArrayList<>());
+                    @SuppressWarnings("unchecked")
+                    List<Map<String, Object>> items =
+                            (List<Map<String, Object>>) details.get(billingId).get(key);
+                    items.add(item);
+                }
+            } catch (SupabaseException error) {
+                throw new IllegalStateException("Billing history could not be loaded: " + error.getMessage(), error);
+            }
+        }
+
+    private LocalApiServer.ModulePageData applyRoyaltyAction(String action, String id, JsonNode input) {
+        if (!"royalty_records".equals(text(input, "table"))) {
+            throw new IllegalArgumentException("Choose the Royalties section to manage royalty records.");
+        }
+        requireConstructionWrite();
+        if (context.supabaseRest == null) {
+            throw new IllegalStateException("Royalty records require a Cloud Database connection.");
+        }
+        Map<String, Object> args = new LinkedHashMap<>();
+        try {
+            switch (action) {
+                case "save-royalty" -> {
+                    args.put("p_id", id == null || id.isBlank() ? null : uuid(id, "Choose a royalty record to edit."));
+                    args.put("p_payload", input);
+                    context.supabaseRest.rpc("save_royalty_record", args);
+                }
+                case "save-royalty-configuration" -> {
+                    args.put("p_settings", input);
+                    context.supabaseRest.rpc("save_royalty_company_settings", args);
+                }
+                case "record-royalty-return" -> {
+                    args.put("p_record_id", uuid(text(input, "record_id"), "Choose a royalty record."));
+                    args.put("p_payload", input);
+                    context.supabaseRest.rpc("record_royalty_return", args);
+                }
+                default -> throw new IllegalArgumentException("Choose a supported royalty action.");
+            }
+        } catch (SupabaseException error) {
+            throw new IllegalStateException("The royalty action could not be saved: " + error.getMessage(), error);
+        }
+        return construction("royalty_records");
+    }
+
+    private List<Map<String, Object>> projectBillingRows(String table) {
+            if (context.supabaseRest == null) return List.of();
+            try {
+                return context.supabaseRest.selectAll(table, "select=*").stream()
+                        .map(row -> JSON.convertValue(row, new TypeReference<Map<String, Object>>() { }))
+                        .toList();
+            } catch (SupabaseException error) {
+                throw new IllegalStateException("Project billing balances could not be loaded: " + error.getMessage(), error);
+            }
+        }
+
+    private static boolean isBillingAction(String action) {
+        return Set.of("create-billing", "amend-billing", "save-billing-configuration",
+                "decide-billing-adjustment", "decide-billing", "reverse-billing", "record-billing-payment",
+                "refund-billing-payment", "record-withholding-remittance",
+                "attach-billing-documents", "release-billing-retention").contains(action);
+        }
+
+    private static boolean isRoyaltyAction(String action) {
+        return Set.of("save-royalty", "save-royalty-configuration", "record-royalty-return").contains(action);
+    }
+
+    private static boolean isBillingTable(String table) {
+            return Set.of("project_billings", "project_billing_lines", "project_billing_deductions",
+                    "project_billing_collections", "project_billing_attachments",
+                    "project_billing_configurations", "project_billing_adjustments",
+                    "project_billing_retention_releases", "project_billing_events").contains(table);
+        }
+
+    private static boolean isRoyaltyTable(String table) {
+        return Set.of("royalty_records", "royalty_company_settings", "royalty_returns",
+                "royalty_record_events").contains(table);
+    }
+
+    private static String nullableText(JsonNode values, String field) {
+            String value = text(values, field);
+            return value.isBlank() ? null : value;
+        }
+
     private List<LocalApiServer.ModuleOption> constructionFieldOptions(String key) {
         if ("project_id".equals(key)) {
             return context.projects.findAll().stream()
                     .map(project -> option(project.name(), project.id().toString())).toList();
+        }
+        if ("contract_id".equals(key)) {
+            return context.constructionData.rows("project_contracts").stream()
+                    .map(row -> option(
+                            first(row, "contract_name", "contract_number"),
+                            text(row, "id"),
+                            text(row, "project_id")))
+                    .filter(option -> !option.value().isBlank())
+                    .toList();
         }
         if ("supplier_id".equals(key) || "owner_supplier_id".equals(key)) {
             return context.suppliers.findAll().stream()
@@ -752,15 +1273,32 @@ final class ReactWorkspaceService {
 
     private LocalApiServer.ModulePageData saveProject(String id, JsonNode values) {
         UUID projectId = optionalUuid(id);
+        BigDecimal contractAmount = decimal(values, "contractAmount");
+        BigDecimal revisedContractAmount = decimal(values, "revisedContractAmount");
+        if (projectId != null) {
+            Project existing = context.projects.findAll().stream()
+                    .filter(project -> project.id().equals(projectId))
+                    .findFirst()
+                    .orElse(null);
+            if (existing != null) {
+                if (text(values, "contractAmount").isBlank()) contractAmount = existing.contractAmount();
+                if (text(values, "revisedContractAmount").isBlank()) revisedContractAmount = existing.revisedContractAmount();
+            }
+        } else if (text(values, "revisedContractAmount").isBlank()) {
+            revisedContractAmount = contractAmount;
+        }
         context.projects.save(new Project(projectId, text(values, "name"), text(values, "code"),
-                text(values, "fundSource")));
+                text(values, "fundSource"),
+                contractAmount,
+                revisedContractAmount));
         return projects();
     }
 
     private LocalApiServer.ModulePageData saveSupplier(String id, JsonNode values) {
         UUID supplierId = optionalUuid(id);
         context.suppliers.save(new Supplier(supplierId, text(values, "businessName"),
-                text(values, "tin"), text(values, "address"), text(values, "contactNumber")));
+                text(values, "tin"), text(values, "address"), text(values, "contactNumber"),
+                text(values, "taxClassification")));
         return suppliers();
     }
 
@@ -800,7 +1338,8 @@ final class ReactWorkspaceService {
                 previous == null ? null : previous.createdAt(),
                 previous == null ? null : previous.modifiedAt(),
                 previous == null ? null : previous.companyId(),
-                notes, paymentMethod, ewtRate, classification);
+                notes, paymentMethod, ewtRate, classification,
+                text(values, "supplierTaxClassification"));
         List<Attachment> retained = retainedReceiptAttachments(previous, values.path("existingAttachmentPaths"));
         List<Attachment> uploaded = uploadReceiptAttachments(receiptId, values.path("attachments"));
         Receipt saved;
@@ -1110,6 +1649,10 @@ final class ReactWorkspaceService {
         return new LocalApiServer.ModuleMetric(label, String.valueOf(value), "");
     }
 
+    private static LocalApiServer.ModuleMetric metric(String label, Object value, String note) {
+        return new LocalApiServer.ModuleMetric(label, String.valueOf(value), note);
+    }
+
     private static LocalApiServer.ModuleMetric chartMetric(String label, Object value, String note,
                                                             List<LocalApiServer.ModuleMetricPoint> points) {
         return new LocalApiServer.ModuleMetric(label, String.valueOf(value), note, points);
@@ -1200,12 +1743,27 @@ final class ReactWorkspaceService {
     }
 
     private static BigDecimal decimal(JsonNode values, String field) {
-        String value = text(values, field);
+        String value = text(values, field).replace(",", "").trim();
         return value.isBlank() ? BigDecimal.ZERO : new BigDecimal(value);
+    }
+
+    private static UUID uuidOrNull(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return UUID.fromString(value.trim());
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
     }
 
     private static String money(BigDecimal value) {
         return value == null ? "0.00" : value.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString();
+    }
+
+    private static String pesoMoney(BigDecimal value) {
+        java.text.DecimalFormat formatter = new java.text.DecimalFormat("₱#,##0.00");
+        formatter.setRoundingMode(java.math.RoundingMode.HALF_UP);
+        return formatter.format(value == null ? BigDecimal.ZERO : value);
     }
 
     private static String label(String value, String fallback) {

@@ -132,7 +132,9 @@ public final class ProjectPanel extends JPanel implements RefreshablePanel {
         new SimpleFormDialog(SwingUtilities.getWindowAncestor(this), existing == null ? "Add project" : "Edit project",
                 List.of("Project name", "Project code", "Fund source"),
                 existing == null ? List.of("", "", "") : List.of(nz(existing.name()), nz(existing.code()), nz(existing.fundSource())),
-                v -> ctx.projects.save(new Project(existing == null ? null : existing.id(), v.get(0), v.get(1), v.get(2))),
+                v -> ctx.projects.save(new Project(existing == null ? null : existing.id(), v.get(0), v.get(1), v.get(2),
+                        existing == null ? java.math.BigDecimal.ZERO : existing.contractAmount(),
+                        existing == null ? java.math.BigDecimal.ZERO : existing.revisedContractAmount())),
                 this::refreshData).setVisible(true);
     }
 

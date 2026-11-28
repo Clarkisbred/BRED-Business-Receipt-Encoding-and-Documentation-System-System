@@ -38,12 +38,12 @@ class ReceiptMathTest {
                 ReceiptType.OFFICIAL_RECEIPT, UUID.randomUUID(), null,
                 List.of(new ReceiptItem("a", d("3"), "kg", d("100.00"))),
                 d("0"), d("12.00"), d("0"), List.of(), null, null, null, null,
-                "For project supplies", "Card", d("2.5"));
+                "For project supplies", "Card", d("2.5"), "Unclassified", "VAT_REGISTERED");
 
         assertEquals("kg", r.items().get(0).unit());
         assertEquals(new BigDecimal("312.00"), r.grandTotal());
-        assertEquals(new BigDecimal("6.96"), r.ewtAmount());
-        assertEquals(new BigDecimal("305.04"), r.netTotal());
+        assertEquals(new BigDecimal("7.50"), r.ewtAmount());
+        assertEquals(new BigDecimal("304.50"), r.netTotal());
         assertEquals("For project supplies", r.notes());
         assertEquals("Card", r.paymentMethod());
     }

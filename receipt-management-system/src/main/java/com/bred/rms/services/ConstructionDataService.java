@@ -80,7 +80,15 @@ public final class ConstructionDataService {
         BigDecimal receivable = BigDecimal.ZERO;
         int overdue = 0;
         Map<String, BigDecimal[]> projects = new LinkedHashMap<>();
+        Map<String, String> billingProjects = new LinkedHashMap<>();
         for (JsonNode row : rows("project_billings")) {
+            String status = text(row, "status");
+            if ("Cancelled".equalsIgnoreCase(status)
+                    || "Draft".equalsIgnoreCase(status)
+                    || "Submitted".equalsIgnoreCase(status)
+                    || "Under Review".equalsIgnoreCase(status)) {
+                continue;
+            }
             BigDecimal net = decimal(row, "net_amount");
             BigDecimal paid = decimal(row, "collected_amount");
             BigDecimal grossAmount = decimal(row, "gross_amount");
@@ -89,6 +97,8 @@ public final class ConstructionDataService {
             BigDecimal outstanding = net.subtract(paid);
             if (outstanding.signum() > 0) receivable = receivable.add(outstanding);
             String projectId = text(row, "project_id");
+            String billingId = text(row, "id");
+            if (!billingId.isBlank() && !projectId.isBlank()) billingProjects.put(billingId, projectId);
             if (!projectId.isBlank()) {
                 BigDecimal[] amounts = projects.computeIfAbsent(projectId,
                         ignored -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO});
@@ -96,15 +106,43 @@ public final class ConstructionDataService {
                 amounts[1] = amounts[1].add(paid);
                 if (outstanding.signum() > 0) amounts[2] = amounts[2].add(outstanding);
             }
-            String status = text(row, "status");
             if ("Overdue".equalsIgnoreCase(status)
                     || (outstanding.signum() > 0 && overdue(row))) overdue++;
         }
+        Map<String, BigDecimal> retentionWithheld = new LinkedHashMap<>();
+        for (JsonNode adjustment : rows("project_billing_adjustments")) {
+            if (!"retention".equalsIgnoreCase(text(adjustment, "adjustment_type"))
+                    || !"Approved".equalsIgnoreCase(text(adjustment, "approval_status"))) continue;
+            String projectId = billingProjects.get(text(adjustment, "billing_id"));
+            if (projectId != null) retentionWithheld.merge(projectId, decimal(adjustment, "amount"), BigDecimal::add);
+        }
+        Map<String, BigDecimal> retentionReleased = new LinkedHashMap<>();
+        for (JsonNode release : rows("project_billing_retention_releases")) {
+            String projectId = text(release, "project_id");
+            if (!projectId.isBlank()) retentionReleased.merge(projectId, decimal(release, "amount"), BigDecimal::add);
+        }
+        for (JsonNode legacy : rows("retention_ledger")) {
+            String projectId = text(legacy, "project_id");
+            if (projectId.isBlank()) continue;
+            retentionWithheld.merge(projectId, decimal(legacy, "held_amount"), BigDecimal::add);
+            retentionReleased.merge(projectId, decimal(legacy, "released_amount"), BigDecimal::add);
+        }
         List<ProjectBillingMetric> byProject = projects.entrySet().stream()
-                .map(entry -> new ProjectBillingMetric(entry.getKey(),
-                        entry.getValue()[0], entry.getValue()[1], entry.getValue()[2]))
+                .map(entry -> {
+                    BigDecimal released = retentionReleased.getOrDefault(entry.getKey(), BigDecimal.ZERO);
+                    BigDecimal retained = retentionWithheld.getOrDefault(entry.getKey(), BigDecimal.ZERO)
+                            .subtract(released).max(BigDecimal.ZERO);
+                    return new ProjectBillingMetric(entry.getKey(), entry.getValue()[0],
+                            entry.getValue()[1].add(released), entry.getValue()[2].add(retained));
+                })
                 .toList();
-        return new BillingAnalytics(new ConstructionSummary(gross, collected, receivable, overdue), byProject);
+        BigDecimal releasesTotal = retentionReleased.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        receivable = receivable.add(projects.keySet().stream()
+                .map(projectId -> retentionWithheld.getOrDefault(projectId, BigDecimal.ZERO)
+                        .subtract(retentionReleased.getOrDefault(projectId, BigDecimal.ZERO))
+                        .max(BigDecimal.ZERO))
+                .reduce(BigDecimal.ZERO, BigDecimal::add));
+        return new BillingAnalytics(new ConstructionSummary(gross, collected.add(releasesTotal), receivable, overdue), byProject);
     }
 
     public BOQCostSummary boqCostSummary() {

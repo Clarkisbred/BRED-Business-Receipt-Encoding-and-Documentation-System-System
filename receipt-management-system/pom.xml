@@ -16,6 +16,7 @@
     <jcef.release.tag>jcef-17e805a+cef-152.0.6+g708dc14+chromium-152.0.7977.83</jcef.release.tag>
     <frontend.cache.dir>${user.home}/.bred-build/${project.artifactId}-${project.version}-node24</frontend.cache.dir>
     <frontend.build.dir>${frontend.cache.dir}/web-app</frontend.build.dir>
+    <frontend.skip>false</frontend.skip>
   </properties>
 
   <dependencies>
@@ -77,6 +78,7 @@
       <plugin>
         <groupId>com.github.eirslett</groupId><artifactId>frontend-maven-plugin</artifactId><version>2.0.2</version>
         <configuration>
+          <skip>${frontend.skip}</skip>
           <workingDirectory>${frontend.build.dir}</workingDirectory>
           <installDirectory>${frontend.cache.dir}</installDirectory>
           <nodeVersion>v24.21.0</nodeVersion>
@@ -95,7 +97,7 @@
             <configuration><arguments>run maven:install-dependencies</arguments></configuration>
           </execution>
           <execution>
-            <id>build-web-app</id><phase>generate-resources</phase>
+            <id>build-web-app</id><phase>package</phase>
             <goals><goal>npm</goal></goals>
             <configuration><arguments>run build</arguments></configuration>
           </execution>

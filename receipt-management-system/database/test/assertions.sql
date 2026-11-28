@@ -125,17 +125,17 @@ insert into project_handover_records(company_id, project_id, handover_type) valu
   ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'Final'),
   ('33333333-0000-0000-0000-000000000003', '22222222-0000-0000-0000-000000000002', 'Final');
 insert into project_contracts(
-  id, company_id, project_id, contract_number, contract_name, client_name
+  id, company_id, project_id, contract_number, contract_name, client_name, contract_amount
 ) values (
   'a4000000-0000-0000-0000-000000000001',
   '11111111-0000-0000-0000-000000000001',
   '22222222-0000-0000-0000-000000000001',
-  'ACME-CONTRACT-1', 'Acme Contract', 'Acme Client'
+  'ACME-CONTRACT-1', 'Acme Contract', 'Acme Client', 5000
 ), (
   'a4000000-0000-0000-0000-000000000002',
   '33333333-0000-0000-0000-000000000003',
   '22222222-0000-0000-0000-000000000002',
-  'BETA-CONTRACT-1', 'Beta Contract', 'Beta Client'
+  'BETA-CONTRACT-1', 'Beta Contract', 'Beta Client', 1000
 );
 insert into project_billings(
   id, company_id, project_id, contract_id, billing_number, billing_date,
@@ -328,10 +328,10 @@ select tests.expect_true(
   'encoder reads only same-company billing, receivable and attachment records');
 select tests.expect_error($$insert into project_billings(company_id, project_id, billing_number, billing_date)
   values ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000001', 'ENC-BILL', '2026-11-21')$$,
-  'row-level security');
+  'permission denied');
 select tests.expect_error($$insert into project_billing_collections(company_id, billing_id, collection_date, amount)
   values ('11111111-0000-0000-0000-000000000001', 'a4000000-0000-0000-0000-000000000011', '2026-11-21', 999)$$,
-  'row-level security');
+  'permission denied');
 select tests.expect_true((select save_receipt(tests.payload('OR-001', '11111111-0000-0000-0000-000000000001'))) is not null, 'encoder can save a receipt');
 select tests.expect_error($$select approve_ai_import_receipt(tests.payload('AI-ENC', '11111111-0000-0000-0000-000000000001'))$$,
   'administrator role required');
@@ -411,6 +411,286 @@ select tests.expect_true((select count(*) from receipts) = 0, 'rejected user see
 select tests.login('a0000000-0000-0000-0000-000000000001');
 select tests.expect_true((select count(*) from profiles) = 6, 'approved admin can list company account statuses');
 select tests.expect_true((select count(*) from companies) = 1, 'admin can see only their own company');
+select tests.expect_error($$insert into project_billings(
+  company_id, project_id, billing_number, billing_date, gross_amount, net_amount
+) values (
+  '11111111-0000-0000-0000-000000000001',
+  '22222222-0000-0000-0000-000000000001', 'BYPASS-BILL', current_date, 100, 100
+)$$, 'permission denied');
+select save_project_billing_configuration(
+  '22222222-0000-0000-0000-000000000001',
+  'a4000000-0000-0000-0000-000000000001',
+  '{"mobilization_advance_amount":1000,"retention_cap_type":"percentage",
+    "retention_cap_basis":"contract_amount","retention_cap_rate":10,
+    "enabled_adjustments":{"mobilization_recovery":true,"retention":true,
+      "previous_billing_adjustment":true,"materials_on_site":true}}'::jsonb
+);
+select create_project_billing('{
+  "idempotency_key":"a4000000-0000-0000-0000-000000000021",
+  "project_id":"22222222-0000-0000-0000-000000000001",
+  "contract_id":"a4000000-0000-0000-0000-000000000001",
+  "billing_date":"2026-11-25","gross_amount":1000,
+  "adjustments":[{
+    "idempotency_key":"a4000000-0000-0000-0000-000000000031",
+    "adjustment_type":"mobilization_recovery","calculation_type":"manual",
+    "calculation_basis":"current_period","amount":100,
+    "details":{"description":"First mobilization recovery"}
+  }]
+}'::jsonb);
+select create_project_billing('{
+  "idempotency_key":"a4000000-0000-0000-0000-000000000021",
+  "project_id":"22222222-0000-0000-0000-000000000001",
+  "contract_id":"a4000000-0000-0000-0000-000000000001",
+  "billing_date":"2026-11-25","gross_amount":1000,
+  "adjustments":[{
+    "idempotency_key":"a4000000-0000-0000-0000-000000000031",
+    "adjustment_type":"mobilization_recovery","calculation_type":"manual",
+    "calculation_basis":"current_period","amount":100,
+    "details":{"description":"First mobilization recovery"}
+  }]
+}'::jsonb);
+select tests.expect_true(
+  (select count(*) = 1 from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000021')
+  and (select count(*) = 1 from project_billing_adjustments where idempotency_key = 'a4000000-0000-0000-0000-000000000031')
+  and (select net_amount = 1000 from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000021')
+  and (select approval_status = 'Pending' from project_billing_adjustments
+       where idempotency_key = 'a4000000-0000-0000-0000-000000000031'),
+  'billing creation is idempotent and pending adjustments are excluded from payable totals');
+select decide_project_billing_adjustment(
+  (select id from project_billing_adjustments
+   where idempotency_key = 'a4000000-0000-0000-0000-000000000031'),
+  true, 'Approved recovery'
+);
+select tests.expect_true(
+  (select net_amount = 900 and total_construction_deductions = 100
+   from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000021')
+  and (select approved_by = auth.uid() and approved_at is not null
+   from project_billing_adjustments where idempotency_key = 'a4000000-0000-0000-0000-000000000031'),
+  'approved adjustments update only their own billing and retain approver audit data');
+select decide_project_billing(
+  (select id from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000021'),
+  true, 'Approved billing'
+);
+select create_project_billing('{
+  "idempotency_key":"a4000000-0000-0000-0000-000000000024",
+  "project_id":"22222222-0000-0000-0000-000000000001",
+  "contract_id":"a4000000-0000-0000-0000-000000000001",
+  "billing_date":"2026-11-26","billing_mode":"cumulative","gross_amount":1500
+}'::jsonb);
+select tests.expect_true(
+  (select gross_amount = 500 and previous_billed = 1000
+     and cumulative_gross_amount = 1500 and current_accomplishment = 500
+   from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000024'),
+  'cumulative billing subtracts previously approved billings exactly once');
+select create_project_billing(jsonb_build_object(
+  'idempotency_key','a4000000-0000-0000-0000-000000000025',
+  'project_id','22222222-0000-0000-0000-000000000001',
+  'contract_id','a4000000-0000-0000-0000-000000000001',
+  'billing_date','2026-11-26','gross_amount',1000,
+  'adjustments',jsonb_build_array(jsonb_build_object(
+    'idempotency_key','a4000000-0000-0000-0000-000000000035',
+    'adjustment_type','previous_billing_adjustment','calculation_type','fixed',
+    'calculation_basis','not_applicable','amount',100,
+    'details',jsonb_build_object(
+      'description','Previous billing deduction',
+      'previous_billing_id',(select id::text from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000021')
+    )
+  ))
+));
+select tests.expect_error($$select create_project_billing(jsonb_build_object(
+  'idempotency_key','a4000000-0000-0000-0000-000000000026',
+  'project_id','22222222-0000-0000-0000-000000000001',
+  'contract_id','a4000000-0000-0000-0000-000000000001',
+  'billing_date','2026-11-26','gross_amount',1000,
+  'adjustments',jsonb_build_array(jsonb_build_object(
+    'idempotency_key','a4000000-0000-0000-0000-000000000036',
+    'adjustment_type','previous_billing_adjustment','calculation_type','fixed',
+    'calculation_basis','not_applicable','amount',100,
+    'details',jsonb_build_object(
+      'description','Duplicate previous billing deduction',
+      'previous_billing_id',(select id::text from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000021')
+    )
+  ))
+))$$, 'duplicate key');
+insert into storage.objects(bucket_id, name, owner)
+select 'receipts', id::text || '/a4000000-0000-0000-0000-000000000071-progress.pdf', auth.uid()
+from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000025';
+select attach_project_billing_documents(
+  (select id from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000025'),
+  jsonb_build_array(jsonb_build_object(
+    'name','progress.pdf',
+    'document_path',(select id::text || '/a4000000-0000-0000-0000-000000000071-progress.pdf'
+      from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000025'),
+    'attachment_type','application/pdf',
+    'idempotency_key','a4000000-0000-0000-0000-000000000071'
+  ))
+);
+select attach_project_billing_documents(
+  (select id from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000025'),
+  jsonb_build_array(jsonb_build_object(
+    'name','progress.pdf',
+    'document_path',(select id::text || '/a4000000-0000-0000-0000-000000000071-progress.pdf'
+      from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000025'),
+    'attachment_type','application/pdf',
+    'idempotency_key','a4000000-0000-0000-0000-000000000071'
+  ))
+);
+select tests.expect_true((select count(*) = 1 from project_billing_attachments
+  where idempotency_key = 'a4000000-0000-0000-0000-000000000071'),
+  'billing document attachment is idempotent');
+select tests.expect_true((select count(*) = 1 from project_billing_events
+  where billing_id = (select id from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000025')
+    and event_type = 'documents_attached'),
+  'billing document attachment is recorded in activity history');
+select tests.expect_error($$select attach_project_billing_documents(
+  (select id from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000025'),
+  '[{"name":"outside.pdf","document_path":"other-billing/outside.pdf","attachment_type":"application/pdf","idempotency_key":"a4000000-0000-0000-0000-000000000072"}]'::jsonb
+)$$, 'invalid metadata or storage path');
+select create_project_billing('{
+  "idempotency_key":"a4000000-0000-0000-0000-000000000028",
+  "project_id":"22222222-0000-0000-0000-000000000001",
+  "contract_id":"a4000000-0000-0000-0000-000000000001",
+  "billing_date":"2026-11-27","gross_amount":1000,
+  "adjustments":[{
+    "idempotency_key":"a4000000-0000-0000-0000-000000000038",
+    "adjustment_type":"materials_on_site","calculation_type":"fixed",
+    "calculation_basis":"current_period","amount":100,
+    "details":{"description":"Approved site materials","quantity":2,"unit":"bag","unit_price":50}
+  }]
+}'::jsonb);
+select tests.expect_error($$select decide_project_billing_adjustment(
+  (select id from project_billing_adjustments where idempotency_key = 'a4000000-0000-0000-0000-000000000038'),
+  true, 'Missing document'
+)$$, 'supporting document');
+insert into storage.objects(bucket_id, name, owner)
+select 'receipts', id::text || '/a4000000-0000-0000-0000-000000000073-materials.pdf', auth.uid()
+from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000028';
+select attach_project_billing_documents(
+  (select id from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000028'),
+  jsonb_build_array(jsonb_build_object(
+    'name','materials.pdf',
+    'document_path',(select id::text || '/a4000000-0000-0000-0000-000000000073-materials.pdf'
+      from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000028'),
+    'attachment_type','application/pdf',
+    'idempotency_key','a4000000-0000-0000-0000-000000000073'
+  ))
+);
+select decide_project_billing_adjustment(
+  (select id from project_billing_adjustments where idempotency_key = 'a4000000-0000-0000-0000-000000000038'),
+  true, 'Documents reviewed'
+);
+select tests.expect_true((select approval_status = 'Approved'
+  from project_billing_adjustments where idempotency_key = 'a4000000-0000-0000-0000-000000000038'),
+  'materials on site remain pending until supported and individually approved');
+select record_project_billing_payment(
+  (select id from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000021'),
+  400, '2026-11-26', 'Bank transfer', 'PAY-1', null, null, null,
+  'a4000000-0000-0000-0000-000000000041'
+);
+select record_project_billing_payment(
+  (select id from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000021'),
+  400, '2026-11-26', 'Bank transfer', 'PAY-1', null, null, null,
+  'a4000000-0000-0000-0000-000000000041'
+);
+select tests.expect_error($$select record_project_billing_payment(
+  (select id from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000021'),
+  501, '2026-11-26', 'Bank transfer', 'PAY-OVER', null, null, null,
+  'a4000000-0000-0000-0000-000000000042'
+)$$, 'exceeds the outstanding');
+select tests.expect_true(
+  (select count(*) = 1 from project_billing_collections
+    where idempotency_key = 'a4000000-0000-0000-0000-000000000041')
+  and (select collected_amount = 400 and payment_status = 'Partial'
+    from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000021'),
+  'payment requests are idempotent and cannot exceed receivables');
+select tests.expect_error($$select reverse_project_billing(
+  (select id from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000021'),
+  'Attempted paid billing reversal'
+)$$, 'payment records');
+select create_project_billing('{
+  "idempotency_key":"a4000000-0000-0000-0000-000000000027",
+  "project_id":"22222222-0000-0000-0000-000000000001",
+  "contract_id":"a4000000-0000-0000-0000-000000000001",
+  "billing_date":"2026-11-26","gross_amount":1000
+}'::jsonb);
+select decide_project_billing(
+  (select id from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000027'),
+  true, 'Approved for reversal test'
+);
+select reverse_project_billing(
+  (select id from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000027'),
+  'Duplicate unpaid billing'
+);
+select tests.expect_true(
+  (select status = 'Cancelled' and reversal_reason = 'Duplicate unpaid billing'
+     and reversed_at is not null
+   from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000027')
+  and exists (select 1 from project_billing_events
+    where billing_id = (select id from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000027')
+      and event_type = 'billing_reversed'),
+  'unpaid approved billing reversal retains reason and audit history');
+select create_project_billing('{
+  "idempotency_key":"a4000000-0000-0000-0000-000000000022",
+  "project_id":"22222222-0000-0000-0000-000000000001",
+  "contract_id":"a4000000-0000-0000-0000-000000000001",
+  "billing_date":"2026-11-27","gross_amount":2000,
+  "adjustments":[{
+    "idempotency_key":"a4000000-0000-0000-0000-000000000032",
+    "adjustment_type":"retention","calculation_type":"manual",
+    "calculation_basis":"current_period","amount":300,
+    "details":{"description":"Retention withheld"}
+  }]
+}'::jsonb);
+select decide_project_billing_adjustment(
+  (select id from project_billing_adjustments
+   where idempotency_key = 'a4000000-0000-0000-0000-000000000032'),
+  true, 'Approved retention'
+);
+select create_project_billing('{
+  "idempotency_key":"a4000000-0000-0000-0000-000000000023",
+  "project_id":"22222222-0000-0000-0000-000000000001",
+  "contract_id":"a4000000-0000-0000-0000-000000000001",
+  "billing_date":"2026-11-27","gross_amount":2000,
+  "adjustments":[{
+    "idempotency_key":"a4000000-0000-0000-0000-000000000033",
+    "adjustment_type":"retention","calculation_type":"manual",
+    "calculation_basis":"current_period","amount":201,
+    "details":{"description":"Retention above percentage cap"}
+  }]
+}'::jsonb);
+select tests.expect_error($$select decide_project_billing_adjustment(
+  (select id from project_billing_adjustments
+   where idempotency_key = 'a4000000-0000-0000-0000-000000000033'),
+  true, 'Must exceed configured cap'
+)$$, 'exceeds the configured cap');
+select decide_project_billing(
+  (select id from project_billings where idempotency_key = 'a4000000-0000-0000-0000-000000000022'),
+  true, 'Approved billing'
+);
+select release_project_billing_retention(
+  '22222222-0000-0000-0000-000000000001',
+  'a4000000-0000-0000-0000-000000000001',
+  100, '2026-11-28', 'RET-1', null, 'Partial release',
+  'a4000000-0000-0000-0000-000000000051'
+);
+select release_project_billing_retention(
+  '22222222-0000-0000-0000-000000000001',
+  'a4000000-0000-0000-0000-000000000001',
+  100, '2026-11-28', 'RET-1', null, 'Partial release',
+  'a4000000-0000-0000-0000-000000000051'
+);
+select tests.expect_error($$select release_project_billing_retention(
+  '22222222-0000-0000-0000-000000000001',
+  'a4000000-0000-0000-0000-000000000001',
+  201, '2026-11-28', 'RET-2', null, 'Over cap',
+  'a4000000-0000-0000-0000-000000000052'
+)$$, 'exceeds the outstanding');
+select tests.expect_true(
+  (select count(*) = 1 and sum(amount) = 100 from project_billing_retention_releases
+   where project_id = '22222222-0000-0000-0000-000000000001')
+  and (select count(*) = 1 and sum(amount) = 300 from project_billing_adjustments
+   where adjustment_type = 'retention' and approval_status = 'Approved'),
+  'retention releases are independent, idempotent, and capped by retained balances');
 select tests.expect_error($$insert into petty_cash_transactions(
   company_id, fund_id, transaction_type, amount, transaction_date
 ) values (
@@ -454,11 +734,21 @@ select tests.expect_error($$insert into project_billings(
   '22222222-0000-0000-0000-000000000001',
   'a4000000-0000-0000-0000-000000000002',
   'CROSS-BILL', '2026-11-21', 100
-)$$, 'foreign key constraint');
+)$$, 'permission denied');
 select tests.expect_error($$insert into project_billing_collections(company_id, billing_id, collection_date, amount)
   values ('11111111-0000-0000-0000-000000000001',
           'a4000000-0000-0000-0000-000000000012',
-          '2026-11-21', 10)$$, 'foreign key constraint');
+          '2026-11-21', 10)$$, 'permission denied');
+select tests.expect_error($$select create_project_billing('{
+  "idempotency_key":"a4000000-0000-0000-0000-000000000061",
+  "project_id":"22222222-0000-0000-0000-000000000002",
+  "gross_amount":10
+}'::jsonb)$$, 'not available in this company');
+select tests.expect_error($$select record_project_billing_payment(
+  'a4000000-0000-0000-0000-000000000012',
+  1, '2026-11-21', 'Cash', 'CROSS-PAY', null, null, null,
+  'a4000000-0000-0000-0000-000000000062'
+)$$, 'approved billing');
 select tests.expect_error($$insert into billing_attachment_overrides(company_id, billing_id, reason)
   values ('11111111-0000-0000-0000-000000000001',
           'a4000000-0000-0000-0000-000000000012',
@@ -469,10 +759,10 @@ select tests.expect_true((select outstanding_amount = 87000
   'billing outstanding receivable is net amount minus collections');
 select tests.expect_error($$update project_billings
   set collected_amount = 112001
-  where id = 'a4000000-0000-0000-0000-000000000011'$$, 'receivable');
+  where id = 'a4000000-0000-0000-0000-000000000011'$$, 'permission denied');
 select tests.expect_error($$update project_billings
   set vat_rate = 101
-  where id = 'a4000000-0000-0000-0000-000000000011'$$, 'VAT');
+  where id = 'a4000000-0000-0000-0000-000000000011'$$, 'permission denied');
 select tests.expect_error($$insert into project_documents(company_id, project_id, category, document_name)
   values ('11111111-0000-0000-0000-000000000001', '22222222-0000-0000-0000-000000000002', 'Plan', 'Cross-company Plan')$$,
   'same company');
@@ -563,9 +853,189 @@ select tests.expect_true((select count(*) from activity_log
 select tests.expect_true((select count(*) from activity_log
   where action = 'receipt.ai_import.created') = 1, 'AI-created receipt is audited');
 
+-- ===== royalties =====
+select tests.expect_error($$insert into royalty_records(
+  company_id, client_name, billing_date, billing_amount, vat_treatment,
+  royalty_rate, royalty_basis, withholding_rate, withholding_basis, idempotency_key
+) values (
+  '11111111-0000-0000-0000-000000000001', 'Direct write', current_date, 100,
+  'NON_VAT', 3, 'VAT_EXCLUSIVE', 2, 'VAT_EXCLUSIVE',
+  'a4400000-0000-0000-0000-000000000001'
+)$$, 'permission denied');
+select tests.expect_error($$insert into royalty_record_events(company_id, action)
+  values ('11111111-0000-0000-0000-000000000001', 'forged')$$, 'permission denied');
+select tests.expect_error($$select save_royalty_record(null, '{
+  "idempotency_key":"a4400000-0000-0000-0000-000000000011",
+  "client_name":"Cross-company project","project_id":"22222222-0000-0000-0000-000000000002",
+  "billing_date":"2026-11-27","billing_amount":100,"vat_treatment":"NON_VAT",
+  "royalty_rate":3,"royalty_basis":"VAT_EXCLUSIVE",
+  "withholding_rate":2,"withholding_basis":"VAT_EXCLUSIVE"
+}'::jsonb)$$, 'Choose a project in your company');
+select tests.expect_error($$select save_royalty_record(null, '{
+  "idempotency_key":"a4400000-0000-0000-0000-000000000012",
+  "client_name":"Cross-company contract","project_id":"22222222-0000-0000-0000-000000000001",
+  "contract_id":"a4000000-0000-0000-0000-000000000002",
+  "billing_date":"2026-11-27","billing_amount":100,"vat_treatment":"NON_VAT",
+  "royalty_rate":3,"royalty_basis":"VAT_EXCLUSIVE",
+  "withholding_rate":2,"withholding_basis":"VAT_EXCLUSIVE"
+}'::jsonb)$$, 'Choose a contract in your company');
+select tests.expect_error($$select save_royalty_record(null, '{
+  "idempotency_key":"a4400000-0000-0000-0000-000000000013",
+  "client_name":"Cross-company supplier","supplier_id":"33333333-0000-0000-0000-000000000003",
+  "billing_date":"2026-11-27","billing_amount":100,"vat_treatment":"NON_VAT",
+  "royalty_rate":3,"royalty_basis":"VAT_EXCLUSIVE",
+  "withholding_rate":2,"withholding_basis":"VAT_EXCLUSIVE"
+}'::jsonb)$$, 'Choose a supplier in your company');
+select save_royalty_company_settings('{
+  "default_vat_rate":"12","default_royalty_rate":"4",
+  "default_royalty_basis":"VAT_EXCLUSIVE","default_withholding_rate":"2",
+  "default_withholding_basis":"BILLING_AMOUNT",
+  "deduction_confirmation_threshold":"10000"
+}'::jsonb);
+update suppliers set tax_classification = 'VAT_REGISTERED'
+where id = '11111111-0000-0000-0000-000000000001';
+select save_royalty_record(null, '{
+  "idempotency_key":"a4400000-0000-0000-0000-000000000021",
+  "supplier_id":"11111111-0000-0000-0000-000000000001",
+  "client_name":"Acme Royalty","project_id":"22222222-0000-0000-0000-000000000001",
+  "contract_id":"a4000000-0000-0000-0000-000000000001",
+  "billing_date":"2026-11-27","billing_amount":"1120",
+  "vat_treatment":"VAT_INCLUSIVE","vat_rate":"12",
+  "royalty_rate":"3","royalty_basis":"VAT_EXCLUSIVE",
+  "withholding_rate":"2","withholding_basis":"BILLING_AMOUNT",
+  "additional_withholding_rate":"1","additional_withholding_basis":"VAT_EXCLUSIVE",
+  "remarks":"First royalty record"
+}'::jsonb);
+select tests.expect_true(
+  (select count(*) = 1 from royalty_records
+   where idempotency_key = 'a4400000-0000-0000-0000-000000000021')
+  and (select royalty_base = 1000 and royalty_amount = 30
+       and withholding_base = 1120 and withholding_amount = 22.40
+       and additional_withholding_amount = 10 and gross_billing_amount = 1120
+       and initial_net_amount = 1057.60 and contract_amount = 5000
+       and supplier_tax_classification = 'VAT_REGISTERED'
+       and company_id = '11111111-0000-0000-0000-000000000001'
+       from royalty_records
+       where idempotency_key = 'a4400000-0000-0000-0000-000000000021'),
+  'royalty record stores independent rates, calculation bases, contract snapshot and net calculation');
+select tests.expect_true((select (save_royalty_record(null, '{
+  "idempotency_key":"a4400000-0000-0000-0000-000000000021",
+  "supplier_id":"11111111-0000-0000-0000-000000000001",
+  "client_name":"Acme Royalty","project_id":"22222222-0000-0000-0000-000000000001",
+  "contract_id":"a4000000-0000-0000-0000-000000000001",
+  "billing_date":"2026-11-27","billing_amount":"1120",
+  "vat_treatment":"VAT_INCLUSIVE","vat_rate":"12",
+  "royalty_rate":"3","royalty_basis":"VAT_EXCLUSIVE",
+  "withholding_rate":"2","withholding_basis":"BILLING_AMOUNT",
+  "additional_withholding_rate":"1","additional_withholding_basis":"VAT_EXCLUSIVE",
+  "remarks":"First royalty record"
+}'::jsonb)->>'idempotent')::boolean),
+  'retrying a royalty record with the same request key is idempotent');
+select tests.expect_true(
+  (select count(*) = 1 from royalty_record_events
+   where record_id = (select id from royalty_records
+     where idempotency_key = 'a4400000-0000-0000-0000-000000000021')
+     and action = 'record_created')
+  and (select count(*) = 1 from royalty_record_events
+       where action = 'company_settings_updated'),
+  'royalty record and company setting changes are audited');
+select tests.expect_true((select (record_royalty_return(
+  (select id from royalty_records
+   where idempotency_key = 'a4400000-0000-0000-0000-000000000021'),
+  '{
+    "idempotency_key":"a4400000-0000-0000-0000-000000000031",
+    "amount":"7.40","return_date":"2026-11-28","reference":"RET-001"
+  }'::jsonb)->>'outstanding_return')::numeric = 15),
+  'partial royalty withholding return updates the outstanding balance');
+select tests.expect_true((select (record_royalty_return(
+  (select id from royalty_records
+   where idempotency_key = 'a4400000-0000-0000-0000-000000000021'),
+  '{
+    "idempotency_key":"a4400000-0000-0000-0000-000000000031",
+    "amount":"7.40","return_date":"2026-11-28","reference":"RET-001"
+  }'::jsonb)->>'idempotent')::boolean),
+  'retrying a withholding return does not duplicate its transaction');
+select tests.expect_error($$select record_royalty_return(
+  (select id from royalty_records
+   where idempotency_key = 'a4400000-0000-0000-0000-000000000021'),
+  '{
+    "idempotency_key":"a4400000-0000-0000-0000-000000000032",
+    "amount":"15.01","return_date":"2026-11-29"
+  }'::jsonb
+)$$, 'cannot exceed the outstanding withholding');
+select record_royalty_return(
+  (select id from royalty_records
+   where idempotency_key = 'a4400000-0000-0000-0000-000000000021'),
+  '{
+    "idempotency_key":"a4400000-0000-0000-0000-000000000033",
+    "amount":"15","return_date":"2026-11-29","reference":"RET-002"
+  }'::jsonb
+);
+select tests.expect_true(
+  (select returned_amount = 22.40 and outstanding_return = 0
+       and final_net_amount = 1080 and status = 'completed'
+   from royalty_records
+   where idempotency_key = 'a4400000-0000-0000-0000-000000000021')
+  and (select count(*) = 2 from royalty_returns
+       where record_id = (select id from royalty_records
+         where idempotency_key = 'a4400000-0000-0000-0000-000000000021'))
+  and (select count(*) = 2 from royalty_record_events
+       where record_id = (select id from royalty_records
+         where idempotency_key = 'a4400000-0000-0000-0000-000000000021')
+         and action = 'return_recorded'),
+  'full royalty return preserves individual return transactions and audit history');
+select tests.expect_error($$select save_royalty_record(null, '{
+  "idempotency_key":"a4400000-0000-0000-0000-000000000021",
+  "client_name":"Changed retry","billing_date":"2026-11-27",
+  "billing_amount":1120,"vat_treatment":"VAT_INCLUSIVE",
+  "vat_rate":12,"royalty_rate":3,"royalty_basis":"VAT_EXCLUSIVE",
+  "withholding_rate":2,"withholding_basis":"BILLING_AMOUNT"
+}'::jsonb)$$, 'cannot be reused for a different record');
+select tests.expect_true((select count(*) = 0 from royalty_records
+  where company_id = '33333333-0000-0000-0000-000000000003'),
+  'company admin cannot create royalty records for another company');
+
+select tests.login('e0000000-0000-0000-0000-000000000002');
+select tests.expect_true((select count(*) = 1 from royalty_records)
+  and (select count(*) = 2 from royalty_returns)
+  and (select count(*) = 1 from royalty_company_settings),
+  'encoder can read only same-company royalty records, returns and settings');
+select tests.expect_error($$select save_royalty_company_settings(
+  '{"default_royalty_rate":4}'::jsonb
+)$$, 'Only a Creator or company Admin');
+select tests.expect_error($$select save_royalty_record(null, '{
+  "idempotency_key":"a4400000-0000-0000-0000-000000000042",
+  "client_name":"Encoder attempt","billing_date":"2026-11-30",
+  "billing_amount":100,"vat_treatment":"NON_VAT",
+  "royalty_rate":3,"royalty_basis":"VAT_EXCLUSIVE",
+  "withholding_rate":2,"withholding_basis":"VAT_EXCLUSIVE"
+}'::jsonb)$$, 'Only a Creator or company Admin');
+select tests.expect_error($$select record_royalty_return(
+  (select id from royalty_records limit 1),
+  '{"idempotency_key":"a4400000-0000-0000-0000-000000000041",
+    "amount":"1","return_date":"2026-11-30"}'::jsonb
+)$$, 'Only a Creator or company Admin');
+select tests.login('a0000000-0000-0000-0000-000000000001');
+
 -- ===== creator =====
 select tests.login('c0000000-0000-0000-0000-000000000007');
 select tests.expect_true(is_admin() and is_creator(), 'Creator has administrative permissions');
+select tests.expect_true((select count(*) = 0 from royalty_records)
+  and (select count(*) = 0 from royalty_returns)
+  and (select count(*) = 0 from royalty_company_settings),
+  'Creator royalty reads remain scoped to the Creator account company');
+select save_royalty_record(null, '{
+  "idempotency_key":"a4400000-0000-0000-0000-000000000051",
+  "client_name":"Beta Royalty","project_id":"22222222-0000-0000-0000-000000000002",
+  "contract_id":"a4000000-0000-0000-0000-000000000002",
+  "billing_date":"2026-11-27","billing_amount":"100",
+  "vat_treatment":"NON_VAT","royalty_rate":"4","royalty_basis":"BILLING_AMOUNT",
+  "withholding_rate":"2","withholding_basis":"VAT_EXCLUSIVE"
+}'::jsonb);
+select tests.expect_true((select count(*) = 1 from royalty_records
+  where company_id = '33333333-0000-0000-0000-000000000003'
+    and client_name = 'Beta Royalty'),
+  'Creator writes are restricted to the Creator account company');
 select tests.expect_error($$select approve_ai_import_receipt(tests.payload('AI-CREATOR', '33333333-0000-0000-0000-000000000003'))$$,
   'administrator role required');
 select tests.expect_true((select count(*) from companies) = 3, 'Creator can see every company');
