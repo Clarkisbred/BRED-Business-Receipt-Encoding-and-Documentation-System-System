@@ -270,7 +270,7 @@ final class ReactWorkspaceService {
                                 .reduce(BigDecimal.ZERO, BigDecimal::add)))),
                 List.of(column("receiptNo", "Receipt no."), column("date", "Date"),
                         column("type", "Document type"), column("supplier", "Supplier"),
-                        column("project", "Project"), column("classification", "Classification"),
+                        column("project", "Project"), column("classification", "Category"),
                         column("netTotal", "Net payable", true)),
                 List.of(field("receiptNo", "Receipt number", "text", true),
                         field("date", "Receipt date", "date", true),

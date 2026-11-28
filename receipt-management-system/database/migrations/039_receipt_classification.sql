@@ -2,9 +2,6 @@
 alter table receipts
   add column if not exists classification text not null default 'UNCLASSIFIED';
 
-update receipts set classification = 'UNCLASSIFIED'
-  where upper(btrim(classification)) = 'UNCLASSIFIED';
-
 update receipts set classification = upper(btrim(classification))
   where classification is distinct from upper(btrim(classification));
 

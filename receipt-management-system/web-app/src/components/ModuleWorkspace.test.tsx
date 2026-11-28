@@ -413,15 +413,18 @@ describe('ModuleWorkspace', () => {
 
   it('creates a receipt with editable items, units, EWT, and removable attachments', async () => {
     loadModulePage.mockResolvedValueOnce(receiptCreationPage);
-    saveModuleRecord.mockResolvedValueOnce(receiptPage);
+    saveModuleRecord.mockResolvedValueOnce({
+      ...receiptCreationPage,
+      rows: [...receiptPage.rows, { id: 'receipt-3', values: { classification: 'FUEL' } }],
+    });
     render(<ModuleWorkspace module="RECEIPTS" />);
 
     await screen.findByText('Receipts');
     fireEvent.click(screen.getByRole('button', { name: /New receipt/ }));
     fireEvent.change(screen.getByLabelText(/Receipt number/), { target: { value: 'OR-300' } });
     fireEvent.change(screen.getByRole('combobox', { name: /Supplier/ }), { target: { value: 'supplier-1' } });
-    fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'materials' } });
-    expect(screen.getByLabelText('Category')).toHaveValue('MATERIALS');
+    fireEvent.change(screen.getByLabelText(/Category/), { target: { value: 'materials' } });
+    expect(screen.getByLabelText(/Category/)).toHaveValue('MATERIALS');
     fireEvent.change(screen.getByLabelText('Item 1 description'), { target: { value: 'Cement' } });
     fireEvent.change(screen.getByLabelText('Item 1 quantity'), { target: { value: '2' } });
     fireEvent.change(screen.getByLabelText('Item 1 unit'), { target: { value: 'kg' } });
@@ -453,6 +456,8 @@ describe('ModuleWorkspace', () => {
       }),
       undefined,
     ));
+    fireEvent.click(await screen.findByRole('button', { name: /New receipt/ }));
+    expect(document.querySelector('#receipt-classifications option[value="FUEL"]')).not.toBeNull();
   });
 
   it('edits receipt items and removes saved attachments', async () => {

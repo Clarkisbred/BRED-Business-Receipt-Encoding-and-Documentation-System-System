@@ -105,7 +105,9 @@ export function ReceiptEntryForm({ data, saving, receipt, onSavingChange, onCanc
   const [type, setType] = useState(() => valueText(receipt?.values.typeValue, 'official_receipt'));
   const [supplierId, setSupplierId] = useState(() => valueText(receipt?.values.supplierId));
   const [projectId, setProjectId] = useState(() => valueText(receipt?.values.projectId));
-  const [classification, setClassification] = useState(() => valueText(receipt?.values.classification));
+  const [classification, setClassification] = useState(
+    () => valueText(receipt?.values.classification).toLocaleUpperCase(),
+  );
   const [paymentMethod, setPaymentMethod] = useState(() => valueText(receipt?.values.paymentMethod, 'Cash'));
   const [notes, setNotes] = useState(() => valueText(receipt?.values.notes));
   const [discount, setDiscount] = useState(() => valueText(receipt?.values.discountValue, '0'));
@@ -130,8 +132,8 @@ export function ReceiptEntryForm({ data, saving, receipt, onSavingChange, onCanc
   const projectOptions = page.fields.find((field) => field.key === 'projectId')?.options ?? [];
   const typeOptions = page.fields.find((field) => field.key === 'type')?.options ?? [];
   const classificationOptions = [...new Map(data.rows
-    .map((row) => valueText(row.values.classification).trim())
-    .filter((value) => value && value.toLocaleUpperCase() !== 'UNCLASSIFIED')
+    .map((row) => valueText(row.values.classification).trim().toLocaleUpperCase())
+    .filter((value) => value && value !== 'UNCLASSIFIED')
     .map((value) => [value.toLocaleLowerCase(), value] as const)).values()]
     .sort((left, right) => left.localeCompare(right));
   const supplier = supplierOptions.find((option) => option.value === supplierId);

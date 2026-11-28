@@ -59,7 +59,7 @@ and Maven on the computer that runs the app.
    Migration 017 creates storage for non-sensitive Ducky memory summaries; clients cannot access the table directly.
    For an existing Supabase project, apply any unapplied migrations in numeric order through
    `039_receipt_classification.sql`. Migration 038 adds receipt notes, payment type, EWT percentage, and line-item units.
-   Migration 039 stores expense classifications on receipts.
+   Migration 039 stores uppercase receipt categories.
 
    The updater expects a stable GitHub release asset named `BRED-Setup-<version>.msi` (for example, tag `v1.2.3`
    uses `BRED-Setup-1.2.3.msi`). BRED stages downloads in a per-user update directory. If GitHub supplies an asset
