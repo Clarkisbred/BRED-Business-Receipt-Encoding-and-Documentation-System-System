@@ -559,6 +559,7 @@ final class ReactWorkspaceService {
         List<Map<String, Object>> suppliers = new ArrayList<>();
         List<Map<String, Object>> returns = new ArrayList<>();
         List<Map<String, Object>> events = new ArrayList<>();
+        List<Map<String, Object>> projects = new ArrayList<>();
         Map<String, Object> configuration = defaultRoyaltyConfiguration();
         if (connected) {
             try {
@@ -581,8 +582,7 @@ final class ReactWorkspaceService {
                 suppliers.addAll(royaltyRows("suppliers",
                         "select=id,business_name,tax_classification" + companyFilter
                                 + "&order=business_name.asc"));
-                List<Map<String, Object>> projects = royaltyRows("projects",
-                        "select=id,name" + companyFilter);
+                projects.addAll(royaltyRows("projects", "select=id,name" + companyFilter));
                 Map<String, String> projectNames = new LinkedHashMap<>();
                 projects.forEach(project ->
                         projectNames.put(mapText(project, "id"), mapText(project, "name")));
@@ -605,11 +605,16 @@ final class ReactWorkspaceService {
                 context.supabaseRest == null
                         ? "Connect to the Cloud Database to manage company-scoped royalty records."
                         : "Manage saved royalty records, withholding returns, and company-specific calculation settings.",
-                List.of(metric("Gross billing", money(totalBilling)),
-                        metric("Royalty accrued", money(totalRoyalties)),
-                        metric("Pending returns", money(pendingReturn)),
-                        metric("Amount returned", money(totalReturned)),
-                        metric("Records", records.size())),
+                List.of(chartMetric("Gross billing", money(totalBilling), "By client",
+                                royaltyMetricPoints(records, "billing_amount", false, false)),
+                        chartMetric("Royalty accrued", money(totalRoyalties), "By client",
+                                royaltyMetricPoints(records, "royalty_amount", false, false)),
+                        chartMetric("Pending returns", money(pendingReturn), "By client",
+                                royaltyMetricPoints(records, "outstanding_return", true, false)),
+                        chartMetric("Amount returned", money(totalReturned), "By client",
+                                royaltyMetricPoints(records, "returned_amount", false, false)),
+                        chartMetric("Records", records.size(), "By client",
+                                royaltyMetricPoints(records, "", false, true))),
                 List.of(column("client_name", "Client"), column("billing_date", "Billing date"),
                         column("billing_amount", "Billing amount", true),
                         column("royalty_amount", "Royalty", true),
@@ -617,7 +622,8 @@ final class ReactWorkspaceService {
                         column("status", "Return status")),
                 List.of(), records, canWrite, canWrite, false, "New royalty record",
                 "Save royalty record", "save", constructionCategories(),
-                List.of(), List.of(), List.of(), List.of(), configuration, contracts, suppliers, returns, events);
+                List.of(), List.of(), List.of(), List.of(), configuration, contracts, suppliers, returns, events,
+                projects);
     }
 
     private List<Map<String, Object>> royaltyRows(String table, String query) throws SupabaseException {
@@ -629,6 +635,19 @@ final class ReactWorkspaceService {
     private static BigDecimal royaltySum(List<LocalApiServer.ModuleRecord> rows, String key) {
         return rows.stream().map(row -> amount(row.values(), key))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private static List<LocalApiServer.ModuleMetricPoint> royaltyMetricPoints(
+            List<LocalApiServer.ModuleRecord> rows, String amountKey, boolean pendingOnly, boolean countRecords) {
+        Map<String, BigDecimal> totals = new LinkedHashMap<>();
+        for (LocalApiServer.ModuleRecord row : rows) {
+            if (pendingOnly && !"pending".equalsIgnoreCase(mapText(row.values(), "status"))) continue;
+            String client = mapText(row.values(), "client_name").trim();
+            if (client.isBlank()) client = "Unnamed client";
+            BigDecimal value = countRecords ? BigDecimal.ONE : amount(row.values(), amountKey);
+            if (value.signum() != 0) totals.merge(client, value, BigDecimal::add);
+        }
+        return metricPoints(totals, Map.of());
     }
 
     private static BigDecimal amount(Map<String, Object> values, String key) {

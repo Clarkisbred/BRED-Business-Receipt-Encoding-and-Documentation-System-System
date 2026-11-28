@@ -215,7 +215,7 @@ class LocalApiServerTest {
     }
 
     @Test
-    void servesPackagedWebAssetsWithoutExposingTheNativeBootstrap() throws Exception {
+    void servesPackagedOrDevelopmentWebAssetsWithoutExposingTheNativeBootstrap() throws Exception {
         FakeBackend backend = new FakeBackend();
         try (LocalApiServer api = LocalApiServer.startForTesting(backend)) {
             LocalApiServer.RendererBootstrap bootstrap = api.rendererBootstrap();

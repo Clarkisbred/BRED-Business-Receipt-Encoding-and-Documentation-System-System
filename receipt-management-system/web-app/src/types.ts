@@ -8,6 +8,8 @@ export type ModuleKey =
   | 'PROJECTS'
   | 'LIVE_MAP'
   | 'CONSTRUCTION'
+  | 'BILLING_FINANCE'
+  | 'ROYALTIES'
   | 'SUPPLIERS'
   | 'REPORTS'
   | 'USERS'

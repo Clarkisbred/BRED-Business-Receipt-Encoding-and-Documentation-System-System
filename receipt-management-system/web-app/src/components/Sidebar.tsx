@@ -4,12 +4,14 @@ import {
   ChartNoAxesCombined,
   ClipboardList,
   Cloud,
+  CircleDollarSign,
   FolderKanban,
   HardHat,
   History,
   LayoutDashboard,
   MapPinned,
   MessageSquareText,
+  Landmark,
   ReceiptText,
   Settings,
   Truck,
@@ -58,6 +60,8 @@ const NAV_GROUPS: readonly NavGroup[] = [
   {
     label: 'FINANCIAL & OPERATIONS',
     items: [
+      { id: 'BILLING_FINANCE', label: 'Billing & Finance', icon: Landmark, allowed: EVERY_ROLE },
+      { id: 'ROYALTIES', label: 'Royalties', icon: CircleDollarSign, allowed: EVERY_ROLE },
       { id: 'SUPPLIERS', label: 'Suppliers', icon: Truck, allowed: EVERY_ROLE },
       { id: 'REPORTS', label: 'Reports', icon: ChartNoAxesCombined, allowed: EVERY_ROLE },
     ],

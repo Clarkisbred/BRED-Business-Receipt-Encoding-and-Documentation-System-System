@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Check, ChevronDown, CircleDollarSign, FileText, Plus, Printer, X } from 'lucide-react';
 import type { ModulePageData } from '../api/modules';
 import { ModalDialog } from './ModalDialog';
+import { MoneyInput } from './MoneyInput';
 
 type BillingAction =
   | 'create-billing'
@@ -804,8 +805,7 @@ export function ConstructionBillingWorkspace({ page, saving, onAction }: Props) 
             </label>
             <label className="module-field">
               <span>Original mobilization advance</span>
-              <input type="number" min="0" step="0.01" value={advanceAmount}
-                onChange={(event) => setAdvanceAmount(event.target.value)} />
+              <MoneyInput min={0} value={advanceAmount} onChange={setAdvanceAmount} />
             </label>
             <label className="module-field">
               <span>Retention cap method</span>
@@ -817,8 +817,7 @@ export function ConstructionBillingWorkspace({ page, saving, onAction }: Props) 
             {retentionCapType === 'fixed' ? (
               <label className="module-field">
                 <span>Maximum retention cap</span>
-                <input type="number" min="0" step="0.01" value={retentionCap}
-                  onChange={(event) => setRetentionCap(event.target.value)} />
+                <MoneyInput min={0} value={retentionCap} onChange={setRetentionCap} />
               </label>
             ) : (
               <>
@@ -837,8 +836,7 @@ export function ConstructionBillingWorkspace({ page, saving, onAction }: Props) 
                 {retentionCapBasis === 'custom' && (
                   <label className="module-field">
                     <span>Custom cap basis amount</span>
-                    <input type="number" min="0.01" step="0.01" value={retentionCapBasisAmount}
-                      onChange={(event) => setRetentionCapBasisAmount(event.target.value)} />
+                    <MoneyInput min={0.01} value={retentionCapBasisAmount} onChange={setRetentionCapBasisAmount} />
                   </label>
                 )}
               </>
@@ -1002,7 +1000,7 @@ export function ConstructionBillingWorkspace({ page, saving, onAction }: Props) 
             <label className="module-field"><span>Period end</span><input type="date" value={periodEnd} onChange={(event) => setPeriodEnd(event.target.value)} /></label>
             <label className="module-field"><span>Due date</span><input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></label>
             <label className="module-field module-field-wide"><span>Description</span><input value={description} onChange={(event) => setDescription(event.target.value)} /></label>
-            <label className="module-field"><span>{billingMode === 'cumulative' ? 'Amount (PHP) *' : 'Amount (PHP) *'}</span><input type="number" min="0.01" step="0.01" required value={gross} onChange={(event) => setGross(event.target.value)} /></label>
+            <label className="module-field"><span>Amount (PHP) *</span><MoneyInput required min={0.01} value={gross} onChange={setGross} /></label>
             <label className="module-field"><span>% Withholding of Final VAT</span><input type="number" min="0" max="100" step="0.000001" value={withholdingVatRate} onChange={(event) => setWithholdingVatRate(event.target.value)} /></label>
             <label className="module-field"><span>% Withholding of Income Tax</span><input type="number" min="0" max="100" step="0.000001" value={withholdingIncomeRate} onChange={(event) => setWithholdingIncomeRate(event.target.value)} /></label>
             <section className="construction-billing-document-picker" aria-label="Billing documents">
@@ -1053,16 +1051,16 @@ export function ConstructionBillingWorkspace({ page, saving, onAction }: Props) 
                   </select></label>
                   {item.calculation_type === 'percentage' ? (
                     <>
-                      <label className="module-field"><span>Basis amount</span><input type="number" min="0" step="0.01" value={item.basis_amount}
-                        onChange={(event) => setAdjustments((previous) => previous.map((entry, itemIndex) =>
-                          itemIndex === index ? { ...entry, basis_amount: event.target.value } : entry))} /></label>
+                      <label className="module-field"><span>Basis amount</span><MoneyInput min={0} value={item.basis_amount}
+                        onChange={(value) => setAdjustments((previous) => previous.map((entry, itemIndex) =>
+                          itemIndex === index ? { ...entry, basis_amount: value } : entry))} /></label>
                       <label className="module-field"><span>Rate (%)</span><input type="number" min="0" max="100" step="0.000001" value={item.rate}
                         onChange={(event) => setAdjustments((previous) => previous.map((entry, itemIndex) =>
                           itemIndex === index ? { ...entry, rate: event.target.value } : entry))} /></label>
                     </>
-                  ) : <label className="module-field"><span>Amount (PHP)</span><input type="number" min="0" step="0.01" value={item.amount}
-                    onChange={(event) => setAdjustments((previous) => previous.map((entry, itemIndex) =>
-                      itemIndex === index ? { ...entry, amount: event.target.value } : entry))} /></label>}
+                  ) : <label className="module-field"><span>Amount (PHP)</span><MoneyInput min={0} value={item.amount}
+                    onChange={(value) => setAdjustments((previous) => previous.map((entry, itemIndex) =>
+                      itemIndex === index ? { ...entry, amount: value } : entry))} /></label>}
                   <label className="module-field"><span>Description / reason</span><input value={item.description}
                     onChange={(event) => setAdjustments((previous) => previous.map((entry, itemIndex) =>
                       itemIndex === index ? { ...entry, description: event.target.value } : entry))} /></label>
@@ -1087,9 +1085,9 @@ export function ConstructionBillingWorkspace({ page, saving, onAction }: Props) 
                       <label className="module-field"><span>Unit *</span><input required value={item.unit}
                         onChange={(event) => setAdjustments((previous) => previous.map((entry, itemIndex) =>
                           itemIndex === index ? { ...entry, unit: event.target.value } : entry))} /></label>
-                      <label className="module-field"><span>Unit price (PHP) *</span><input required type="number" min="0" step="0.01" value={item.unit_price}
-                        onChange={(event) => setAdjustments((previous) => previous.map((entry, itemIndex) =>
-                          itemIndex === index ? { ...entry, unit_price: event.target.value } : entry))} /></label>
+                      <label className="module-field"><span>Unit price (PHP) *</span><MoneyInput required min={0} value={item.unit_price}
+                        onChange={(value) => setAdjustments((previous) => previous.map((entry, itemIndex) =>
+                          itemIndex === index ? { ...entry, unit_price: value } : entry))} /></label>
                     </>
                   )}
                   {item.adjustment_type === 'liquidated_damages' && (
@@ -1097,9 +1095,9 @@ export function ConstructionBillingWorkspace({ page, saving, onAction }: Props) 
                       <label className="module-field"><span>Delay days</span><input type="number" min="0" step="1" value={item.days}
                         onChange={(event) => setAdjustments((previous) => previous.map((entry, itemIndex) =>
                           itemIndex === index ? { ...entry, days: event.target.value } : entry))} /></label>
-                      <label className="module-field"><span>Amount per day (PHP)</span><input type="number" min="0" step="0.01" value={item.daily_rate}
-                        onChange={(event) => setAdjustments((previous) => previous.map((entry, itemIndex) =>
-                          itemIndex === index ? { ...entry, daily_rate: event.target.value } : entry))} /></label>
+                      <label className="module-field"><span>Amount per day (PHP)</span><MoneyInput min={0} value={item.daily_rate}
+                        onChange={(value) => setAdjustments((previous) => previous.map((entry, itemIndex) =>
+                          itemIndex === index ? { ...entry, daily_rate: value } : entry))} /></label>
                     </>
                   )}
                   {item.adjustment_type === 'backcharge' && (
@@ -1255,7 +1253,9 @@ export function ConstructionBillingWorkspace({ page, saving, onAction }: Props) 
           {['Approved', 'Certified', 'Paid'].includes(text(selectedBilling.values.status)) && (
             <form className="module-form construction-billing-payment" onSubmit={(event) => void submitPayment(event)}>
               <h4><CircleDollarSign aria-hidden="true" size={17} /> Record payment</h4>
-              <label className="module-field"><span>Amount (PHP)</span><input required type="number" min="0.01" step="0.01" max={Math.max(0, amount(selectedBilling.values.net_amount) - amount(selectedBilling.values.collected_amount))} value={paymentAmount} onChange={(event) => setPaymentAmount(event.target.value)} /></label>
+              <label className="module-field"><span>Amount (PHP)</span><MoneyInput required min={0.01}
+                max={Math.max(0, amount(selectedBilling.values.net_amount) - amount(selectedBilling.values.collected_amount))}
+                value={paymentAmount} onChange={setPaymentAmount} /></label>
               <label className="module-field"><span>Payment date</span><input required type="date" value={paymentDate} onChange={(event) => setPaymentDate(event.target.value)} /></label>
               <label className="module-field"><span>Method</span><input required value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)} /></label>
               <label className="module-field"><span>Reference</span><input value={paymentReference} onChange={(event) => setPaymentReference(event.target.value)} /></label>
@@ -1269,9 +1269,8 @@ export function ConstructionBillingWorkspace({ page, saving, onAction }: Props) 
                 <form className="module-form" onSubmit={(event) => void submitRefund(event)}>
                   <h4>Record payment refund</h4>
                   <label className="module-field"><span>Refund amount (PHP) *</span>
-                    <input required type="number" min="0.01" step="0.01"
-                      max={amount(selectedBilling.values.collected_amount)} value={refundAmount}
-                      onChange={(event) => setRefundAmount(event.target.value)} /></label>
+                    <MoneyInput required min={0.01} max={amount(selectedBilling.values.collected_amount)}
+                      value={refundAmount} onChange={setRefundAmount} /></label>
                   <label className="module-field"><span>Refund date *</span>
                     <input required type="date" value={refundDate} onChange={(event) => setRefundDate(event.target.value)} /></label>
                   <label className="module-field"><span>Reference</span>
@@ -1311,9 +1310,8 @@ export function ConstructionBillingWorkspace({ page, saving, onAction }: Props) 
             <form className="module-form construction-billing-payment" onSubmit={(event) => void submitWithholdingRemittance(event)}>
               <h4>Record withholding remittance</h4>
               <label className="module-field"><span>Amount (PHP)</span>
-                <input required type="number" min="0.01" step="0.01"
-                  max={amount(selectedBilling.values.withholding_remaining)}
-                  value={remittanceAmount} onChange={(event) => setRemittanceAmount(event.target.value)} /></label>
+                <MoneyInput required min={0.01} max={amount(selectedBilling.values.withholding_remaining)}
+                  value={remittanceAmount} onChange={setRemittanceAmount} /></label>
               <label className="module-field"><span>Remittance date</span>
                 <input required type="date" value={remittanceDate} onChange={(event) => setRemittanceDate(event.target.value)} /></label>
               <label className="module-field"><span>Payment reference</span>
@@ -1369,7 +1367,8 @@ export function ConstructionBillingWorkspace({ page, saving, onAction }: Props) 
           <div className="panel-heading"><div><p className="eyebrow">PROJECT FINANCIAL CONTROLS</p><h3 id="retention-release-title">Retention release</h3></div></div>
           <p>Outstanding retained amount for the selected project: <strong>{money(projectTotals.retentionOutstanding)}</strong></p>
           <form className="module-form" onSubmit={(event) => void submitRetentionRelease(event)}>
-            <label className="module-field"><span>Release amount</span><input required type="number" min="0.01" step="0.01" max={projectTotals.retentionOutstanding} value={releaseAmount} onChange={(event) => setReleaseAmount(event.target.value)} /></label>
+            <label className="module-field"><span>Release amount</span><MoneyInput required min={0.01}
+              max={projectTotals.retentionOutstanding} value={releaseAmount} onChange={setReleaseAmount} /></label>
             <label className="module-field"><span>Release date</span><input required type="date" value={releaseDate} onChange={(event) => setReleaseDate(event.target.value)} /></label>
             <label className="module-field"><span>Reference</span><input value={releaseReference} onChange={(event) => setReleaseReference(event.target.value)} /></label>
             <label className="module-field"><span>Supporting document path</span><input value={releaseDocument} onChange={(event) => setReleaseDocument(event.target.value)} /></label>

@@ -17,8 +17,11 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.URISyntaxException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.time.YearMonth;
@@ -91,7 +94,8 @@ public final class LocalApiServer implements AutoCloseable {
                                  List<Map<String, Object>> royaltyContracts,
                                  List<Map<String, Object>> royaltySuppliers,
                                  List<Map<String, Object>> royaltyReturns,
-                                 List<Map<String, Object>> royaltyEvents) {
+                                 List<Map<String, Object>> royaltyEvents,
+                                 List<Map<String, Object>> royaltyProjects) {
         public ModulePageData(String key, String title, String description, List<ModuleMetric> metrics,
                               List<ModuleColumn> columns, List<ModuleField> fields, List<ModuleRecord> rows,
                               boolean canCreate, boolean canEdit, boolean canDelete,
@@ -104,7 +108,7 @@ public final class LocalApiServer implements AutoCloseable {
             this(key, title, description, metrics, columns, fields, rows, canCreate, canEdit, canDelete,
                     primaryActionLabel, submitLabel, createAction, constructionCategories,
                     billingConfigurations, billingRetentionReleases, billingLegacyRetention,
-                    billingMobilizationBalances, Map.of(), List.of(), List.of(), List.of(), List.of());
+                    billingMobilizationBalances, Map.of(), List.of(), List.of(), List.of(), List.of(), List.of());
         }
 
         public ModulePageData(String key, String title, String description, List<ModuleMetric> metrics,
@@ -117,7 +121,7 @@ public final class LocalApiServer implements AutoCloseable {
             this(key, title, description, metrics, columns, fields, rows, canCreate, canEdit, canDelete,
                     primaryActionLabel, submitLabel, createAction, constructionCategories,
                     billingConfigurations, billingRetentionReleases, List.of(), List.of(),
-                    Map.of(), List.of(), List.of(), List.of(), List.of());
+                    Map.of(), List.of(), List.of(), List.of(), List.of(), List.of());
         }
 
         public ModulePageData(String key, String title, String description, List<ModuleMetric> metrics,
@@ -128,7 +132,7 @@ public final class LocalApiServer implements AutoCloseable {
             this(key, title, description, metrics, columns, fields, rows, canCreate, canEdit, canDelete,
                     primaryActionLabel, submitLabel, createAction, constructionCategories,
                     List.of(), List.of(), List.of(), List.of(),
-                    Map.of(), List.of(), List.of(), List.of(), List.of());
+                    Map.of(), List.of(), List.of(), List.of(), List.of(), List.of());
         }
 
         public ModulePageData(String key, String title, String description, List<ModuleMetric> metrics,
@@ -171,6 +175,7 @@ public final class LocalApiServer implements AutoCloseable {
     private final byte[] tokenBytes;
     private final String origin;
     private final String expectedHost;
+    private final Path developmentWebRoot;
     private volatile boolean closed;
 
     private LocalApiServer(LocalApiBackend backend) throws IOException {
@@ -179,6 +184,7 @@ public final class LocalApiServer implements AutoCloseable {
         server = HttpServer.create(new InetSocketAddress(loopback, 0), 16);
         expectedHost = "127.0.0.1:" + server.getAddress().getPort();
         origin = "http://" + expectedHost;
+        developmentWebRoot = findDevelopmentWebRoot();
         byte[] secret = new byte[TOKEN_BYTES];
         RANDOM.nextBytes(secret);
         tokenBytes = secret;
@@ -288,13 +294,11 @@ public final class LocalApiServer implements AutoCloseable {
                 return;
             }
             String resourcePath = "/web-app" + ("/".equals(requestPath) ? "/index.html" : requestPath);
-            byte[] content;
-            try (InputStream resource = LocalApiServer.class.getResourceAsStream(resourcePath)) {
-                if (resource == null) {
-                    sendError(exchange, 404, "not_found", "The requested BRED resource was not found.");
-                    return;
-                }
-                content = resource.readNBytes(MAX_STATIC_RESOURCE_BYTES + 1);
+            byte[] content = readStaticResource(resourcePath, requestPath);
+            if (content == null) {
+                LOGGER.warning("BRED web resource was not found: " + requestPath);
+                sendError(exchange, 404, "not_found", "The requested BRED resource was not found.");
+                return;
             }
             if (content.length > MAX_STATIC_RESOURCE_BYTES) {
                 sendError(exchange, 500, "resource_too_large", "The BRED web resource could not be served.");
@@ -319,6 +323,38 @@ public final class LocalApiServer implements AutoCloseable {
         } finally {
             exchange.close();
         }
+    }
+
+    private byte[] readStaticResource(String resourcePath, String requestPath) throws IOException {
+        try (InputStream resource = LocalApiServer.class.getResourceAsStream(resourcePath)) {
+            if (resource != null) return resource.readNBytes(MAX_STATIC_RESOURCE_BYTES + 1);
+        }
+        if (developmentWebRoot == null) return null;
+
+        String relativePath = "/".equals(requestPath) ? "index.html" : requestPath.substring(1);
+        Path resource = developmentWebRoot.resolve(relativePath).normalize();
+        if (!resource.startsWith(developmentWebRoot) || !Files.isRegularFile(resource)) return null;
+        Path realResource = resource.toRealPath();
+        if (!realResource.startsWith(developmentWebRoot)) return null;
+        try (InputStream stream = Files.newInputStream(realResource)) {
+            return stream.readNBytes(MAX_STATIC_RESOURCE_BYTES + 1);
+        }
+    }
+
+    private static Path findDevelopmentWebRoot() {
+        try {
+            Path location = Path.of(LocalApiServer.class.getProtectionDomain().getCodeSource()
+                    .getLocation().toURI()).toAbsolutePath().normalize();
+            if (!Files.isDirectory(location)) return null;
+            for (Path directory = location; directory != null; directory = directory.getParent()) {
+                if (!Files.isRegularFile(directory.resolve("pom.xml"))) continue;
+                Path webRoot = directory.resolve("web-app").resolve("dist");
+                if (Files.isDirectory(webRoot)) return webRoot.toRealPath();
+            }
+        } catch (IOException | URISyntaxException error) {
+            LOGGER.log(Level.WARNING, "The local BRED development web resources could not be located.", error);
+        }
+        return null;
     }
 
     private static boolean isSafeStaticPath(String path) {

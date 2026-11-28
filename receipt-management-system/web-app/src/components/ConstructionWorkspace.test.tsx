@@ -18,6 +18,7 @@ const categories = [
   {
     title: 'Billing and Finance',
     tabs: [
+      { title: 'Billings', table: 'project_billings' },
       { title: 'Payables', table: 'project_payables' },
       { title: 'Royalties', table: 'royalty_records' },
     ],
@@ -58,6 +59,15 @@ const payablesPage: ModulePageData = {
   rows: [{ id: 'payable-1', values: { reference: 'Concrete invoice', amount: null } }],
 };
 
+const billingPage: ModulePageData = {
+  ...contractsPage,
+  title: 'Billings',
+  description: 'Manage project billings.',
+  columns: [],
+  fields: [],
+  rows: [],
+};
+
 const royaltiesPage: ModulePageData = {
   ...payablesPage,
   title: 'Royalties',
@@ -72,7 +82,9 @@ describe('ConstructionWorkspace', () => {
 
   beforeEach(() => {
     loadConstructionPage.mockReset().mockImplementation((table: string) => Promise.resolve(
-      table === 'project_payables' ? payablesPage : table === 'royalty_records' ? royaltiesPage : contractsPage,
+      table === 'project_billings' ? billingPage
+        : table === 'project_payables' ? payablesPage
+          : table === 'royalty_records' ? royaltiesPage : contractsPage,
     ));
     saveModuleRecord.mockReset().mockResolvedValue({
       ...contractsPage,
@@ -86,12 +98,19 @@ describe('ConstructionWorkspace', () => {
     expect(await screen.findByText('No contracts records yet')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: /Gross billings By project: Bridge Alpha/ })).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Collected: no breakdown data' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /Billing and Finance/ }));
+    expect(screen.queryByRole('button', { name: 'Billing and Finance' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Projects and Planning/ })).toBeInTheDocument();
+  });
 
-    expect(await screen.findByText('Concrete invoice')).toBeInTheDocument();
-    expect(loadConstructionPage).toHaveBeenLastCalledWith('project_payables');
-    const row = screen.getByRole('row', { name: 'Concrete invoice' });
-    expect(within(row).getAllByRole('cell')[1]).toBeEmptyDOMElement();
+  it('formats raw financial summary values as Philippine pesos', async () => {
+    loadConstructionPage.mockResolvedValueOnce({
+      ...contractsPage,
+      metrics: [{ ...contractsPage.metrics[0]!, value: '125000' }],
+    });
+
+    render(<ConstructionWorkspace />);
+
+    expect(await screen.findByText('₱125,000.00')).toBeInTheDocument();
   });
 
   it('creates a construction record using the selected table and entered fields', async () => {
@@ -114,16 +133,28 @@ describe('ConstructionWorkspace', () => {
     expect(await screen.findByText('North site contract')).toBeInTheDocument();
   });
 
-  it('opens Royalties under the existing Billing and Finance category', async () => {
-    render(<ConstructionWorkspace />);
-    await screen.findByText('No contracts records yet');
-    fireEvent.click(screen.getByRole('button', { name: /Billing and Finance/ }));
-    await screen.findByText('Concrete invoice');
-    fireEvent.click(screen.getByRole('button', { name: 'Royalties' }));
+  it('opens Billing & Finance directly with its sections and no nested Royalties entry', async () => {
+    render(<ConstructionWorkspace view="billing" />);
+
+    expect(await screen.findByText('No billing records for this project yet.')).toBeInTheDocument();
+    expect(loadConstructionPage).toHaveBeenLastCalledWith('project_billings');
+    const financialSections = screen.getByRole('navigation', { name: 'Billing and Finance sections' });
+    expect(within(financialSections).getByRole('button', { name: 'Billings' })).toHaveAttribute('aria-current', 'page');
+    expect(within(financialSections).getByRole('button', { name: 'Payables' })).toBeInTheDocument();
+    expect(within(financialSections).queryByRole('button', { name: 'Royalties' })).not.toBeInTheDocument();
+
+    fireEvent.click(within(financialSections).getByRole('button', { name: 'Payables' }));
+    expect(await screen.findByText('Concrete invoice')).toBeInTheDocument();
+    expect(loadConstructionPage).toHaveBeenLastCalledWith('project_payables');
+  });
+
+  it('opens Royalties as its own financial destination', async () => {
+    render(<ConstructionWorkspace view="royalties" />);
 
     expect(await screen.findByRole('heading', { name: 'Royalties' })).toBeInTheDocument();
     expect(loadConstructionPage).toHaveBeenLastCalledWith('royalty_records');
     expect(screen.getByRole('button', { name: 'Company settings' })).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'Construction categories' })).not.toBeInTheDocument();
   });
 
   it('renders an explicit recoverable load error', async () => {

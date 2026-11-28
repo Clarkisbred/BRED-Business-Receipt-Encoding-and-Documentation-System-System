@@ -37,7 +37,11 @@ describe('ConstructionBillingWorkspace', () => {
     fireEvent.change(screen.getByLabelText('Project'), { target: { value: 'project-1' } });
     fireEvent.click(screen.getByRole('button', { name: /New billing/ }));
     expect(screen.getByRole('dialog', { name: 'Create billing' })).toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Amount (PHP) *'), { target: { value: '1174587.71' } });
+    const grossInput = screen.getByLabelText('Amount (PHP) *');
+    fireEvent.change(grossInput, { target: { value: '1000000' } });
+    expect(grossInput).toHaveValue('1,000,000');
+    fireEvent.change(grossInput, { target: { value: '1174587.71' } });
+    expect(grossInput).toHaveValue('1,174,587.71');
     fireEvent.change(screen.getByLabelText('% Withholding of Final VAT'), { target: { value: '5' } });
     fireEvent.change(screen.getByLabelText('% Withholding of Income Tax'), { target: { value: '2' } });
 

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ModuleWorkspace } from './ModuleWorkspace';
 import type { ModulePageData } from '../api/modules';
@@ -455,6 +455,58 @@ describe('ModuleWorkspace', () => {
     expect(screen.getByText('scan.pdf')).toBeInTheDocument();
   });
 
+  it('deletes a receipt from its detail panel without an actions column', async () => {
+    loadModulePage.mockResolvedValueOnce(receiptPage);
+    saveModuleRecord.mockResolvedValueOnce(receiptPage);
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<ModuleWorkspace module="RECEIPTS" />);
+
+    await screen.findByRole('button', { name: 'View receipt R-100' });
+    expect(screen.queryByRole('columnheader', { name: 'Actions' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'View receipt R-100' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete receipt' }));
+
+    await waitFor(() => expect(saveModuleRecord).toHaveBeenCalledWith(
+      'RECEIPTS',
+      'delete',
+      {},
+      'receipt-1',
+    ));
+  });
+
+  it('formats receipt balances and report spending in financial summaries', async () => {
+    const rawReceiptPage: ModulePageData = {
+      ...receiptPage,
+      metrics: [
+        { label: 'Total receipts', value: '1' },
+        { label: 'Net payables', value: '1000' },
+      ],
+      rows: [{
+        ...receiptPage.rows[0]!,
+        values: { ...receiptPage.rows[0]!.values, netTotal: '1000' },
+      }],
+    };
+    loadModulePage.mockResolvedValueOnce(rawReceiptPage);
+    const { unmount } = render(<ModuleWorkspace module="RECEIPTS" />);
+
+    const table = await screen.findByRole('table');
+    expect(within(table).getByText('₱1,000.00')).toBeInTheDocument();
+    expect(screen.getAllByText('₱1,000.00')).toHaveLength(2);
+    expect(screen.getByText('1', { selector: '.stat-value' })).toBeInTheDocument();
+
+    loadModulePage.mockResolvedValueOnce({
+      ...reportPage,
+      metrics: [
+        { label: 'Receipt spend', value: '7233' },
+        { label: 'Receipts', value: '3' },
+      ],
+    });
+    unmount();
+    render(<ModuleWorkspace module="REPORTS" />);
+    expect(await screen.findByText('₱7,233.00')).toBeInTheDocument();
+    expect(screen.getByText('3', { selector: '.stat-value' })).toBeInTheDocument();
+  });
+
   it('creates a receipt with editable items, units, EWT, and removable attachments', async () => {
     loadModulePage.mockResolvedValueOnce(receiptCreationPage);
     saveModuleRecord.mockResolvedValueOnce({
@@ -537,8 +589,11 @@ describe('ModuleWorkspace', () => {
     saveModuleRecord.mockResolvedValueOnce(receiptPage);
     render(<ModuleWorkspace module="RECEIPTS" />);
 
-    await screen.findByRole('button', { name: 'Edit' });
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await screen.findByRole('button', { name: 'View receipt R-100' });
+    expect(screen.queryByRole('columnheader', { name: 'Actions' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'View receipt R-100' }));
+    expect(screen.getByRole('button', { name: 'Delete receipt' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit receipt' }));
     expect(screen.getByRole('heading', { name: 'Edit receipt' })).toBeInTheDocument();
     expect(screen.getByLabelText('Item 1 unit price')).toHaveValue(500);
     fireEvent.change(screen.getByRole('combobox', { name: 'Category' }), { target: { value: 'materials' } });

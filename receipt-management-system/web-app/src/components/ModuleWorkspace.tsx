@@ -6,22 +6,21 @@ import {
   Check,
   Download,
   LockKeyhole,
-  Mail,
   MapPin,
   Moon,
   Palette,
-  Phone,
   Plus,
   RefreshCw,
   Search,
   Sun,
   X,
 } from 'lucide-react';
-import { ProfileAvatar } from './IdentityAvatar';
+import { CreatorContactsCard } from './CreatorContactsCard';
 import { ModalDialog } from './ModalDialog';
 import { ReceiptEntryForm } from './ReceiptEntryForm';
 import { booleanValue, displayValue, inputValue } from '../utils/moduleValues';
 import { formatPhilippineTin } from '../utils/tin';
+import { formatFinancialMetric, formatPesoAmount } from '../utils/financialFormat';
 import {
   loadModulePage,
   saveModuleRecord,
@@ -99,15 +98,7 @@ function formatAmountInput(value: unknown): string {
 }
 
 function pesoDisplay(value: unknown): string {
-  const normalized = displayValue(value).replace(/[,\s]/g, '');
-  const amount = Number(normalized);
-  if (!normalized || !Number.isFinite(amount)) return displayValue(value);
-  return new Intl.NumberFormat('en-PH', {
-    style: 'currency',
-    currency: 'PHP',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
+  return formatPesoAmount(displayValue(value));
 }
 
 function LoadingRows() {
@@ -652,7 +643,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
           {displayedMetrics.map((metric) => (
             <article className="stat-card module-metric-card" key={metric.label}>
               <span className="stat-label">{metric.label}</span>
-              <strong className="stat-value">{metric.value}</strong>
+              <strong className="stat-value">{formatFinancialMetric(metric.label, metric.value)}</strong>
               {metric.note && <span className="stat-note">{metric.note}</span>}
               {metric.chart && metric.chart.length > 0 && (
                 <div className="module-metric-chart" role="img" aria-label={`${metric.label} chart`}>
@@ -879,23 +870,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
             </form>
           </section>
 
-          <section className="panel settings-section" aria-labelledby="settings-contacts-title">
-            <div className="settings-section-heading">
-              <span className="settings-section-icon"><Mail aria-hidden="true" size={18} /></span>
-              <div>
-                <h3 id="settings-contacts-title">Creator contacts</h3>
-                <p>Contact the BRED Creator for account or product support.</p>
-              </div>
-            </div>
-            <div className="settings-contact-card">
-              <ProfileAvatar className="settings-contact-avatar" name="Clark Hilario" email="clarkhilario.bread@gmail.com" />
-              <div className="settings-contact-copy">
-                <strong>Clark Hilario</strong>
-                <a href="mailto:clarkhilario.bread@gmail.com">clarkhilario.bread@gmail.com</a>
-                <a href="tel:+639944826590"><Phone aria-hidden="true" size={14} /> +63 994 482 6590</a>
-              </div>
-            </div>
-          </section>
+          <CreatorContactsCard />
 
           <section className="panel settings-section" aria-labelledby="settings-report-title">
             <div className="settings-section-heading">
@@ -1275,7 +1250,9 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
                 <thead>
                   <tr>
                     {data.columns.map((column) => <th className={column.numeric ? 'is-numeric' : undefined} key={column.key}>{column.label}</th>)}
-                    {(data.canEdit || data.canDelete) && <th className="module-actions-heading">Actions</th>}
+                    {module !== 'RECEIPTS' && (data.canEdit || data.canDelete) && (
+                      <th className="module-actions-heading">Actions</th>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -1300,6 +1277,8 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
                               <span className={`module-state-pill is-${statusTone(value)}`}>{displayValue(value)}</span>
                             ) : module === 'SUPPLIERS' && column.key === 'tin' ? (
                               formatPhilippineTin(displayValue(value))
+                            ) : module === 'RECEIPTS' && column.key === 'netTotal' ? (
+                              pesoDisplay(value)
                             ) : module === 'PROJECTS'
                               && ['contractAmount', 'revisedContractAmount', 'revisionEffect', 'income', 'billings', 'spend', 'profitLoss'].includes(column.key) ? (
                               pesoDisplay(value)
@@ -1309,7 +1288,7 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
                           </td>
                         );
                       })}
-                      {(data.canEdit || data.canDelete) && (
+                      {module !== 'RECEIPTS' && (data.canEdit || data.canDelete) && (
                         <td className="module-row-actions">
                           {data.canEdit && <button className="text-button" type="button"
                             aria-label={module === 'PROJECTS' ? `Edit ${displayValue(row.values.name)}` : 'Edit'}
@@ -1378,10 +1357,30 @@ export function ModuleWorkspace({ module }: { module: ModuleKey }) {
                   : displayValue(selectedReceipt.values.attachmentNames)}</dd>
               </div>
             </dl>
-            {data.canDelete && (
-              <button className="button button-secondary text-button-danger module-detail-delete" type="button" onClick={() => void deleteRecord(selectedReceipt.id)} disabled={saving}>
-                Delete receipt
-              </button>
+            {(data.canEdit || data.canDelete) && (
+              <div className="module-detail-actions">
+                {data.canEdit && (
+                  <button
+                    className="button button-secondary module-detail-edit"
+                    type="button"
+                    aria-label="Edit receipt"
+                    onClick={() => beginEdit(selectedReceipt.id)}
+                    disabled={saving}
+                  >
+                    Edit
+                  </button>
+                )}
+                {data.canDelete && (
+                  <button
+                    className="button button-secondary text-button-danger module-detail-delete"
+                    type="button"
+                    onClick={() => void deleteRecord(selectedReceipt.id)}
+                    disabled={saving}
+                  >
+                    Delete receipt
+                  </button>
+                )}
+              </div>
             )}
           </aside>
         )}

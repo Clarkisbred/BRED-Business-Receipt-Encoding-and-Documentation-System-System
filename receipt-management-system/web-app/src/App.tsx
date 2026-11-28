@@ -60,6 +60,8 @@ export function App() {
     PROJECTS: 'Projects',
     LIVE_MAP: 'Live Project Map',
     CONSTRUCTION: 'Construction',
+    BILLING_FINANCE: 'Billing & Finance',
+    ROYALTIES: 'Royalties',
     SUPPLIERS: 'Suppliers',
     REPORTS: 'Reports',
     USERS: 'Users',
@@ -101,7 +103,11 @@ export function App() {
             : activeModule === 'MESSAGES'
             ? <MessagesWorkspace currentUserId={profile.id} currentUserRole={profile.role} />
               : activeModule === 'CONSTRUCTION'
-                ? <ConstructionWorkspace />
+                ? <ConstructionWorkspace key={activeModule} />
+                : activeModule === 'BILLING_FINANCE'
+                  ? <ConstructionWorkspace key={activeModule} view="billing" />
+                  : activeModule === 'ROYALTIES'
+                    ? <ConstructionWorkspace key={activeModule} view="royalties" />
               : activeModule !== 'DUCKY'
                 ? <ModuleWorkspace module={activeModule} />
                 : null}

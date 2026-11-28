@@ -69,6 +69,7 @@ export interface ModulePageData {
   royaltySuppliers?: Array<Record<string, unknown>>;
   royaltyReturns?: Array<Record<string, unknown>>;
   royaltyEvents?: Array<Record<string, unknown>>;
+  royaltyProjects?: Array<Record<string, unknown>>;
 }
 
 export interface MapSearchResult {

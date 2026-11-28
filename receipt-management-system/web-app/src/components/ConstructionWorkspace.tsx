@@ -30,6 +30,7 @@ import {
   type ModuleRecord,
 } from '../api/modules';
 import { booleanValue, displayValue, inputValue } from '../utils/moduleValues';
+import { formatFinancialMetric } from '../utils/financialFormat';
 
 const categoryIcons: Record<string, LucideIcon> = {
   'Projects and Planning': FolderKanban,
@@ -42,9 +43,12 @@ const categoryIcons: Record<string, LucideIcon> = {
 
 const tabIcons: Record<string, LucideIcon> = {
   royalty_records: CircleDollarSign,
+  project_billings: ReceiptText,
+  project_billing_collections: CircleDollarSign,
 };
 
 const defaultTable = 'project_contracts';
+type ConstructionWorkspaceView = 'construction' | 'billing' | 'royalties';
 
 function formatMetricPoint(metricLabel: string, value: number): string {
   if (/records$/i.test(metricLabel)) {
@@ -62,11 +66,13 @@ function fieldDefault(field: ModuleField): string | boolean {
   return inputValue(field.value);
 }
 
-export function ConstructionWorkspace() {
+export function ConstructionWorkspace({ view = 'construction' }: { view?: ConstructionWorkspaceView }) {
   const [page, setPage] = useState<ModulePageData | null>(null);
   const [categories, setCategories] = useState<ConstructionCategory[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('Projects and Planning');
-  const [selectedTable, setSelectedTable] = useState(defaultTable);
+  const [selectedTable, setSelectedTable] = useState(
+    view === 'billing' ? 'project_billings' : view === 'royalties' ? 'royalty_records' : defaultTable,
+  );
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +91,17 @@ export function ConstructionWorkspace() {
       (data) => {
         if (!active) return;
         setPage(data);
-        const nextCategories = data.constructionCategories ?? [];
+        const availableCategories = data.constructionCategories ?? [];
+        const nextCategories = view === 'construction'
+          ? availableCategories.filter((category) => category.title !== 'Billing and Finance')
+          : view === 'billing'
+            ? availableCategories
+              .filter((category) => category.title === 'Billing and Finance')
+              .map((category) => ({
+                ...category,
+                tabs: category.tabs.filter((tab) => tab.table !== 'royalty_records'),
+              }))
+            : [];
         setCategories(nextCategories);
         const selected = nextCategories.find((category) =>
           category.tabs.some((tab) => tab.table === selectedTable));
@@ -100,7 +116,7 @@ export function ConstructionWorkspace() {
     return () => {
       active = false;
     };
-  }, [refreshKey, selectedTable]);
+  }, [refreshKey, selectedTable, view]);
 
   const activeCategory = categories.find((category) => category.title === selectedCategory)
     ?? categories.find((category) => category.tabs.some((tab) => tab.table === selectedTable))
@@ -283,13 +299,26 @@ export function ConstructionWorkspace() {
       : <input {...shared} type={inputType} />;
   }
 
+  const workspaceTitle = view === 'billing' ? 'Billing & Finance'
+    : view === 'royalties' ? 'Royalties' : 'Construction';
+  const workspaceDescription = view === 'billing'
+    ? 'Manage project billings, collections, payments, and related financial records.'
+    : view === 'royalties'
+      ? 'Manage royalty records and withholding returns.'
+      : 'Projects, procurement, workforce, quality and closeout.';
+
   return (
     <section className="module-page construction-page" aria-labelledby="construction-title">
       <header className="page-heading module-page-heading construction-heading">
         <div>
-          <p className="eyebrow">BRED WORKSPACE</p>
-          <h2 id="construction-title"><HardHat aria-hidden="true" size={23} /> Construction</h2>
-          <p className="page-subtitle">Projects, finance, procurement, workforce, quality and closeout.</p>
+          <p className="eyebrow">{view === 'construction' ? 'BRED WORKSPACE' : 'FINANCIAL & OPERATIONS'}</p>
+          <h2 id="construction-title">
+            {view === 'construction' ? <HardHat aria-hidden="true" size={23} />
+              : view === 'billing' ? <ReceiptText aria-hidden="true" size={23} />
+                : <CircleDollarSign aria-hidden="true" size={23} />}
+            {workspaceTitle}
+          </h2>
+          <p className="page-subtitle">{workspaceDescription}</p>
         </div>
         <button
           className="button button-secondary"
@@ -319,7 +348,7 @@ export function ConstructionWorkspace() {
           return (
             <article className="panel module-metric-card construction-metric-card" key={metric.label}>
               <span>{metric.label}</span>
-              <strong>{metric.value}</strong>
+              <strong>{formatFinancialMetric(metric.label, metric.value)}</strong>
               {points.length ? (
                 <div
                   className="construction-metric-chart"
@@ -366,20 +395,34 @@ export function ConstructionWorkspace() {
         ))}
       </div>
 
-      <div className="construction-workspace-layout">
-        <aside className="panel construction-navigation">
+      <div className={`construction-workspace-layout${view === 'royalties' ? ' is-royalties-view' : ''}`}>
+        {view !== 'royalties' && <aside className="panel construction-navigation">
           <label className="construction-section-search">
             <Search aria-hidden="true" size={16} />
             <span className="visually-hidden">Search construction sections</span>
             <input
               value={sectionQuery}
               onChange={(event) => setSectionQuery(event.target.value)}
-              placeholder="Find a section"
-              aria-label="Search construction sections"
+              placeholder={view === 'billing' ? 'Find a finance section' : 'Find a construction section'}
+              aria-label={view === 'billing' ? 'Search finance sections' : 'Search construction sections'}
             />
           </label>
-          <nav aria-label="Construction categories">
-            {visibleCategories.map((category) => {
+          <nav aria-label={view === 'billing' ? 'Billing and Finance sections' : 'Construction categories'}>
+            {view === 'billing' ? visibleTabs.map((tab) => {
+              const Icon = tabIcons[tab.table] ?? ClipboardList;
+              return (
+                <button
+                  type="button"
+                  className={`construction-category${selectedTable === tab.table ? ' is-selected' : ''}`}
+                  key={tab.table}
+                  aria-current={selectedTable === tab.table ? 'page' : undefined}
+                  onClick={() => chooseTab(tab.table)}
+                >
+                  <Icon aria-hidden="true" size={17} />
+                  <span>{tab.title}</span>
+                </button>
+              );
+            }) : visibleCategories.map((category) => {
               const Icon = categoryIcons[category.title] ?? ClipboardList;
               return (
                 <button
@@ -395,12 +438,13 @@ export function ConstructionWorkspace() {
                 </button>
               );
             })}
-            {visibleCategories.length === 0 && <p className="construction-navigation-empty">No sections match.</p>}
+            {(view === 'billing' ? visibleTabs.length === 0 : visibleCategories.length === 0)
+              && <p className="construction-navigation-empty">No sections match.</p>}
           </nav>
-        </aside>
+        </aside>}
 
         <div className="construction-main">
-          {activeCategory && (
+          {view === 'construction' && activeCategory && (
             <nav className="construction-tabs" aria-label={`${activeCategory.title} sections`}>
               {visibleTabs.map((tab) => {
                 const Icon = tabIcons[tab.table] ?? ClipboardList;

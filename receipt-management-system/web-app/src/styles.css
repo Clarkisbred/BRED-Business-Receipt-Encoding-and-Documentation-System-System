@@ -137,6 +137,7 @@ button:disabled {
 .nav-item {
   display: flex;
   width: 100%;
+  min-width: 0;
   min-height: 46px;
   align-items: center;
   gap: 12px;
@@ -146,11 +147,19 @@ button:disabled {
   background: transparent;
   border: 1px solid transparent;
   border-radius: 9px;
+  transition: color 140ms ease, background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
 }
 
 .nav-item svg {
   flex: 0 0 auto;
   color: var(--muted);
+}
+
+.nav-item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .nav-item:hover {
@@ -192,6 +201,21 @@ button:disabled {
   background: var(--accent-soft);
   border-radius: 50%;
   overflow: hidden;
+}
+
+.sidebar-profile .profile-mark {
+  animation: profile-float 3.4s ease-in-out infinite;
+}
+
+@keyframes profile-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-3px);
+  }
 }
 
 .profile-mark img,
@@ -810,6 +834,10 @@ tbody td:nth-child(3) {
   table-layout: fixed;
 }
 
+.module-page .table-scroll table:not(.receipt-register-table) {
+  min-width: max-content;
+}
+
 .receipt-register-table th:nth-child(1),
 .receipt-register-table td:nth-child(1) {
   width: 120px;
@@ -847,7 +875,8 @@ tbody td:nth-child(3) {
 
 .module-actions-heading,
 .module-row-actions {
-  width: 1%;
+  width: 132px;
+  min-width: 132px;
   text-align: right !important;
   white-space: nowrap !important;
 }
@@ -1718,12 +1747,86 @@ tbody td:nth-child(3) {
 
 .settings-contact-card {
   display: flex;
+  position: relative;
+  z-index: 1;
   align-items: center;
   gap: 14px;
   padding: 14px;
   background: var(--surface-muted);
   border: 1px solid var(--line);
   border-radius: 9px;
+}
+
+.settings-section--creator-contacts {
+  position: relative;
+  overflow: hidden;
+}
+
+.settings-contact-duck-flight {
+  position: absolute;
+  z-index: 2;
+  left: 14px;
+  top: calc(100% - 46px);
+  width: 34px;
+  height: 34px;
+  pointer-events: none;
+  animation-name: creator-duck-flight;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+.settings-contact-duck {
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  border: 0;
+  filter: drop-shadow(0 2px 3px rgb(0 0 0 / 18%));
+}
+
+@keyframes creator-duck-flight {
+  0% {
+    left: 14px;
+    top: calc(100% - 46px);
+    opacity: 0;
+    transform: scale(0.35) rotate(-12deg);
+  }
+
+  8% {
+    opacity: 1;
+    transform: scale(1) rotate(0);
+  }
+
+  26% {
+    left: calc(100% - 48px);
+    top: calc(100% - 46px);
+    transform: rotate(12deg);
+  }
+
+  50% {
+    left: calc(100% - 48px);
+    top: 76px;
+    transform: rotate(0);
+  }
+
+  74% {
+    left: 14px;
+    top: 76px;
+    transform: rotate(-12deg);
+  }
+
+  92% {
+    left: 14px;
+    top: calc(100% - 46px);
+    opacity: 1;
+    transform: scale(1) rotate(0);
+  }
+
+  100% {
+    left: 14px;
+    top: calc(100% - 46px);
+    opacity: 0;
+    transform: scale(0.35) rotate(12deg);
+  }
 }
 
 .settings-version-summary {
@@ -1760,12 +1863,35 @@ tbody td:nth-child(3) {
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 50%;
+  animation: settings-contact-duck-bob 2.8s ease-in-out infinite;
+  transition: border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.settings-contact-avatar:hover {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .settings-contact-avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: transform 180ms ease;
+}
+
+.settings-contact-avatar:hover img {
+  transform: scale(1.1);
+}
+
+@keyframes settings-contact-duck-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+
+  50% {
+    transform: translateY(-4px);
+  }
 }
 
 .settings-contact-copy {
@@ -2085,9 +2211,16 @@ tbody td:nth-child(3) {
   overflow-wrap: anywhere;
 }
 
-.module-detail-delete {
-  width: 100%;
+.module-detail-actions {
+  display: grid;
+  gap: 8px;
   margin-top: 12px;
+}
+
+.module-detail-actions .module-detail-edit,
+.module-detail-actions .module-detail-delete {
+  width: 100%;
+  margin-top: 0;
 }
 
 .module-record-link {
@@ -3675,11 +3808,9 @@ tbody td:nth-child(3) {
 
 .construction-metrics {
   display: grid;
-  grid-template-columns: repeat(5, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
   align-items: stretch;
-  overflow-x: auto;
   padding-bottom: 5px;
-  scrollbar-color: var(--line-strong) transparent;
 }
 
 .construction-metric-loading {
@@ -3688,7 +3819,7 @@ tbody td:nth-child(3) {
 
 .construction-metric-card {
   display: flex;
-  min-width: 180px;
+  min-width: 0;
   min-height: 166px;
   flex-direction: column;
   gap: 7px;
@@ -3745,11 +3876,18 @@ tbody td:nth-child(3) {
   align-items: start;
 }
 
+.construction-workspace-layout.is-royalties-view {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .construction-navigation {
   position: sticky;
   top: 12px;
   display: grid;
+  max-height: min(620px, calc(100vh - 180px));
   gap: 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 12px;
   box-shadow: none;
 }
@@ -3805,6 +3943,8 @@ tbody td:nth-child(3) {
 }
 
 .construction-category span {
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: 12px;
   font-weight: 650;
 }
@@ -4301,6 +4441,12 @@ tbody td:nth-child(3) {
   }
 }
 
+@media (max-width: 760px) {
+  .construction-navigation {
+    max-height: min(44vh, 360px);
+  }
+}
+
   .royalties-workspace {
     display: grid;
     min-width: 0;
@@ -4368,6 +4514,152 @@ tbody td:nth-child(3) {
     overflow-wrap: anywhere;
     font-size: 15px;
     font-variant-numeric: tabular-nums;
+  }
+
+  .royalties-chart-panel {
+    min-width: 0;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+  }
+
+  .royalties-chart-panel .panel-heading {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+
+  .royalties-chart-panel .panel-heading h3,
+  .royalties-chart-panel .panel-heading p {
+    margin: 0;
+  }
+
+  .royalties-chart-panel .panel-heading h3 {
+    font-size: 15px;
+  }
+
+  .royalties-chart-panel .panel-heading p {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .royalties-chart-switcher {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
+  }
+
+  .royalties-chart-switcher .button {
+    min-height: 32px;
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+
+  .royalties-chart-switcher .button[aria-pressed="true"] {
+    color: var(--accent-dark);
+    background: var(--accent-soft);
+    border-color: var(--accent);
+  }
+
+  .royalties-trend-stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .royalties-trend-stats article {
+    display: grid;
+    min-width: 0;
+    gap: 4px;
+    padding: 9px 11px;
+    background: var(--surface-muted);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+
+  .royalties-trend-stats span {
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .royalties-trend-stats strong {
+    overflow-wrap: anywhere;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .royalties-trend-chart {
+    height: 290px;
+  }
+
+  .royalties-chart-content {
+    display: grid;
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+    align-items: center;
+    gap: 18px;
+  }
+
+  .royalties-chart-content .chart-box-pie {
+    height: 220px;
+  }
+
+  .royalties-chart-legend {
+    display: grid;
+    gap: 9px;
+    max-height: 220px;
+    margin: 0;
+    padding: 0;
+    overflow: auto;
+    list-style: none;
+  }
+
+  .royalties-chart-legend li,
+  .royalties-chart-legend li > span {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+  }
+
+  .royalties-chart-legend li {
+    justify-content: space-between;
+    gap: 12px;
+    color: var(--text);
+    font-size: 12px;
+  }
+
+  .royalties-chart-legend li > span {
+    gap: 8px;
+    overflow-wrap: anywhere;
+  }
+
+  .royalties-chart-legend i {
+    width: 10px;
+    height: 10px;
+    flex: 0 0 10px;
+    border-radius: 50%;
+  }
+
+  .royalties-chart-legend strong {
+    flex: 0 0 auto;
+    font-variant-numeric: tabular-nums;
+  }
+
+  @media (max-width: 560px) {
+    .royalties-chart-content {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 8px;
+    }
+
+    .royalties-chart-content .chart-box-pie {
+      height: 190px;
+    }
+
+    .royalties-chart-legend {
+      max-height: none;
+    }
   }
 
   .royalties-filters {
@@ -4521,6 +4813,58 @@ tbody td:nth-child(3) {
     font-size: 14px;
   }
 
+  .app-modal-dialog.royalties-confirmation-dialog {
+    width: min(520px, calc(100vw - 48px));
+  }
+
+  .royalties-confirmation {
+    display: grid;
+    gap: 14px;
+  }
+
+  .royalties-confirmation > .panel-heading {
+    margin-bottom: 0;
+  }
+
+  .royalties-confirmation > p {
+    margin: 0;
+    color: var(--text);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .royalties-confirmation-summary {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    margin: 0;
+  }
+
+  .royalties-confirmation-summary > div {
+    min-width: 0;
+    padding: 12px;
+    background: var(--surface-muted);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+  }
+
+  .royalties-confirmation-summary dt {
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .royalties-confirmation-summary dd {
+    margin: 5px 0 0;
+    overflow-wrap: anywhere;
+    font-size: 15px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .royalties-confirmation-summary > div:last-child dd {
+    color: var(--accent);
+  }
+
   .royalties-dialog table {
     min-width: 560px;
   }
@@ -4539,11 +4883,71 @@ tbody td:nth-child(3) {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .royalties-basic {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .royalties-basic > h4 {
+    grid-column: 1 / -1;
+    margin: 0;
+    font-size: 14px;
+  }
+
+  .royalties-basic-results {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--surface-muted);
+  }
+
+  .royalties-output {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px;
+  }
+
+  .royalties-output span {
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .royalties-output strong {
+    overflow-wrap: anywhere;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .royalties-output.is-emphasized {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--line);
+  }
+
+  .royalties-output.is-emphasized strong {
+    color: var(--accent);
+    font-size: 17px;
+  }
+
+  .royalties-basic-results > p {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--danger);
+    font-size: 12px;
+  }
+
   .royalties-wide {
     grid-column: 1 / -1;
   }
 
-  .royalties-rate-group,
   .royalties-advanced,
   .royalties-preview {
     display: grid;
@@ -4556,14 +4960,12 @@ tbody td:nth-child(3) {
     border-radius: 8px;
   }
 
-  .royalties-rate-group h4,
   .royalties-preview h4,
   .royalties-advanced > p,
   .royalties-advanced > summary {
     grid-column: 1 / -1;
   }
 
-  .royalties-rate-group h4,
   .royalties-preview h4 {
     display: flex;
     align-items: center;
@@ -4577,10 +4979,38 @@ tbody td:nth-child(3) {
   }
 
   .royalties-advanced > summary {
-    min-height: 28px;
+    display: flex;
+    min-height: 40px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
     cursor: pointer;
     font-size: 13px;
     font-weight: 650;
+    list-style: none;
+  }
+
+  .royalties-advanced > summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .royalties-advanced > summary::after {
+    content: "+";
+    color: var(--accent);
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1;
+  }
+
+  .royalties-advanced[open] > summary::after {
+    content: "−";
+  }
+
+  .royalties-advanced-hint {
+    color: var(--muted);
+    font-size: 11px;
+    font-weight: 400;
+    text-align: right;
   }
 
   .royalties-advanced > p {
@@ -4639,17 +5069,41 @@ tbody td:nth-child(3) {
 
     .royalties-filters,
     .royalties-form,
-    .royalties-rate-group,
+    .royalties-basic,
+    .royalties-basic-results,
     .royalties-advanced,
-    .royalties-detail-grid {
+    .royalties-detail-grid,
+    .royalties-confirmation-summary {
       grid-template-columns: minmax(0, 1fr);
+    }
+
+    .royalties-basic > h4,
+    .royalties-output.is-emphasized,
+    .royalties-basic-results > p {
+      grid-column: 1;
     }
 
     .royalties-advanced > summary,
     .royalties-advanced > p,
-    .royalties-rate-group h4,
     .royalties-preview h4 {
       grid-column: 1;
+    }
+
+    .royalties-advanced > summary {
+      align-items: flex-start;
+      flex-direction: column;
+      padding-right: 24px;
+      position: relative;
+    }
+
+    .royalties-advanced > summary::after {
+      position: absolute;
+      top: 4px;
+      right: 2px;
+    }
+
+    .royalties-advanced-hint {
+      text-align: left;
     }
 
     .royalties-year,

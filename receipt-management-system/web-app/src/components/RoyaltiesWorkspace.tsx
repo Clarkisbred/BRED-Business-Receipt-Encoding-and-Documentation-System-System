@@ -1,8 +1,11 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useMemo, useRef, useState, type FormEvent } from 'react';
 import Decimal from 'decimal.js-light';
 import { CircleDollarSign, FileClock, Pencil, Plus, Settings2, Undo2, X } from 'lucide-react';
 import { ModalDialog } from './ModalDialog';
+import { MoneyInput } from './MoneyInput';
+import { RoyaltiesAnalytics } from './RoyaltiesAnalytics';
 import type { ModulePageData, ModuleRecord } from '../api/modules';
+import { formatFinancialMetric } from '../utils/financialFormat';
 
 type RoyaltyAction = 'save-royalty' | 'save-royalty-configuration' | 'record-royalty-return';
 type ConfigValues = {
@@ -118,7 +121,7 @@ function calculate(values: RecordValues): Preview | null {
   const vatRate = decimal(values.vat_rate);
   const declaredVat = decimal(values.vat_amount) ?? new Decimal(0);
   const treatment = values.vat_treatment;
-  if (!billing || (treatment === 'VAT_INCLUSIVE' && !vatRate)) return null;
+  if (!billing || !treatment || (treatment === 'VAT_INCLUSIVE' && !vatRate)) return null;
   let gross = billing;
   let vat = new Decimal(0);
   let vatExclusive = billing;
@@ -264,8 +267,10 @@ export interface RoyaltiesWorkspaceProps {
 
 export function RoyaltiesWorkspace({ page, saving, onAction }: RoyaltiesWorkspaceProps) {
   const config = useMemo(() => configValues(page.royaltyConfiguration), [page.royaltyConfiguration]);
-  const [dialog, setDialog] = useState<'record' | 'config' | 'return' | null>(null);
+  const [dialog, setDialog] = useState<'record' | 'confirm-record' | 'config' | 'return' | null>(null);
   const [editing, setEditing] = useState<ModuleRecord | null>(null);
+  const advancedSettingsRef = useRef<HTMLDetailsElement>(null);
+  const [advancedSettingsOpen, setAdvancedSettingsOpen] = useState(false);
   const [selectedId, setSelectedId] = useState('');
   const [recordRequestKey, setRecordRequestKey] = useState(() => requestKey());
   const [formValues, setFormValues] = useState<RecordValues>(() => recordValues(null, config));
@@ -285,6 +290,21 @@ export function RoyaltiesWorkspace({ page, saving, onAction }: RoyaltiesWorkspac
   const [notice, setNotice] = useState('');
 
   const records = page.rows;
+  const contracts = page.royaltyContracts ?? [];
+  const projectRows = page.royaltyProjects ?? [];
+  const projectOptions = useMemo(() => {
+    const projects = new Map<string, string>();
+    for (const project of projectRows) {
+      const id = text(project.id);
+      if (id) projects.set(id, text(project.name, 'Unnamed project'));
+    }
+    if (formValues.project_id && !projects.has(formValues.project_id)) {
+      projects.set(formValues.project_id, text(editing?.values.project_name, 'Project linked by UUID'));
+    }
+    return Array.from(projects.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }, [editing, formValues.project_id, projectRows]);
   const selectedRecord = records.find((row) => row.id === selectedId) ?? null;
   const preview = useMemo(() => calculate(formValues), [formValues]);
   const filtered = useMemo(() => {
@@ -334,6 +354,7 @@ export function RoyaltiesWorkspace({ page, saving, onAction }: RoyaltiesWorkspac
 
   function beginCreate() {
     setEditing(null);
+    setAdvancedSettingsOpen(false);
     setRecordRequestKey(requestKey());
     setFormValues(recordValues(null, config));
     setError('');
@@ -343,6 +364,7 @@ export function RoyaltiesWorkspace({ page, saving, onAction }: RoyaltiesWorkspac
 
   function beginEdit(row: ModuleRecord) {
     setEditing(row);
+    setAdvancedSettingsOpen(false);
     setRecordRequestKey('');
     setFormValues(recordValues(row, config));
     setError('');
@@ -378,7 +400,7 @@ export function RoyaltiesWorkspace({ page, saving, onAction }: RoyaltiesWorkspac
   }
 
   function chooseContract(id: string) {
-    const contract = (page.royaltyContracts ?? []).find((item) => text(item.id) === id);
+    const contract = contracts.find((item) => text(item.id) === id);
     setFormValues((current) => ({
       ...current,
       contract_id: id,
@@ -389,39 +411,52 @@ export function RoyaltiesWorkspace({ page, saving, onAction }: RoyaltiesWorkspac
     }));
   }
 
-  async function submitRecord(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError('');
-    setNotice('');
+  function chooseProject(id: string) {
+    setFormValues((current) => {
+      const linkedContract = contracts.find((contract) => text(contract.id) === current.contract_id);
+      const contractId = linkedContract && text(linkedContract.project_id) !== id ? '' : current.contract_id;
+      return {
+        ...current,
+        project_id: id,
+        contract_id: contractId,
+        contract_name: contractId ? current.contract_name : '',
+      };
+    });
+  }
+
+  function recordValidationError(): string | null {
     if (!formValues.client_name.trim()) {
-      setError('Enter the client or payee name.');
-      return;
+      return 'Enter the client or payee name.';
     }
     if (!formValues.billing_date || Number(formValues.billing_date.slice(0, 4)) < 1500) {
-      setError('Choose a billing date from year 1500 onward.');
-      return;
+      return 'Choose a billing date from year 1500 onward.';
+    }
+    if (!formValues.vat_treatment) {
+      return 'Choose the billing VAT treatment in Advanced Settings.';
     }
     if (!preview) {
-      setError('Enter valid non-negative amounts and percentages to preview the calculation.');
-      return;
+      return 'Enter valid non-negative amounts and percentages to preview the calculation.';
     }
     if (!preview.valid) {
-      setError('Total deductions cannot exceed the gross billing amount.');
-      return;
+      return 'Total deductions cannot exceed the gross billing amount.';
     }
     if (editing && (royaltyStatus(editing) === 'completed'
       || (decimal(editing.values.returned_amount) ?? new Decimal(0)).gt(0))) {
-      setError('A record with returns cannot be amended. Preserve its audit history and create a correcting record instead.');
-      return;
+      return 'A record with returns cannot be amended. Preserve its audit history and create a correcting record instead.';
     }
+    return null;
+  }
+
+  function hasSignificantDeductions(): boolean {
+    if (!preview) return false;
     const optionalDeduction = preview.additional.plus(preview.ewt).plus(preview.retention).gt(0);
     const threshold = decimal(config.deduction_confirmation_threshold) ?? new Decimal(10000);
-    const significant = optionalDeduction || preview.deductions.gte(threshold)
+    return optionalDeduction || preview.deductions.gte(threshold)
       || formValues.royalty_rate !== config.default_royalty_rate
       || formValues.withholding_rate !== config.default_withholding_rate;
-    if (significant && !window.confirm('This record includes a significant or non-standard deduction. Review the calculation before saving. Continue?')) {
-      return;
-    }
+  }
+
+  async function saveRecord() {
     try {
       const payload: Record<string, unknown> = {
         ...formValues,
@@ -434,8 +469,44 @@ export function RoyaltiesWorkspace({ page, saving, onAction }: RoyaltiesWorkspac
       setEditing(null);
       setNotice(editing ? 'Royalty record updated.' : 'Royalty record saved.');
     } catch (reason) {
+      setDialog('record');
       setError(reason instanceof Error ? reason.message : 'BRED could not save this royalty record.');
     }
+  }
+
+  async function submitRecord(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setNotice('');
+    const validationError = recordValidationError();
+    if (validationError) {
+      if (!formValues.vat_treatment) {
+        setAdvancedSettingsOpen(true);
+      }
+      setError(validationError);
+      return;
+    }
+    if (hasSignificantDeductions()) {
+      setDialog('confirm-record');
+      return;
+    }
+    await saveRecord();
+  }
+
+  function cancelRecordConfirmation() {
+    if (saving) return;
+    setDialog('record');
+    setError('');
+  }
+
+  async function confirmRecordSave() {
+    const validationError = recordValidationError();
+    if (validationError) {
+      setDialog('record');
+      setError(validationError);
+      return;
+    }
+    await saveRecord();
   }
 
   async function submitConfiguration(event: FormEvent<HTMLFormElement>) {
@@ -510,14 +581,13 @@ export function RoyaltiesWorkspace({ page, saving, onAction }: RoyaltiesWorkspac
     .filter((item) => text(item.record_id) === selectedId)
     .sort((left, right) => text(left.created_at).localeCompare(text(right.created_at)));
   const suppliers = page.royaltySuppliers ?? [];
-  const contracts = page.royaltyContracts ?? [];
 
   return (
     <div className="royalties-workspace">
       <section className="panel royalties-overview" aria-label="Royalty overview">
         <div className="panel-heading">
           <div>
-            <p className="eyebrow">BILLING &amp; FINANCE</p>
+            <p className="eyebrow">FINANCIAL &amp; OPERATIONS</p>
             <h2>Royalties</h2>
             <p>Track royalty calculations and actual withholding returns by client and billing period.</p>
           </div>
@@ -538,11 +608,12 @@ export function RoyaltiesWorkspace({ page, saving, onAction }: RoyaltiesWorkspac
           {page.metrics.map((metric) => (
             <article key={metric.label}>
               <span>{metric.label}</span>
-              <strong>{metric.value}</strong>
+              <strong>{formatFinancialMetric(metric.label, metric.value)}</strong>
               {metric.note && <small>{metric.note}</small>}
             </article>
           ))}
         </div>
+        <RoyaltiesAnalytics records={records} />
       </section>
 
       {notice && <p className="notice notice-success" role="status">{notice}</p>}
@@ -728,59 +799,80 @@ export function RoyaltiesWorkspace({ page, saving, onAction }: RoyaltiesWorkspac
               <button className="icon-button" type="button" aria-label="Close royalty form" onClick={closeDialog} disabled={saving}><X aria-hidden="true" size={18} /></button>
             </div>
             <form className="module-form royalties-form" onSubmit={(event) => void submitRecord(event)}>
-              <label className="module-field">
-                <span>Supplier profile</span>
-                <select value={formValues.supplier_id} onChange={(event) => chooseSupplier(event.target.value)} disabled={saving}>
-                  <option value="">Enter a client/payee manually</option>
-                  {suppliers.map((supplier) => <option key={text(supplier.id)} value={text(supplier.id)}>
-                    {text(supplier.business_name)} · {text(supplier.tax_classification, 'Unclassified')}
-                  </option>)}
-                </select>
-              </label>
-              <label className="module-field">
-                <span>Client / payee name <strong aria-hidden="true">*</strong></span>
-                <input required value={formValues.client_name} onChange={(event) => updateForm('client_name', event.target.value)} maxLength={200} disabled={saving} />
-              </label>
-              <label className="module-field">
-                <span>Supplier tax classification snapshot</span>
-                <input value={formValues.supplier_tax_classification.replaceAll('_', ' ')} readOnly />
-              </label>
-              <label className="module-field">
-                <span>Contract (optional)</span>
-                <select value={formValues.contract_id} onChange={(event) => chooseContract(event.target.value)} disabled={saving}>
-                  <option value="">No linked contract</option>
-                  {contracts.map((contract) => <option key={text(contract.id)} value={text(contract.id)}>
-                    {text(contract.contract_name)} · {text(contract.client_name, 'No client')}
-                  </option>)}
-                </select>
-              </label>
-              <label className="module-field">
-                <span>Project UUID (optional)</span>
-                <input value={formValues.project_id} onChange={(event) => updateForm('project_id', event.target.value)} disabled={saving} />
-              </label>
-              <label className="module-field">
-                <span>Contract amount (optional)</span>
-                <input type="number" min="0" step="0.01" value={formValues.contract_amount} onChange={(event) => updateForm('contract_amount', event.target.value)} disabled={saving} />
-              </label>
-              <label className="module-field">
-                <span>Billing date <strong aria-hidden="true">*</strong></span>
-                <input required type="date" min="1500-01-01" value={formValues.billing_date} onChange={(event) => updateForm('billing_date', event.target.value)} disabled={saving} />
-              </label>
-              <label className="module-field">
-                <span>Billing amount (PHP) <strong aria-hidden="true">*</strong></span>
-                <input required type="number" min="0" step="0.01" value={formValues.billing_amount} onChange={(event) => updateForm('billing_amount', event.target.value)} disabled={saving} />
-              </label>
-              <label className="module-field">
-                <span>Billing VAT treatment <strong aria-hidden="true">*</strong></span>
-                <select required value={formValues.vat_treatment} onChange={(event) => updateForm('vat_treatment', event.target.value)} disabled={saving}>
-                  <option value="">Choose treatment</option>
-                  <option value="VAT_INCLUSIVE">VAT-inclusive billing</option>
-                  <option value="VAT_EXCLUSIVE">VAT-exclusive billing</option>
-                  <option value="NON_VAT">Non-VAT</option>
-                  <option value="VAT_EXEMPT">VAT-exempt</option>
-                  <option value="UNCLASSIFIED">Unclassified — confirm invoice treatment</option>
-                </select>
-              </label>
+              <section className="royalties-basic" aria-labelledby="royalty-basic-title">
+                <h4 id="royalty-basic-title">Basic Information</h4>
+                <label className="module-field">
+                  <span>Client Name <strong aria-hidden="true">*</strong></span>
+                  <input required value={formValues.client_name} onChange={(event) => updateForm('client_name', event.target.value)} maxLength={200} disabled={saving} />
+                </label>
+                <label className="module-field">
+                  <span>Project Name</span>
+                  <select value={formValues.project_id} onChange={(event) => chooseProject(event.target.value)} disabled={saving}>
+                    <option value="">No project selected</option>
+                    {projectOptions.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+                  </select>
+                </label>
+                <label className="module-field">
+                  <span>Contract Amount (PHP)</span>
+                  <MoneyInput value={formValues.contract_amount} onChange={(value) => updateForm('contract_amount', value)} disabled={saving} />
+                </label>
+                <label className="module-field">
+                  <span>Billing Date <strong aria-hidden="true">*</strong></span>
+                  <input required type="date" min="1500-01-01" value={formValues.billing_date} onChange={(event) => updateForm('billing_date', event.target.value)} disabled={saving} />
+                </label>
+                <label className="module-field">
+                  <span>Billing Amount (PHP) <strong aria-hidden="true">*</strong></span>
+                  <MoneyInput required value={formValues.billing_amount} onChange={(value) => updateForm('billing_amount', value)} disabled={saving} />
+                </label>
+                <label className="module-field">
+                  <span>5% Withheld (%) <small>Optional</small></span>
+                  <input type="number" min="0" max="100" step="0.01" placeholder="Leave blank if not applicable" value={formValues.additional_withholding_rate} onChange={(event) => updateForm('additional_withholding_rate', event.target.value)} disabled={saving} />
+                </label>
+                <label className="module-field">
+                  <span>EWT rate (%) <small>Optional</small></span>
+                  <input type="number" min="0" max="100" step="0.01" placeholder="Leave blank if not applicable" value={formValues.ewt_rate} onChange={(event) => updateForm('ewt_rate', event.target.value)} disabled={saving} />
+                </label>
+                <label className="module-field">
+                  <span>Retention rate (%) <small>Optional</small></span>
+                  <input type="number" min="0" max="100" step="0.01" placeholder="Leave blank if not applicable" value={formValues.retention_rate} onChange={(event) => updateForm('retention_rate', event.target.value)} disabled={saving} />
+                </label>
+                <label className="module-field">
+                  <span>Royalty Rate (%)</span>
+                  <input required type="number" min="0" max="100" step="0.01" value={formValues.royalty_rate} onChange={(event) => updateForm('royalty_rate', event.target.value)} disabled={saving} />
+                </label>
+                <label className="module-field">
+                  <span>Withheld Rate (%)</span>
+                  <input required type="number" min="0" max="100" step="0.01" value={formValues.withholding_rate} onChange={(event) => updateForm('withholding_rate', event.target.value)} disabled={saving} />
+                </label>
+                <div className="royalties-basic-results" aria-live="polite">
+                  <OutputAmount label="Royalty Amount" value={preview?.royalty} />
+                  <OutputAmount label="5% Withheld Amount" value={preview?.additional} />
+                  <OutputAmount label="EWT Amount" value={preview?.ewt} />
+                  <OutputAmount label="Retention Amount" value={preview?.retention} />
+                  <OutputAmount label="Withheld Amount" value={preview?.withholding} />
+                  <OutputAmount label="Net Billing" value={preview?.initialNet} emphasized />
+                  {preview && !preview.valid && <p role="alert">Deductions exceed gross billing. Adjust rates before saving.</p>}
+                </div>
+              </section>
+              <details
+                className="royalties-advanced"
+                ref={advancedSettingsRef}
+                open={advancedSettingsOpen}
+                onToggle={(event) => setAdvancedSettingsOpen(event.currentTarget.open)}
+              >
+                <summary><span>Advanced Settings</span><span className="royalties-advanced-hint">VAT, tax bases, supplier and contract details</span></summary>
+                <p>Rates can be customized above for this billing. Company-wide defaults are available through Company settings. For a manual payee, enter the client name in Basic Information.</p>
+                <label className="module-field">
+                  <span>Billing VAT treatment <strong aria-hidden="true">*</strong></span>
+                  <select aria-required="true" value={formValues.vat_treatment} onChange={(event) => updateForm('vat_treatment', event.target.value)} disabled={saving}>
+                    <option value="">Choose treatment</option>
+                    <option value="VAT_INCLUSIVE">VAT-inclusive billing</option>
+                    <option value="VAT_EXCLUSIVE">VAT-exclusive billing</option>
+                    <option value="NON_VAT">Non-VAT</option>
+                    <option value="VAT_EXEMPT">VAT-exempt</option>
+                    <option value="UNCLASSIFIED">Unclassified — confirm invoice treatment</option>
+                  </select>
+                </label>
               {['VAT_INCLUSIVE', 'VAT_EXCLUSIVE'].includes(formValues.vat_treatment) && (
                 <>
                   <label className="module-field">
@@ -795,39 +887,43 @@ export function RoyaltiesWorkspace({ page, saving, onAction }: RoyaltiesWorkspac
                   )}
                 </>
               )}
-              <section className="royalties-rate-group" aria-label="Royalty calculation">
-                <h4>Royalty calculation</h4>
-                <label className="module-field"><span>Royalty rate (%)</span>
-                  <input required type="number" min="0" max="100" step="0.01" value={formValues.royalty_rate} onChange={(event) => updateForm('royalty_rate', event.target.value)} disabled={saving} />
-                </label>
-                <BasisField label="Royalty basis" value={formValues.royalty_basis} onChange={(value) => updateForm('royalty_basis', value)} disabled={saving} />
-                <label className="module-field"><span>Standard withholding rate (%)</span>
-                  <input required type="number" min="0" max="100" step="0.01" value={formValues.withholding_rate} onChange={(event) => updateForm('withholding_rate', event.target.value)} disabled={saving} />
-                </label>
-                <BasisField label="Withholding basis" value={formValues.withholding_basis} onChange={(value) => updateForm('withholding_basis', value)} disabled={saving} />
-              </section>
-              <details className="royalties-advanced">
-                <summary>Optional withholdings and calculation bases</summary>
-                <p>Leave a rate blank when the adjustment does not apply. Each basis is stored with this record.</p>
-                <label className="module-field"><span>Additional withholding (%)</span>
-                  <input type="number" min="0" max="100" step="0.01" value={formValues.additional_withholding_rate} onChange={(event) => updateForm('additional_withholding_rate', event.target.value)} disabled={saving} />
-                </label>
-                <BasisField label="Additional withholding basis" value={formValues.additional_withholding_basis} onChange={(value) => updateForm('additional_withholding_basis', value)} disabled={saving} />
-                <label className="module-field"><span>EWT (%)</span>
-                  <input type="number" min="0" max="100" step="0.01" value={formValues.ewt_rate} onChange={(event) => updateForm('ewt_rate', event.target.value)} disabled={saving} />
-                </label>
-                <BasisField label="EWT basis" value={formValues.ewt_basis} onChange={(value) => updateForm('ewt_basis', value)} disabled={saving} />
-                <label className="module-field"><span>Retention (%)</span>
-                  <input type="number" min="0" max="100" step="0.01" value={formValues.retention_rate} onChange={(event) => updateForm('retention_rate', event.target.value)} disabled={saving} />
-                </label>
-                <BasisField label="Retention basis" value={formValues.retention_basis} onChange={(value) => updateForm('retention_basis', value)} disabled={saving} />
-              </details>
+              <label className="module-field">
+                <span>Supplier selection</span>
+                <select value={formValues.supplier_id} onChange={(event) => chooseSupplier(event.target.value)} disabled={saving}>
+                  <option value="">Manual client/payee entry</option>
+                  {suppliers.map((supplier) => <option key={text(supplier.id)} value={text(supplier.id)}>
+                    {text(supplier.business_name)} · {text(supplier.tax_classification, 'Unclassified')}
+                  </option>)}
+                </select>
+              </label>
+              <label className="module-field">
+                <span>Supplier tax classification</span>
+                <input value={formValues.supplier_tax_classification.replaceAll('_', ' ')} readOnly />
+              </label>
+              <label className="module-field">
+                <span>Contract linking</span>
+                <select value={formValues.contract_id} onChange={(event) => chooseContract(event.target.value)} disabled={saving}>
+                  <option value="">No linked contract</option>
+                  {contracts.map((contract) => <option key={text(contract.id)} value={text(contract.id)}>
+                    {text(contract.contract_name)} · {text(contract.client_name, 'No client')}
+                  </option>)}
+                </select>
+              </label>
+              <label className="module-field">
+                <span>Project UUID (optional)</span>
+                <input value={formValues.project_id} onChange={(event) => updateForm('project_id', event.target.value)} disabled={saving} />
+              </label>
+              <BasisField label="Royalty calculation basis" value={formValues.royalty_basis} onChange={(value) => updateForm('royalty_basis', value)} disabled={saving} />
+              <BasisField label="Withholding calculation basis" value={formValues.withholding_basis} onChange={(value) => updateForm('withholding_basis', value)} disabled={saving} />
+              <BasisField label="Additional withholding calculation basis" value={formValues.additional_withholding_basis} onChange={(value) => updateForm('additional_withholding_basis', value)} disabled={saving} />
+              <BasisField label="EWT calculation basis" value={formValues.ewt_basis} onChange={(value) => updateForm('ewt_basis', value)} disabled={saving} />
+              <BasisField label="Retention calculation basis" value={formValues.retention_basis} onChange={(value) => updateForm('retention_basis', value)} disabled={saving} />
               <label className="module-field royalties-wide"><span>Remarks</span>
                 <textarea rows={3} maxLength={2000} value={formValues.remarks} onChange={(event) => updateForm('remarks', event.target.value)} disabled={saving} />
               </label>
               {preview ? (
-                <div className="royalties-preview" aria-live="polite">
-                  <h4><CircleDollarSign aria-hidden="true" size={17} /> Live calculation preview</h4>
+                <div className="royalties-preview royalties-wide" aria-live="polite">
+                  <h4><CircleDollarSign aria-hidden="true" size={17} /> Calculation details</h4>
                   <div><span>Gross billing</span><strong>{money(preview.gross)}</strong></div>
                   <div><span>Input VAT (tracked separately)</span><strong>{money(preview.vat)}</strong></div>
                   <div><span>VAT-exclusive basis</span><strong>{money(preview.vatExclusive)}</strong></div>
@@ -836,18 +932,50 @@ export function RoyaltiesWorkspace({ page, saving, onAction }: RoyaltiesWorkspac
                   {(preview.additional.gt(0) || preview.ewt.gt(0) || preview.retention.gt(0)) && (
                     <div><span>Optional deductions</span><strong>− {money(preview.additional.plus(preview.ewt).plus(preview.retention))}</strong></div>
                   )}
-                  <div className="royalties-preview-total"><span>Initial net amount</span><strong>{money(preview.initialNet)}</strong></div>
-                  {!preview.valid && <p role="alert">Deductions exceed gross billing. Adjust rates before saving.</p>}
+                  <div className="royalties-preview-total"><span>Net billing</span><strong>{money(preview.initialNet)}</strong></div>
                 </div>
-              ) : <p className="royalties-muted">Enter the billing amount and required rates to preview the saved calculation.</p>}
+              ) : <p className="royalties-muted royalties-wide">Enter the billing amount and required rates to preview the saved calculation.</p>}
+              </details>
               {error && <p className="module-form-error royalties-wide" role="alert">{error}</p>}
               <div className="module-form-actions royalties-wide">
                 <button className="button button-secondary" type="button" onClick={closeDialog} disabled={saving}>Cancel</button>
-                <button className="button button-primary" type="submit" disabled={saving || !preview?.valid}>
+                <button className="button button-primary" type="submit" disabled={saving}>
                   {saving ? 'Saving…' : editing ? 'Save changes' : 'Save royalty record'}
                 </button>
               </div>
             </form>
+          </section>
+        </ModalDialog>
+      )}
+
+      {dialog === 'confirm-record' && (
+        <ModalDialog
+          labelledBy="royalty-confirm-title"
+          className="royalties-confirmation-dialog"
+          onClose={cancelRecordConfirmation}
+        >
+          <section className="panel royalties-dialog royalties-confirmation" aria-labelledby="royalty-confirm-title">
+            <div className="panel-heading">
+              <div>
+                <p className="eyebrow">REVIEW BEFORE SAVING</p>
+                <h3 id="royalty-confirm-title">Confirm royalty record</h3>
+              </div>
+            </div>
+            <p role="alert">
+              This record includes a significant or non-standard deduction. Review the calculation before saving.
+            </p>
+            <dl className="royalties-confirmation-summary">
+              <div><dt>Total deductions</dt><dd>{preview ? money(preview.deductions) : '—'}</dd></div>
+              <div><dt>Net billing</dt><dd>{preview ? money(preview.initialNet) : '—'}</dd></div>
+            </dl>
+            <div className="module-form-actions">
+              <button className="button button-secondary" type="button" onClick={cancelRecordConfirmation} disabled={saving}>
+                Back to record
+              </button>
+              <button className="button button-primary" type="button" onClick={() => void confirmRecordSave()} disabled={saving}>
+                {saving ? 'Saving…' : 'Confirm and save'}
+              </button>
+            </div>
           </section>
         </ModalDialog>
       )}
@@ -923,6 +1051,19 @@ export function RoyaltiesWorkspace({ page, saving, onAction }: RoyaltiesWorkspac
 
 function requestKey(): string {
   return crypto.randomUUID();
+}
+
+function OutputAmount({ label, value, emphasized = false }: {
+  label: string;
+  value: Decimal | undefined;
+  emphasized?: boolean;
+}) {
+  return (
+    <div className={emphasized ? 'royalties-output is-emphasized' : 'royalties-output'}>
+      <span>{label}</span>
+      <strong>{value ? money(value) : '—'}</strong>
+    </div>
+  );
 }
 
 function BasisField({ label, value, onChange, disabled }: {
