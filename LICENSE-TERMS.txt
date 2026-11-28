@@ -1,7 +1,7 @@
 BRED - TERMS OF SERVICE AND END USER LICENSE AGREEMENT (EULA)
 
 Application: BRED - Business Receipt Encoding and Documentation System
-Version: 2.0.0
+Version: 3.0.0
 Effective Date: November 28, 2026
 Developer/Publisher: Clark Hilario
 Contact: clarkhilario.bread@gmail.com
